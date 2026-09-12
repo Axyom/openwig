@@ -59,9 +59,16 @@ def install_controller(*, force: bool = False, dry_run: bool = False) -> int:
         return 0
 
     existed = dst.exists()
-    shutil.copyfile(src, dst)
-    print(f"[openwig] installed -> {dst}")
 
+    # Order matters: the DATA file goes first, the controller .js second.
+    #
+    # Bitwig watches the controller script and reloads it within moments of the file
+    # changing. The reloaded script reads symbols_default.json during init(), so copying
+    # the .js first opens a race: on a re-install the reload can fire while the data file
+    # is still being rewritten, and the controller comes up with NO symbol mapping at all
+    # ("UNRESOLVED"), which then looks like an unsupported Bitwig build. Writing the data
+    # file before the script the reload watches closes that window.
+    #
     # Copy the bootstrap symbol-mapping DATA file to the openwig data dir, where the controller
     # reads it at init. The obfuscated names live here as data, not in the controller code.
     try:
@@ -79,6 +86,9 @@ def install_controller(*, force: bool = False, dry_run: bool = False) -> int:
         print(f"              -> the bridge is unusable without {DEFAULTS_FILENAME}; "
               f"fix access to {_data_dir()} and re-run.", file=sys.stderr)
         return 2
+
+    shutil.copyfile(src, dst)
+    print(f"[openwig] installed -> {dst}")
 
     if existed:
         # Bitwig watches this file and auto-reloads the script a few seconds after it
@@ -174,8 +184,20 @@ def _print_selftest(rep) -> int:
     if rep.get("symbol_source"):
         print(f"  symbol source: {rep.get('symbol_source')}")
 
+    if rep.get("reader_ignore_nI"):
+        print("  reader note : this build hides note/clip properties behind its "
+              "'is serialized' flag; reads bypass it (cached)")
+
     if rep.get("ok"):
         print("  => all reflection paths verified on this Bitwig build")
+    elif rep.get("clip_scope_ok"):
+        # The arrangement/clip surface depends only on the descriptor reader and the
+        # clip/note commands, and both verified by execution (a clip + note were written
+        # and read back). Serialize / normalize / automation did not verify, so those
+        # stay gated - but clip work is usable, so this is not a doctor failure.
+        print("  => CLIP SCOPE verified: arranger clips + notes are ENABLED")
+        print("     (serialize / normalize / automation unverified on this build - those stay gated)")
+        rc = 0
     else:
         print("  => SOME paths failed - this Bitwig build may be unsupported.")
         print("     Please report at https://github.com/Axyom/openwig/issues with the lines above.")

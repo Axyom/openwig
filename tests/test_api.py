@@ -26,6 +26,10 @@ class FakeBridge:
             {"exists": True, "name": "Drive", "index": 0},
             {"exists": True, "name": "Mix", "index": 1},
         ]}
+        # Scripted answer for clip.edit_result (the clip-edit ops are async: they queue on
+        # the controller and the caller fetches the outcome). Tests set this to a
+        # {"result": ...} or {"error": ...} payload to drive the SDK's half.
+        self.clip_edit_result = {}
 
     def request(self, method, params=None):
         params = params or {}
@@ -39,6 +43,8 @@ class FakeBridge:
             bank.append({"name": params.get("name"), "index": len(bank)})
         if method == "master.remotes":
             return []
+        if method == "clip.edit_result":
+            return self.clip_edit_result
         return {}
 
     def request_op(self, method, params=None, **_kw):
@@ -139,6 +145,74 @@ def test_clip_accepts_raw_tuple(song):
     t = song.track("BASS")
     t.clip([(33, 0.0, 0.5, 1.0)])
     assert song.b.last("clip.create_arranger_with_notes")["notes"] == [[0, 33, 0.0, 0.5, 1.0]]
+
+
+# ── editing existing clips (addressed by index, no GUI selection) ─────────────
+
+def test_clips_info_parses_controller_result(song):
+    t = song.track("BASS")
+    song.b.clip_edit_result = {"result": {"clips": [
+        {"index": 0, "start": 4.0, "duration": 4.0, "name": "verse"}]}}
+    info = t.clips_info()
+    assert "clip.list" in song.b.methods()
+    assert info == [{"index": 0, "start": 4.0, "duration": 4.0, "name": "verse"}]
+
+
+def test_move_clip_writes_the_time_value_member(song):
+    t = song.track("BASS")
+    t.move_clip(1, 8.0)
+    assert song.b.last("clip.set_value") == {
+        "index": 1, "name": "time", "value": 8.0, "type": "num"}
+
+
+def test_resize_clip_dispatches_set_end_time_with_typed_arg(song):
+    t = song.track("BASS")
+    t.resize_clip(0, end=10.0)
+    p = song.b.last("clip.cmd")
+    assert p["name"] == "set_end_time"
+    assert p["args"] == [["num", 10.0]]          # commands need the exact boxed type
+
+
+def test_transpose_clip_passes_an_int_typed_arg(song):
+    t = song.track("BASS")
+    t.transpose_clip(0, 12)
+    p = song.b.last("clip.cmd")
+    assert p["name"] == "transpose_clip"
+    assert p["args"] == [["int", 12]]
+
+
+def test_rename_clip_addresses_the_name_by_property_id(song):
+    t = song.track("BASS")
+    t.rename_clip(0, "verse")
+    assert song.b.last("clip.set_value") == {
+        "index": 0, "pid": "2958", "value": "verse", "type": "str"}
+
+
+def test_add_notes_payload_is_channel_first_floats(song):
+    t = song.track("BASS")
+    t.add_notes(0, [Note(55, 0.5, dur=0.5, vel=0.9)])
+    assert song.b.last("clip.insert_notes")["notes"] == [[0, 55, 0.5, 0.5, 0.9]]
+
+
+def test_add_notes_rejects_a_too_short_tuple(song):
+    t = song.track("BASS")
+    with pytest.raises(ValueError):
+        t.add_notes(0, [(55, 0.5)])
+
+
+def test_clip_edit_surfaces_controller_errors(song):
+    from openwig.bridge import BridgeError
+    t = song.track("BASS")
+    song.b.clip_edit_result = {"error": "clip 3 not found (1 on this track)"}
+    with pytest.raises(BridgeError):
+        t.move_clip(3, 1.0)
+
+
+def test_clip_edit_mutators_chain(song):
+    t = song.track("BASS")
+    assert t.move_clip(0, 1.0) is t
+    assert t.transpose_clip(0, 1) is t
+    assert t.rename_clip(0, "x") is t
 
 
 def test_clip_preserves_explicit_channel(song):

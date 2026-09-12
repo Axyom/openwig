@@ -22,7 +22,30 @@ from openwig.bridge import BridgeClient
 PRUNE = ["native_device", "device_contents", "nitro_atom", "polyphonic_note_voice_atom",
          "nested_device_chain", "remote_controls_page", "device_chain", "remote_control",
          "launcher_note_clip_slots", "launcher_automation_clip_slots", "modulation_source_atom",
-         "track_mixer_module"]
+         "track_mixer_module",
+         # Bitwig 6.1 reports generic CATEGORY names instead of document class names, so
+         # none of the names above match there. These are subtrees a clip read never needs.
+         #
+         # "track" is deliberately NOT pruned: on 6.1 the path to a track's own clips runs
+         # through a nested node that is itself categorised "track"
+         # (track -> track -> timeline -> event), so pruning that category severs the clip
+         # lane entirely. Sibling tracks are excluded during collection instead - see
+         # _skip_nested_track below.
+         "device", "routing", "port", "matrix", "analysis",
+         "master", "browser", "selection", "recording"]
+
+# Categories that must survive pruning for a clip/note read to work at all, i.e. the
+# classes seen on the path root -> clip -> note: track, timeline, event, shared_timelines.
+
+
+def _skip_nested_track(child, depth):
+    """True if `child` is a SIBLING track that the walk wandered into.
+
+    A per-track read must not report other tracks' clips. The track's own clip lane sits
+    under a nested "track" node one level below the root, while sibling tracks appear
+    deeper, so a nested track is only an escape when it is found below depth 1.
+    """
+    return depth >= 1 and isinstance(child, dict) and child.get("_cls") == "track"
 
 CLIP_CLS = "instrument_note_clip_event"
 KEY_TL_CLS = "instrument_note_event_timeline"
@@ -34,6 +57,50 @@ BREAKPOINT_CLS = "decimal_value_event"
 P_TIME, P_DUR, P_VON, P_VOFF = "687", "38", "239", "240"
 P_KEY, P_CHAN = "238", "9857"
 P_CLIP_NAME = "2958"
+# Arranger clip position/length: 6.1 carries them on the clip event as a dedicated
+# pair; 6.0.x uses the generic time/duration pair. Both are accepted.
+P_CLIP_START, P_CLIP_LEN = "11280", "11279"
+
+
+# ── structural (class-name-free) recognition ────────────────────────────────────
+# The numeric property ids are wire-protocol data and are IDENTICAL on 6.0.x and 6.1.
+# The reader's CLASS NAMES are not: 6.0.x reports document class names
+# ("instrument_note_event"), while on 6.1 the resolved name-getter yields generic
+# categories ("timeline", "event"). Nodes are therefore identified by which properties
+# they carry; the *_CLS constants stay as documentation of the 6.0.x model.
+
+def _is_note(node):
+    """A note event: start + duration + note-on velocity."""
+    return P_TIME in node and P_DUR in node and P_VON in node
+
+
+def _is_key_timeline(node):
+    """The per-key timeline carrying the pitch + MIDI channel of the notes beneath it."""
+    return P_KEY in node and P_CHAN in node
+
+
+def _clip_bounds(node):
+    """(start, duration) if the node looks like an arranger clip event, else None.
+
+    Position and length live in the SAME generic time/duration props on both 6.0.x and
+    6.1 (687 = arranger start, 38 = length). 6.1 additionally carries P_CLIP_LEN, which
+    mirrors the length, and P_CLIP_START, which is always 0 - reading position from the
+    latter makes every clip look like it sits at bar 1, so 687/38 take precedence and the
+    dedicated pair is only a fallback.
+
+    A clip event is told apart from a NOTE event by the absence of a velocity: note events
+    carry the same time/duration props, so requiring "no note-on velocity" is what keeps a
+    note from being reported as a clip.
+    """
+    if P_CLIP_LEN in node and P_VON not in node:
+        start = node.get(P_TIME, node.get(P_CLIP_START))
+        dur = node.get(P_DUR, node.get(P_CLIP_LEN))
+        return _num(start), _num(dur)
+    if node.get("_cls") == CLIP_CLS and P_TIME in node:
+        return _num(node.get(P_TIME)), _num(node.get(P_DUR))
+    return None
+
+
 # prop ids (automation breakpoint = decimal_value_event)
 P_BP_TIME, P_BP_VALUE, P_BP_INTERP = "687", "655", "13726"
 
@@ -48,11 +115,16 @@ def note_name(k):
         return "?"
 
 
-def walk_track(bridge, idx, max_depth=16, max_nodes=9000):
+def walk_track(bridge, idx, max_depth=16, max_nodes=40000):
     bridge.request("track.select", {"index": idx})
     time.sleep(0.8)            # let cursorTrack follow the selection before walking
+    # root="track": an instrument track with no device has no device target at all,
+    # and clips must still be readable. ignore_nI: on 6.1 the per-descriptor
+    # "is serialized" gate hides the note/clip properties, so the notes only surface
+    # with it off (harmless on 6.0.x, which merely walks a few more properties).
     bridge.request("obj.walk", {"max_depth": max_depth, "max_nodes": max_nodes,
-                                "no_filter": True, "prune": PRUNE,
+                                "no_filter": True, "prune": PRUNE, "root": "track",
+                                "ignore_nI": True,
                                 "no_dedup": ["device_atom_reference"]})
     time.sleep(1.0)
     r = None
@@ -75,18 +147,17 @@ def _num(v, d=0.0):
         return d
 
 
-def collect_notes(node, cur_key=None, cur_chan=0, out=None):
+def collect_notes(node, cur_key=None, cur_chan=0, out=None, depth=0):
     """Recurse the walk tree; emit a note dict per instrument_note_event,
     inheriting key/channel from the nearest enclosing key-timeline."""
     if out is None:
         out = []
     if not isinstance(node, dict):
         return out
-    cls = node.get("_cls")
-    if cls == KEY_TL_CLS:
+    if _is_key_timeline(node):
         cur_key = node.get(P_KEY, cur_key)
         cur_chan = node.get(P_CHAN, cur_chan)
-    if cls == NOTE_CLS:
+    if _is_note(node):
         out.append({
             "key": int(_num(cur_key, -1)),
             "name": note_name(cur_key),
@@ -99,31 +170,36 @@ def collect_notes(node, cur_key=None, cur_chan=0, out=None):
     for v in node.values():
         if isinstance(v, list):
             for it in v:
-                collect_notes(it, cur_key, cur_chan, out)
+                if _skip_nested_track(it, depth):
+                    continue
+                collect_notes(it, cur_key, cur_chan, out, depth + 1)
     return out
 
 
-def collect_clips(node, out=None):
+def collect_clips(node, out=None, depth=0):
     """Find every note CLIP (instrument_note_clip_event) and the notes inside it."""
     if out is None:
         out = []
     if not isinstance(node, dict):
         return out
-    if node.get("_cls") == CLIP_CLS:
+    bounds = _clip_bounds(node)
+    if bounds is not None:
         notes = collect_notes(node)
         notes.sort(key=lambda n: (n["start"], n["key"]))
         out.append({
-            "clip_start": round(_num(node.get(P_TIME)), 6),
-            "clip_duration": round(_num(node.get(P_DUR)), 6),
+            "clip_start": round(bounds[0], 6),
+            "clip_duration": round(bounds[1], 6),
             "name": node.get(P_CLIP_NAME, ""),
             "note_count": len(notes),
             "notes": notes,
         })
-        return out  # don't double-descend into nested clip refs
+        return out  # don't double-descend into the clip's own content timelines
     for v in node.values():
         if isinstance(v, list):
             for it in v:
-                collect_clips(it, out)
+                if _skip_nested_track(it, depth):
+                    continue
+                collect_clips(it, out, depth + 1)
     return out
 
 

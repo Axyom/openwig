@@ -46,6 +46,12 @@ var gWalk = null, gWalkErr = null;           // generic descriptor-graph reader 
 var gProbe = null, gProbeErr = null;         // resolver self-test report (JSON-able object); see resolver.probe
 var _AUTO_SYM = null;                         // cached structurally-discovered automation symbols
 var gBlindDiscovery = false;                  // test switch: structural discovery only (no name hints, no fallback)
+// Some builds resolve an nI_ ("is this property serialized") getter that excludes the real
+// note/clip properties, so a plain walk reads nothing back. When the probe proves the
+// sentinels only surface with that gate bypassed, this is set for the build (and cached),
+// and every reader walk bypasses it from then on. Bitwig 6.1 needs it.
+var gReaderIgnoreNI = false;
+var gProbeNameSent = null;                    // a string known to be in the document (the probe track's name)
 // Resolved obfuscated-symbol table. NO obfuscated names are hardcoded here: it is populated
 // at init from the bootstrap DATA file (symbols_default.json, shipped + installed next to the
 // cache) and then overwritten per-build by doctor's validated cache (symbols_cache.json).
@@ -426,8 +432,43 @@ var _DOCTOR_METHODS = {
     "resolver.result": true, "resolver.audio_candidates": true,
     "resolver.audio_probe_insert": true, "resolver.set_audio_hrv": true
 };
+// ── scoped validation: the arrangement/clip surface ────────────────────────────
+// Creating + reading arranger clips and editing their notes depends on exactly two
+// things: the descriptor READER and the clip/note COMMANDS. It does not touch the
+// serialize filter, the normalize function, or the automation cluster. On Bitwig 6.1
+// the serializer class and the volume fj moved, so the FULL self-test cannot pass -
+// but the clip paths verify cleanly (write a clip + note, read both back). Rather
+// than refuse everything, the clip surface is enabled on its own once those two are
+// verified, while every other internals-dependent op stays gated.
+//
+// Deliberately NOT included: project.clear / track.delete_all / track.delete. Deleting
+// objects through the controller after a write crashed Bitwig 6.1 inside its own
+// document code, so bulk deletion stays behind the full gate.
+var gClipScopeOk = false;
+var _CLIP_METHODS = {
+    "clip.create_arranger_with_notes": true,
+    "clip.select_arranger": true, "clip.select_launcher": true,
+    "clip.set_step": true, "clip.toggle_step": true, "clip.clear_step": true,
+    "clip.clear_all_steps": true, "clip.set_step_size": true, "clip.set_step_attr": true,
+    "clip.quantize": true, "clip.transpose": true, "clip.set_loop": true,
+    "clip.duplicate": true, "clip.set_name": true,
+    "clip.describe": true, "clip.set_prop": true,
+    "clip.notes_setup": true, "clip.notes_scroll": true, "clip.notes_get": true,
+    "track.create_clip": true, "track.select_slot": true, "track.rename": true,
+    "track.set_color": true, "track.stop": true,
+    // Arranger audio-clip insert is part of the clip surface and doctor validates it by
+    // execution (insert a wav, read the file name back out of the document).
+    "track.insert_audio_clip": true,
+    "slot.launch": true, "slot.insert_audio_file": true, "scene.launch": true,
+    "transport.play": true, "transport.stop": true, "transport.set_position": true,
+    "transport.set_loop": true, "transport.set_loop_region": true,
+    "transport.set_tempo": true, "transport.set_metronome": true,
+    "app.undo": true, "app.redo": true, "app.set_panel_layout": true,
+    "arranger.set_panel": true, "cue.add": true
+};
 function _gateAllows(method) {
-    return _symbolsValidated() || _DOCTOR_METHODS[method] === true;
+    if (_symbolsValidated() || _DOCTOR_METHODS[method] === true) return true;
+    return gClipScopeOk && _CLIP_METHODS[method] === true;
 }
 
 function handleLine(line) {
@@ -615,6 +656,23 @@ function _jval(v) {
     if (cn === "java.lang.Boolean") return v.booleanValue();
     return "" + v;
 }
+// Bitwig 6.1: the descriptor value-getter (SYM.Xzy) returns a MEMBER object whose
+// toString embeds the value (GNy[member_name=title,object=...,value=X]) instead of the
+// raw value 6.0.x handed back. The member exposes a public, NON-obfuscated getValue(),
+// so unwrap through it when present. Builds that already return a raw value have no
+// getValue() and pass through untouched.
+var _GETVAL = {};
+function _memberValue(v) {
+    if (v == null) return null;
+    var cn; try { cn = "" + _classOf(v).getName(); } catch (e) { return v; }
+    if (_GETVAL[cn] === undefined) {
+        var m = null;
+        try { m = _findMethod(_classOf(v), "getValue", 0, null); } catch (e) { m = null; }
+        _GETVAL[cn] = m;
+    }
+    if (_GETVAL[cn] == null) return v;
+    try { return _GETVAL[cn].invoke(v); } catch (e) { return v; }
+}
 var _IHC = null;
 function _walkObj(uo1, depth, maxDepth, budget, opts) {
     var o = {}, cwo;
@@ -623,7 +681,11 @@ function _walkObj(uo1, depth, maxDepth, budget, opts) {
     if (_IHC == null) _IHC = Java.type("java.lang.System");
     var ihc = _IHC.identityHashCode(uo1);
     o._id = ihc;                                        // object identity (for cross-reference matching)
-    if (opts.prune[o._cls]) { o._pruned = true; return o; }
+    // Prune only BELOW the root. The root of a track walk is itself a "track", so pruning
+    // at depth 0 would return an empty tree. Pruning sibling tracks (reachable through the
+    // track group) is what keeps a per-track read from dragging in the whole project - and
+    // on 6.1 that means pruning generic CATEGORY names, which is only safe with this guard.
+    if (depth > 0 && opts.prune[o._cls]) { o._pruned = true; return o; }
     if (opts.seen[ihc] && !(opts.noDedup && opts.noDedup[o._cls])) { o._dup = true; return o; }
     opts.seen[ihc] = true;
     var azd = _descriptors(cwo);
@@ -632,7 +694,7 @@ function _walkObj(uo1, depth, maxDepth, budget, opts) {
     for (var i = 0; i < alen; i++) {
         if (budget.n <= 0) { o._trunc = true; break; }
         var d = azd.get(i);
-        try { if (!_inv0(d, SYM.nI_) || (!opts.noFilter && !_szPass(d, uo1))) continue; }
+        try { if ((!opts.ignoreNI && !_inv0(d, SYM.nI_)) || (!opts.noFilter && !_szPass(d, uo1))) continue; }
         catch (e) { if (depth === 0 && !o._ferr) o._ferr = "" + e; continue; }
         var pid; try { pid = "" + _inv0(d, SYM.ngq); } catch (e) { pid = "i" + i; }
         budget.n--;
@@ -648,7 +710,7 @@ function _walkObj(uo1, depth, maxDepth, budget, opts) {
             }
             o[pid] = arr;
         } else {
-            try { o[pid] = _jval(_inv1(d, SYM.Xzy, uo1)); } catch (e) { o[pid] = "<err>"; }
+            try { o[pid] = _jval(_memberValue(_inv1(d, SYM.Xzy, uo1))); } catch (e) { o[pid] = "<err>"; }
         }
     }
     return o;
@@ -1257,7 +1319,11 @@ function _selectNgq(cwo, KRt, ngqOpts) {
 // and the caller validates it via the descriptor-read sentinel check (re-resolving structurally
 // only if that fails). With forceStructural (or blind mode): pure structural discovery, picking
 // the candidate whose walk surfaces the most sentinels. Returns the reader name-set or null.
-function _discoverReader(uo1, sentinels, forceStructural) {
+// deepSentinels: the subset of `sentinels` that can only be seen by a reader which
+// actually reaches the timeline (a note start, an automation point time). A shallow
+// sentinel like the probe track's TITLE is surfaced even by a partial/decoy reader, so
+// accepting on that alone resolves a reader that then reads a near-empty tree (Bitwig 6.1).
+function _discoverReader(uo1, sentinels, forceStructural, deepSentinels) {
     if (!forceStructural && !gBlindDiscovery && SYM.mX_ && SYM.KRt && SYM.uEK && SYM.Xzy) {
         return { mX_: SYM.mX_, KRt: SYM.KRt, bf: SYM.bf, ngq: SYM.ngq, nI_: SYM.nI_, Xzy: SYM.Xzy, uEK: SYM.uEK };
     }
@@ -1265,23 +1331,63 @@ function _discoverReader(uo1, sentinels, forceStructural) {
     // candidates whose walk surfaces a sentinel, pick the RICHEST (most scalars). The richest
     // walk is the most COMPLETE reader (reaches notes + automation), matching the canonical
     // reader instead of a partial alias.
-    var cands = _readerCandidates(uo1), _bestN = null, _bestXzy = null, _bestScalars = -1, _bestHits = -1;
+    // Rank every candidate by how many sentinels its DISCOVERY walk surfaces (richest
+    // wins ties), then validate the ranked candidates through the REAL reader path before
+    // accepting one. The discovery walk (_walkWith) is deliberately loose - it ignores the
+    // nI_ gate and the serialize filter - so a candidate can surface a sentinel there and
+    // still read almost nothing through _walkObj, which is what the rest of openwig uses.
+    // Bitwig 6.1 has exactly such a decoy, so picking on the loose score alone resolves a
+    // reader that "wins" and then reads a near-empty tree.
+    var cands = _readerCandidates(uo1), ranked = [], deep = deepSentinels || [];
     for (var ci = 0; ci < cands.length; ci++) {
         var N = cands[ci];
         for (var xi = 0; xi < N.xzyOpts.length; xi++) {
             var xzy = N.xzyOpts[xi], sink = [], budget = { n: 9000 };
             try { _walkWith(uo1, N, xzy, 0, 16, budget, sink, {}); } catch (e) { continue; }
-            var blob = sink.join(""), nhit = 0;
-            for (var s = 0; s < sentinels.length; s++) if (blob.indexOf(sentinels[s]) >= 0) nhit++;
-            if (nhit > 0 && (nhit > _bestHits || (nhit === _bestHits && sink.length > _bestScalars))) {
-                _bestHits = nhit; _bestScalars = sink.length; _bestN = N; _bestXzy = xzy;
-            }
+            if (!sink.length) continue;
+            var blob = sink.join(""), nhit = 0, ndeep = 0;
+            for (var s = 0; s < sentinels.length; s++)
+                if (sentinels[s] && blob.indexOf(sentinels[s]) >= 0) nhit++;
+            for (var dd = 0; dd < deep.length; dd++)
+                if (deep[dd] && blob.indexOf(deep[dd]) >= 0) ndeep++;
+            if (nhit > 0) ranked.push({ N: N, xzy: xzy, hits: nhit, deep: ndeep, scalars: sink.length });
         }
     }
-    if (_bestN == null) return null;
-    var cwoN; try { cwoN = _invokeNoArg(uo1, _bestN.mX_); } catch (e) { cwoN = null; }
-    var ngq = cwoN ? _selectNgq(cwoN, _bestN.KRt, _bestN.ngqOpts) : (_bestN.ngqOpts[0] || null);
-    return { mX_: _bestN.mX_, KRt: _bestN.KRt, bf: _bestN.bf, ngq: ngq, nI_: _bestN.nI_, Xzy: _bestXzy, uEK: _bestN.uEK };
+    if (!ranked.length) return null;
+    // Deep hits first: a reader that surfaces a note start / automation time genuinely
+    // reaches the timeline, while one that only shows the track title may be a decoy.
+    ranked.sort(function (a, b) {
+        return (b.deep - a.deep) || (b.hits - a.hits) || (b.scalars - a.scalars);
+    });
+    var prevR = { mX_: SYM.mX_, KRt: SYM.KRt, bf: SYM.bf, ngq: SYM.ngq,
+                  nI_: SYM.nI_, Xzy: SYM.Xzy, uEK: SYM.uEK };
+    var firstCand = null;
+    // Two validation passes through the REAL read path: first demand a deep sentinel, then
+    // (only if nothing qualifies, e.g. the write paths are still broken on this build) fall
+    // back to accepting any sentinel so a build can still bootstrap its reader.
+    var passes = deep.length ? [true, false] : [false];
+    for (var pi = 0; pi < passes.length; pi++) {
+        var requireDeep = passes[pi];
+        for (var ri = 0; ri < ranked.length && ri < 10; ri++) {
+            var R = ranked[ri], cwoR = null;
+            try { cwoR = _invokeNoArg(uo1, R.N.mX_); } catch (e) { cwoR = null; }
+            var cand = { mX_: R.N.mX_, KRt: R.N.KRt, bf: R.N.bf,
+                         ngq: (cwoR ? _selectNgq(cwoR, R.N.KRt, R.N.ngqOpts) : (R.N.ngqOpts[0] || null)),
+                         nI_: R.N.nI_, Xzy: R.xzy, uEK: R.N.uEK };
+            if (firstCand == null) firstCand = cand;
+            _applyReaderNames(cand);
+            var good = false;
+            try {
+                var js2 = _walkTrackJSON(uo1, true);
+                var list = requireDeep ? deep : sentinels;
+                for (var s3 = 0; s3 < list.length; s3++)
+                    if (list[s3] && js2.indexOf(list[s3]) >= 0) { good = true; break; }
+            } catch (e) { good = false; }
+            if (good) return cand;
+        }
+    }
+    _applyReaderNames(prevR);                    // none validated: leave SYM as it was
+    return firstCand;
 }
 
 // ── symbol cache: doctor resolves + validates the reader names, persists them keyed by a
@@ -1352,7 +1458,16 @@ function _loadSymbols() {
     var c = _readCache();
     if (c && c.fingerprint === _fingerprint() && c.reader) {
         _applyMapping(c);
-        gSymSource = "cache";
+        if (c.ignore_nI) gReaderIgnoreNI = true;   // this build needs the nI_ gate bypassed
+        if (c.scope === "clips") {
+            // Cache written for the CLIP SCOPE only (a build where serialize / normalize /
+            // automation could not be verified). Apply its symbols and enable the clip
+            // surface, but keep reporting as unvalidated so the full gate stays shut.
+            gClipScopeOk = true;
+            gSymSource = "cache (clip scope; serialize/normalize unverified)";
+        } else {
+            gSymSource = "cache";
+        }
     } else if (hadDefaults) {
         gSymSource = c ? "defaults (cache stale; re-run doctor)" : "defaults (run doctor to validate + cache)";
     } else {
@@ -1411,15 +1526,27 @@ function _sentStr(x) { return ("" + Math.fround(x)).slice(0, 7); }
 var _SENT_AUTO_S = _sentStr(_SENT_AUTO_T), _SENT_AUTO_S2 = _sentStr(_SENT_AUTO_T2);
 var _SENT_NOTE_S = _sentStr(_SENT_NOTE_START);
 
-function _walkTrackJSON(byU) {
+function _walkTrackJSON(byU, ignoreNI) {
     var budget = { n: 9000 };
-    var opts = { prune: {}, noFilter: false, seen: {}, noDedup: {} };
+    var opts = { prune: {}, noFilter: false, seen: {}, noDedup: {},
+                 ignoreNI: !!(ignoreNI || gReaderIgnoreNI) };
     return JSON.stringify(_walkObj(byU, 0, 16, budget, opts));
 }
 
 // Runs on the document-edit thread (inside resolver.probe's exec). Mutates ONLY the
 // currently-selected track, which the caller has created as a throwaway and deletes after.
-function _runResolverProbe() {
+// The probe runs in TWO document-thread ops.
+//
+// On Bitwig 6.1 a write made on the document-edit thread is not visible to the descriptor
+// reader inside the SAME task: the inserted clip/note and the automation points only appear
+// in the document graph once that task commits. Verifying in-task therefore reads an empty
+// tree, which made every capability look broken AND starved reader discovery of the
+// sentinels it ranks candidates by. So the WRITE phase inserts the sentinels and the VERIFY
+// phase - a later op - discovers/validates the reader and reads them back. Running both in
+// one task (mode "all") still works on 6.0.x and stays the default.
+var gProbePhaseReport = null;
+
+function _probeWritePhase() {
     var report = {
         bitwig: _hostInfo(),
         classes: _resolverClasses(),
@@ -1467,26 +1594,64 @@ function _runResolverProbe() {
         report.capabilities.clip_create.detail = "created clip, " + c.notes + " note(s)";
     } catch (e) { report.capabilities.clip_create.detail = "create failed: " + e; }
 
+    gProbePhaseReport = report;
+    return report;
+}
+
+// Verify phase: resolve/validate the reader against the sentinels the write phase left in
+// the document, read them back, then check serialize + normalize and persist the cache.
+function _probeVerifyPhase() {
+    var report = gProbePhaseReport || {
+        bitwig: _hostInfo(),
+        classes: _resolverClasses(),
+        capabilities: {
+            automation_write: { ok: false, detail: "(write phase not run)" },
+            clip_create:      { ok: false, detail: "(write phase not run)" },
+            descriptor_read:  { ok: false, detail: "" },
+            serialize:        { ok: false, detail: "" },
+            normalize:        { ok: false, detail: "" }
+        },
+        ok: false
+    };
+    var byU = cursorTrack.getDeepestTarget();
+    if (byU == null) { report.error = "no track target (probe track not selected)"; return report; }
+
     // 2.5 reader: trust the SYM mapping (validated cache / shipped data); the descriptor read
     //     below validates it against the automation + note sentinels just written.
+    // Sentinels for reader discovery. The written values (automation time, note start)
+    // only exist if those writes worked; the probe track's NAME is in the document either
+    // way, so it lets the reader be resolved even on a build where the write paths are
+    // still unverified - which is how a re-obfuscated build bootstraps at all.
     var SENT = [_SENT_AUTO_S, _SENT_AUTO_S2, _SENT_NOTE_S];
+    var DEEP = [_SENT_AUTO_S, _SENT_AUTO_S2, _SENT_NOTE_S];   // only a timeline-deep reader sees these
+    if (gProbeNameSent && gProbeNameSent.length) SENT = SENT.concat(gProbeNameSent);
     var rd = null;
-    try { rd = _discoverReader(byU, SENT, false); } catch (e) { report.reader_err = "" + e; }
+    try { rd = _discoverReader(byU, SENT, false, DEEP); } catch (e) { report.reader_err = "" + e; }
     if (rd) { _applyReaderNames(rd); report.reader = rd; }
 
     // 3. descriptor read-back + sentinel verification. If the trusted reader does NOT surface
     //    both sentinels (a build where the mapping moved), re-resolve the reader STRUCTURALLY
     //    and walk again. autoFound = automation point; noteFound = clip note.
     var json = null, autoFound = false, noteFound = false;
-    var walkCheck = function () {
-        try { json = _walkTrackJSON(byU); } catch (e) { json = null; report.capabilities.descriptor_read.detail = "walk failed: " + e; return; }
+    var walkCheck = function (ignoreNI) {
+        try { json = _walkTrackJSON(byU, ignoreNI); } catch (e) { json = null; report.capabilities.descriptor_read.detail = "walk failed: " + e; return; }
         autoFound = json.indexOf(_SENT_AUTO_S) >= 0 || json.indexOf(_SENT_AUTO_S2) >= 0;
         noteFound = json.indexOf(_SENT_NOTE_S) >= 0;
     };
-    walkCheck();
+    walkCheck(false);
+    // Retry once with the nI_ gate bypassed: on Bitwig 6.1 the resolved nI_ hides the very
+    // note/clip properties we just wrote, so the read-back can only succeed without it.
+    // If that is what surfaces the sentinels, remember it for this build (and cache it).
+    if (json != null && !(autoFound || noteFound)) {
+        walkCheck(true);
+        if (autoFound || noteFound) {
+            gReaderIgnoreNI = true;
+            report.reader_ignore_nI = true;
+        }
+    }
     if (json != null && !(autoFound && noteFound) && !gBlindDiscovery) {
-        var rd2 = null; try { rd2 = _discoverReader(byU, SENT, true); } catch (e) {}
-        if (rd2) { _applyReaderNames(rd2); report.reader = rd2; rd = rd2; walkCheck(); }
+        var rd2 = null; try { rd2 = _discoverReader(byU, SENT, true, DEEP); } catch (e) {}
+        if (rd2) { _applyReaderNames(rd2); report.reader = rd2; rd = rd2; walkCheck(gReaderIgnoreNI); }
     }
     if (json != null) {
         // A broken reader still yields short non-empty JSON ({_err: ...} / {_noazd: ...}), so
@@ -1553,9 +1718,16 @@ function _runResolverProbe() {
     // must only exist when every capability verified. The cache carries everything
     // _applyMapping needs to reproduce a working session: reader, fj, SZo, szFilter,
     // autoLanes (the discovered+validated lanes accessor), commands and audio.
-    if (!gBlindDiscovery && rd && report.ok) {
+    // The arrangement/clip surface needs only the reader + the clip/note commands, both
+    // verified by execution above. A build can fail serialize / normalize / automation
+    // (Bitwig 6.1: the serializer class and the volume fj moved) and still drive clips
+    // safely, so that subset is cached and enabled on its own. See _CLIP_METHODS.
+    var clipScope = caps.clip_create.ok && caps.descriptor_read.ok;
+    report.clip_scope_ok = clipScope;
+    if (!gBlindDiscovery && rd && (report.ok || clipScope)) {
         var cacheObj = {
             schema: _CACHE_SCHEMA, fingerprint: _fingerprint(), bitwig: report.bitwig,
+            scope: (report.ok ? "full" : "clips"), ignore_nI: gReaderIgnoreNI,
             reader: rd, fj: SYM.fj, SZo: SYM.SZo, szFilter: SYM.szFilter,
             autoLanes: (_AUTO_SYM ? ("" + _AUTO_SYM.alAccessor) : SYM.autoLanes),
             clipCmd: SYM.clipCmd, noteCmd: SYM.noteCmd, audio: SYM.audio,
@@ -1563,8 +1735,14 @@ function _runResolverProbe() {
                         descriptor: caps.descriptor_read.ok, serialize: caps.serialize.ok, normalize: caps.normalize.ok }
         };
         var wrote = _writeCache(cacheObj);
-        gSymSource = wrote ? "discovered+cached" : "discovered";
-        report.cache = { written: wrote, path: _cachePath(), fingerprint: cacheObj.fingerprint };
+        if (report.ok) {
+            gSymSource = wrote ? "discovered+cached" : "discovered";
+        } else {
+            gClipScopeOk = true;      // session-local even if the cache could not be written
+            gSymSource = wrote ? "discovered+cached (clip scope)" : "discovered (clip scope)";
+        }
+        report.cache = { written: wrote, path: _cachePath(), fingerprint: cacheObj.fingerprint,
+                         scope: cacheObj.scope };
         if (!wrote) report.cache.reason = "cache write FAILED (data dir not writable?) - the gate stays shut; see " + LOG_FILE;
     } else {
         report.cache = { written: false, reason: gBlindDiscovery ? "blind mode" :
@@ -1573,6 +1751,14 @@ function _runResolverProbe() {
     report.symbol_source = gSymSource;
     _JAR_CLASSES = null;   // doctor-only data: free the (large) jar class-name list
     return report;
+}
+
+// Both phases in one document-thread task (the 6.0.x behaviour; kept as the default so
+// existing callers are unchanged). On 6.1 the caller must drive the phases separately.
+function _runResolverProbe() {
+    var r = _probeWritePhase();
+    if (r && r.error) return r;
+    return _probeVerifyPhase();
 }
 
 var HANDLERS = {
@@ -1628,7 +1814,24 @@ var HANDLERS = {
     // hints, no hardcoded fallback), simulating a build where the obfuscated names changed.
     "resolver.probe": function (p) {
         gProbe = null; gProbeErr = null;
+        // name_sentinel: a string (or list of strings) the caller knows is in the document
+        // - the probe track's name. Lets the reader be resolved even when the write paths
+        // are unverified. A list is accepted because the requested track name and the name
+        // that actually landed in the document can differ (a post-create rename can fail).
+        gProbeNameSent = null;
+        if (p.name_sentinel != null) {
+            if (typeof p.name_sentinel === "string") {
+                gProbeNameSent = ["" + p.name_sentinel];
+            } else {
+                gProbeNameSent = [];
+                for (var _si = 0; _si < p.name_sentinel.length; _si++)
+                    if (p.name_sentinel[_si]) gProbeNameSent.push("" + p.name_sentinel[_si]);
+            }
+        }
         var blind = !!bget(p, "blind", false);
+        // phase: "write" | "verify" | "all" (default). Split phases are required on builds
+        // where an in-task write is invisible to the reader (Bitwig 6.1); see the probe.
+        var phase = "" + bget(p, "phase", "all");
         _runOnDocumentThread(cursorTrack, function () {
             var prevBlind = gBlindDiscovery;
             // blind discovery overwrites SYM's reader names via _applyReaderNames with a
@@ -1638,7 +1841,13 @@ var HANDLERS = {
                                        nI_: SYM.nI_, Xzy: SYM.Xzy, uEK: SYM.uEK } : null;
             gBlindDiscovery = blind;
             if (blind) _AUTO_SYM = null;            // force a fresh structural-only resolution
-            try { gProbe = _runResolverProbe(); gProbe.blind = blind; return { ok: gProbe.ok }; }
+            try {
+                var pfn = (phase === "write") ? _probeWritePhase
+                        : (phase === "verify") ? _probeVerifyPhase
+                        : _runResolverProbe;
+                gProbe = pfn(); gProbe.blind = blind;
+                return { ok: gProbe.ok, phase: phase };
+            }
             catch (e) { gProbeErr = "" + e; return { error: gProbeErr }; }
             finally {                                // don't leak the blind cache / reader picks
                 gBlindDiscovery = prevBlind;
@@ -1842,7 +2051,11 @@ var HANDLERS = {
         for (var pi = 0; pi < pruneArr.length; pi++) prune["" + pruneArr[pi]] = true;
         var noDedupArr = bget(p, "no_dedup", []), noDedup = {};
         for (var ni = 0; ni < noDedupArr.length; ni++) noDedup["" + noDedupArr[ni]] = true;
-        var opts = { prune: prune, noFilter: !!bget(p, "no_filter", false), seen: {}, noDedup: noDedup };
+        // ignore_nI bypasses the per-descriptor "is serialized" gate. On Bitwig 6.1 the
+        // resolved nI_ excludes the real note/clip properties, so arranger notes only
+        // surface with the gate off (on 6.0.x it merely walks a few extra properties).
+        var opts = { prune: prune, noFilter: !!bget(p, "no_filter", false), seen: {}, noDedup: noDedup,
+                     ignoreNI: !!bget(p, "ignore_nI", gReaderIgnoreNI) };
         _runOnDocumentThread(cursorTrack, function () {
             try {
                 var root = cursorTrack.getDeepestTarget();
@@ -1868,11 +2081,19 @@ var HANDLERS = {
         for (var pi = 0; pi < pruneArr.length; pi++) prune["" + pruneArr[pi]] = true;
         var noDedupArr = bget(p, "no_dedup", []), noDedup = {};
         for (var ni = 0; ni < noDedupArr.length; ni++) noDedup["" + noDedupArr[ni]] = true;
-        var opts = { prune: prune, noFilter: !!bget(p, "no_filter", false), seen: {}, noDedup: noDedup };
+        // ignore_nI bypasses the per-descriptor "is serialized" gate. On Bitwig 6.1 the
+        // structurally-resolved nI_ excludes real note/clip properties, so the arranger
+        // notes only surface with the gate off.
+        var opts = { prune: prune, noFilter: !!bget(p, "no_filter", false), seen: {}, noDedup: noDedup,
+                     ignoreNI: !!bget(p, "ignore_nI", false) };
+        // root: "device" (default, 6.0.x behaviour) or "track". A track with no device has
+        // no device target at all, so clip reading must be able to root at the track.
+        var rootWhich = "" + bget(p, "root", "device");
         _runOnDocumentThread(cursorTrack, function () {
             try {
-                var root = cursorDevice.getDeepestTarget();
-                if (root == null) { gWalkErr = "no device target (select a device first)"; return { error: gWalkErr }; }
+                var root = (rootWhich === "track") ? cursorTrack.getDeepestTarget()
+                                                   : cursorDevice.getDeepestTarget();
+                if (root == null) { gWalkErr = "no " + rootWhich + " target (select a track/device first)"; return { error: gWalkErr }; }
                 var budget = { n: maxNodes };
                 gWalk = JSON.stringify(_walkObj(root, 0, maxDepth, budget, opts));
                 return { len: gWalk.length, used: maxNodes - budget.n };
@@ -2274,6 +2495,708 @@ var HANDLERS = {
         return { queued: pts.length, note: "async; outcome in openwig_bridge.log [auto]" };
     }
 };
+
+// ── dev introspection (Bitwig 6.1 port) ───────────────────────────────────────
+// Read-only tooling for re-resolving the descriptor reader on a re-obfuscated build.
+// Registered into HANDLERS + the doctor gate at load, so it works before validation.
+// Mutates nothing (no track delete - deleting a probe track crashed Bitwig 6.1).
+
+var gDev = null, gDevErr = null;
+
+// Rank every candidate reader name-set by how well its walk surfaces `sentinels`
+// (strings known to be in the document, e.g. the selected track's name). Unlike the
+// probe's own discovery this needs no written sentinel values, so it works on a build
+// where clip-create / automation-write cannot be verified yet.
+function _devRankReaders(uo1, sentinels, limit) {
+    var cands = _readerCandidates(uo1), scored = [];
+    for (var ci = 0; ci < cands.length; ci++) {
+        var N = cands[ci];
+        for (var xi = 0; xi < N.xzyOpts.length; xi++) {
+            var xzy = N.xzyOpts[xi], sink = [], budget = { n: 9000 };
+            try { _walkWith(uo1, N, xzy, 0, 16, budget, sink, {}); } catch (e) { continue; }
+            if (!sink.length) continue;
+            var blob = sink.join(""), hits = [];
+            for (var s = 0; s < sentinels.length; s++)
+                if (blob.indexOf("" + sentinels[s]) >= 0) hits.push("" + sentinels[s]);
+            var cwoN = null; try { cwoN = _invokeNoArg(uo1, N.mX_); } catch (e) {}
+            scored.push({ mX_: N.mX_, KRt: N.KRt, bf: N.bf, nI_: N.nI_, uEK: N.uEK, Xzy: xzy,
+                          ngq: cwoN ? _selectNgq(cwoN, N.KRt, N.ngqOpts) : (N.ngqOpts[0] || null),
+                          scalars: sink.length, hits: hits, sample: sink.slice(0, 8) });
+        }
+    }
+    scored.sort(function (a, b) { return (b.hits.length - a.hits.length) || (b.scalars - a.scalars); });
+    return scored.slice(0, limit || 12);
+}
+
+// ── locating EXISTING clips without a GUI selection ───────────────────────────
+// openwig's clip edits (transpose / quantize / duplicate / step attrs) go through
+// Bitwig's cursor clip, which follows the arranger SELECTION - so they are no-ops when
+// nothing is selected. The document graph has no such constraint: a clip is an ordinary
+// document object, and the create path already proves a command can be dispatched
+// against one (the note insert targets the clip returned by the create command).
+//
+// _findClipDocs mirrors the reader's traversal but keeps the LIVE objects instead of
+// serialising them: a clip event is a node carrying the clip-length property and no
+// note-on velocity (note events share the time/duration props). Nested "track" nodes
+// below the root are skipped so a track's own clips are found without wandering into
+// siblings - the same rule the Python reader uses.
+var _CLIP_P_TIME = "687", _CLIP_P_DUR = "38", _CLIP_P_VON = "239", _CLIP_P_LEN = "11279";
+
+function _findClipDocs(byU, maxDepth, budget) {
+    var found = [], seen = {};
+    if (_IHC == null) _IHC = Java.type("java.lang.System");
+    function rec(uo1, depth) {
+        if (uo1 == null || depth > maxDepth || budget.n <= 0 || found.length >= 64) return;
+        var id; try { id = _IHC.identityHashCode(uo1); } catch (e) { id = 0; }
+        if (seen[id]) return;
+        seen[id] = 1;
+        var cwo = null; try { cwo = _mx(uo1); } catch (e) { return; }
+        if (cwo == null) return;
+        var cls = "?"; try { cls = "" + _inv0(cwo, SYM.bf); } catch (e) {}
+        if (depth > 1 && cls === "track") return;          // a sibling track
+        var list = _descriptors(cwo);
+        var n = (list == null) ? 0 : list.size();
+        var props = {}, rels = [];
+        for (var i = 0; i < n && budget.n > 0; i++) {
+            var d = list.get(i), pid;
+            try { pid = "" + _inv0(d, SYM.ngq); } catch (e) { pid = "i" + i; }
+            budget.n--;
+            var kids = null;
+            try { kids = _relChildren(d, uo1); } catch (e) { kids = null; }
+            if (kids != null) rels.push(kids);
+            else { try { props[pid] = _jval(_memberValue(_inv1(d, SYM.Xzy, uo1))); } catch (e) {} }
+        }
+        if (props[_CLIP_P_LEN] !== undefined && props[_CLIP_P_VON] === undefined) {
+            found.push({ doc: uo1, cls: cls,
+                         start: Number(props[_CLIP_P_TIME]), duration: Number(props[_CLIP_P_DUR]) });
+            return;                                        // don't descend into clip content
+        }
+        for (var r = 0; r < rels.length && budget.n > 0; r++) {
+            var kids2 = rels[r], nk = 0;
+            try { nk = kids2.size(); } catch (e) { nk = 0; }
+            for (var k = 0; k < nk && budget.n > 0; k++) {
+                var ch = null; try { ch = kids2.get(k); } catch (e) { ch = null; }
+                rec(ch, depth + 1);
+            }
+        }
+    }
+    rec(byU, 0);
+    return found;
+}
+
+// The member object of a command carries its name via the same getter the reader uses
+// for property ids (both resolve to the same obfuscated name on a given build).
+function _memberName(v) {
+    try { return "" + _inv0(v, SYM.ngq); } catch (e) { return null; }
+}
+
+// Box one argument for a command's argument List. Accepts a bare JS value, or a
+// ["int"|"long"|"num"|"bool"|"str", value] pair - commands mix int and double
+// parameters (a note insert takes int channel/key and double time/duration/velocity),
+// and reflection needs the exact boxed type.
+function _boxArg(x) {
+    var Dbl = Java.type("java.lang.Double"), Int = Java.type("java.lang.Integer");
+    var Bool = Java.type("java.lang.Boolean"), Lng = Java.type("java.lang.Long");
+    if (x != null && typeof x === "object" && x.length === 2) {
+        var t = "" + x[0], v = x[1];
+        if (t === "int") return Int.valueOf(v | 0);
+        if (t === "long") return Lng.valueOf(Number(v));
+        if (t === "num" || t === "double") return Dbl.valueOf(Number(v));
+        if (t === "bool") return Bool.valueOf(!!v);
+        return "" + v;
+    }
+    if (typeof x === "number") return Dbl.valueOf(x);
+    if (typeof x === "boolean") return Bool.valueOf(x);
+    return "" + x;
+}
+
+var DEV_HANDLERS = {
+    // Rank reader candidates on the SELECTED track. p: { sentinels: [str], limit }
+    // Async (document thread); fetch with dev.result.
+    "dev.reader_rank": function (p) {
+        gDev = null; gDevErr = null;
+        var sent = p.sentinels || [], lim = bget(p, "limit", 12) | 0;
+        _runOnDocumentThread(cursorTrack, function () {
+            try {
+                var byU = cursorTrack.getDeepestTarget();
+                if (byU == null) throw "no track target (select a track first)";
+                gDev = { sentinels: sent, candidates: _devRankReaders(byU, sent, lim) };
+                return { candidates: gDev.candidates.length };
+            } catch (e) { gDevErr = "" + e; return { error: gDevErr }; }
+        });
+        return { queued: true, note: "fetch with dev.result" };
+    },
+
+    "dev.result": function () {
+        return { result: gDev, error: gDevErr, ready: (gDev != null || gDevErr != null) };
+    },
+
+    // Walk the selected track with an explicit reader name-set (or the current SYM one).
+    // p: { reader: {mX_,KRt,bf,ngq,nI_,Xzy,uEK}, keep: bool, max_chars }
+    // `keep` leaves the names applied to SYM for the rest of the session (test a fix live).
+    "dev.walk": function (p) {
+        gDev = null; gDevErr = null;
+        var names = p.reader || null, maxChars = bget(p, "max_chars", 4000) | 0;
+        var keep = !!bget(p, "keep", false);
+        _runOnDocumentThread(cursorTrack, function () {
+            var prev = { mX_: SYM.mX_, KRt: SYM.KRt, bf: SYM.bf, ngq: SYM.ngq,
+                         nI_: SYM.nI_, Xzy: SYM.Xzy, uEK: SYM.uEK };
+            try {
+                if (names) _applyReaderNames(names);
+                var byU = cursorTrack.getDeepestTarget();
+                if (byU == null) throw "no track target (select a track first)";
+                var json = _walkTrackJSON(byU, bget(p, "ignore_nI", false));
+                gDev = { length: json.length, json: json.substring(0, maxChars),
+                         reader: { mX_: SYM.mX_, KRt: SYM.KRt, bf: SYM.bf, ngq: SYM.ngq,
+                                   nI_: SYM.nI_, Xzy: SYM.Xzy, uEK: SYM.uEK } };
+                return { length: json.length };
+            } catch (e) { gDevErr = "" + e; return { error: gDevErr }; }
+            finally { if (names && !keep) _applyReaderNames(prev); }
+        });
+        return { queued: true, note: "fetch with dev.result" };
+    },
+
+    // Method signatures of the selected track's document object (or its descriptor
+    // container, or any named class). p: { of: "track"|"cwo"|"<class name>", limit }
+    "dev.methods": function (p) {
+        var target = "" + bget(p, "of", "track"), cls = null;
+        if (target === "track" || target === "cwo") {
+            var byU = cursorTrack.getDeepestTarget();
+            if (byU == null) return { error: "no track target (select a track first)" };
+            var obj = byU;
+            if (target === "cwo") { try { obj = _mx(byU); } catch (e) { return { error: "mX_: " + e }; } }
+            if (obj == null) return { error: "no object for " + target };
+            cls = _classOf(obj);
+        } else {
+            try { cls = Java.type(target).class; } catch (e) { return { error: "" + e }; }
+        }
+        var out = [], c = cls, seen = {};
+        while (c != null) {
+            var ms; try { ms = c.getDeclaredMethods(); } catch (e) { break; }
+            for (var i = 0; i < ms.length; i++) {
+                var m = ms[i], ps = m.getParameterTypes(), sig = [];
+                for (var j = 0; j < ps.length; j++) sig.push("" + ps[j].getSimpleName());
+                var key = "" + m.getName() + "(" + sig.join(",") + ")";
+                if (seen[key]) continue; seen[key] = 1;
+                out.push({ owner: "" + c.getSimpleName(), sig: key, ret: "" + m.getReturnType().getSimpleName() });
+            }
+            c = c.getSuperclass();
+        }
+        return { cls: "" + cls.getName(), count: out.length, methods: out.slice(0, bget(p, "limit", 250) | 0) };
+    },
+
+    // Class names in the Bitwig jar. p: { contains, packaged: bool, limit }
+    "dev.jar_classes": function (p) {
+        var sub = "" + bget(p, "contains", ""), lim = bget(p, "limit", 80) | 0;
+        var packaged = !!bget(p, "packaged", false);
+        try {
+            var loc = host.getClass().getProtectionDomain().getCodeSource().getLocation();
+            var jarFile = new (Java.type("java.io.File"))(loc.toURI());
+            var zf = new (Java.type("java.util.zip.ZipFile"))(jarFile), en = zf.entries();
+            var out = [], total = 0, matched = 0;
+            while (en.hasMoreElements()) {
+                var n = "" + en.nextElement().getName();
+                if (n.length < 7 || n.substring(n.length - 6) !== ".class") continue;
+                total++;
+                var cn = n.substring(0, n.length - 6).split("/").join(".");
+                if (!packaged && cn.indexOf(".") >= 0) continue;
+                if (sub && cn.indexOf(sub) < 0) continue;
+                matched++;
+                if (out.length < lim) out.push(cn);
+            }
+            zf.close();
+            return { total: total, matched: matched, classes: out };
+        } catch (e) { return { error: "" + e }; }
+    },
+
+    // Does a class load on this build? p: { classes: ["a.b.C", ...] }
+    "dev.class_check": function (p) {
+        var names = p.classes || [], out = {};
+        for (var i = 0; i < names.length; i++) {
+            try { Java.type("" + names[i]); out["" + names[i]] = true; }
+            catch (e) { out["" + names[i]] = "" + e; }
+        }
+        return out;
+    },
+
+    // Read the focused arranger clip's notes through Bitwig's PUBLIC NoteStep API
+    // (addNoteStepObserver + the step grid), independent of the internal descriptor
+    // reader. This is ground truth for "what did the write actually put in the clip":
+    // key, start, duration and velocity as Bitwig itself reports them.
+    // Protocol: dev.notes_setup -> dev.notes_scroll(step) per window -> dev.notes_get.
+    "dev.notes_setup": function (p) {
+        gClipNotes = {}; gNoteScroll = 0;
+        gNoteStepSize = bget(p, "step", 0.25);
+        gCursorClip = arrangerClip || launcherClip;
+        if (arrangerClip) {
+            arrangerClip.setStepSize(gNoteStepSize);
+            try { arrangerClip.scrollToKey(0); } catch (e) {}
+        }
+        return { grid_width: NUM_CLIPS, step: gNoteStepSize,
+                 cursor: (gCursorClip === arrangerClip) ? "arranger" : "launcher" };
+    },
+    "dev.notes_scroll": function (p) {
+        gNoteScroll = bget(p, "step", 0) | 0;
+        if (arrangerClip) arrangerClip.scrollToStep(gNoteScroll);
+        return { scroll: gNoteScroll };
+    },
+    "dev.notes_get": function () {
+        var out = [];
+        for (var k in gClipNotes) out.push(gClipNotes[k]);
+        out.sort(function (a, b) { return a.start - b.start || a.key - b.key; });
+        return { count: out.length, notes: out };
+    },
+
+    // List the EXISTING arranger clips on the selected track (no GUI selection needed),
+    // and the member names of one of them - i.e. which commands that clip exposes.
+    // p: { index: which clip to introspect, limit }
+    "dev.clip_members": function (p) {
+        gDev = null; gDevErr = null;
+        var want = bget(p, "index", 0) | 0, limit = bget(p, "limit", 250) | 0;
+        _runOnDocumentThread(cursorTrack, function () {
+            try {
+                var byU = cursorTrack.getDeepestTarget();
+                if (byU == null) throw "no track target (select a track first)";
+                var clips = _findClipDocs(byU, 12, { n: 40000 });
+                var info = [];
+                for (var i = 0; i < clips.length; i++)
+                    info.push({ index: i, start: clips[i].start, duration: clips[i].duration, cls: clips[i].cls });
+                var members = [];
+                if (clips.length > want) {
+                    var doc = clips[want].doc, cwo = _mx(doc), list = _descriptors(cwo);
+                    var n = (list == null) ? 0 : list.size();
+                    for (var j = 0; j < n && members.length < limit; j++) {
+                        var d = list.get(j), pid, v = null;
+                        try { pid = "" + _inv0(d, SYM.ngq); } catch (e) { pid = "i" + j; }
+                        try { v = _inv1(d, SYM.Xzy, doc); } catch (e) { v = null; }
+                        if (v == null) continue;
+                        var vcls = null; try { vcls = "" + _classOf(v).getName(); } catch (e) {}
+                        members.push({ pid: pid, name: _memberName(v), vcls: vcls });
+                    }
+                }
+                gDev = { clips: info, member_of: want, members: members };
+                return { clips: info.length, members: members.length };
+            } catch (e) { gDevErr = "" + e; return { error: gDevErr }; }
+        });
+        return { queued: true, note: "fetch with dev.result" };
+    },
+
+    // Current symbol table (what the reflection sites are actually using right now).
+    "dev.symbols": function () {
+        return { source: gSymSource, fingerprint: _fingerprint(), sym: SYM };
+    },
+
+    // Methods of a live controller-API proxy (not an internal class): what the PUBLIC
+    // API actually offers on this build. p: { obj: "arrangerClip"|"launcherClip"|
+    // "cursorTrack"|"track0"|"application"|"transport"|"arranger", limit }
+    "dev.api_methods": function (p) {
+        var which = "" + bget(p, "obj", "arrangerClip"), o = null;
+        if (which === "arrangerClip") o = arrangerClip;
+        else if (which === "launcherClip") o = launcherClip;
+        else if (which === "cursorTrack") o = cursorTrack;
+        else if (which === "track0") o = trackBank.getItemAt(0);
+        else if (which === "application") o = application;
+        else if (which === "transport") o = transport;
+        else if (which === "arranger") o = arranger;
+        else return { error: "unknown obj " + which };
+        if (o == null) return { error: which + " is null" };
+        var cls; try { cls = _classOf(o); } catch (e) { return { error: "" + e }; }
+        var out = [], c = cls, seen = {};
+        while (c != null) {
+            var ms; try { ms = c.getDeclaredMethods(); } catch (e) { break; }
+            for (var i = 0; i < ms.length; i++) {
+                var m = ms[i], ps = m.getParameterTypes(), sig = [];
+                for (var j = 0; j < ps.length; j++) sig.push("" + ps[j].getSimpleName());
+                var key = "" + m.getName() + "(" + sig.join(",") + ")";
+                if (seen[key]) continue; seen[key] = 1;
+                out.push({ owner: "" + c.getSimpleName(), sig: key,
+                           ret: "" + m.getReturnType().getSimpleName() });
+            }
+            c = c.getSuperclass();
+        }
+        return { cls: "" + cls.getName(), count: out.length,
+                 methods: out.slice(0, bget(p, "limit", 250) | 0) };
+    },
+
+    // Declared fields of a class, with the values of the static ones: enum constants,
+    // singletons, mode flags. p: { of: "<class name>", limit }
+    "dev.fields": function (p) {
+        var target = "" + bget(p, "of", "");
+        if (!target) return { error: "of required" };
+        var cls; try { cls = Java.type(target).class; } catch (e) { return { error: "" + e }; }
+        var Mod = Java.type("java.lang.reflect.Modifier");
+        var out = [], c = cls, seen = {};
+        while (c != null) {
+            var fs; try { fs = c.getDeclaredFields(); } catch (e) { break; }
+            for (var i = 0; i < fs.length; i++) {
+                var f = fs[i], nm = "" + f.getName();
+                if (seen[nm]) continue; seen[nm] = 1;
+                var isStatic = Mod.isStatic(f.getModifiers());
+                var rec = { owner: "" + c.getSimpleName(), name: nm,
+                            type: "" + f.getType().getSimpleName(), is_static: isStatic };
+                if (isStatic) {
+                    try { f.setAccessible(true); var v = f.get(null);
+                          rec.value = (v == null) ? null : ("" + v).substring(0, 120); }
+                    catch (e) { rec.value = "<err>"; }
+                }
+                out.push(rec);
+            }
+            c = c.getSuperclass();
+        }
+        return { cls: "" + cls.getName(), count: out.length,
+                 fields: out.slice(0, bget(p, "limit", 120) | 0) };
+    },
+
+    // Resolve command hosts by stable numeric op-id WITHOUT dispatching them (the jar
+    // scan instantiates commands; it never executes one). Read-only reconnaissance of a
+    // re-obfuscated build: on 6.1 the probe's own dispatch crashes Bitwig, so the class
+    // names have to be obtainable without running the write path.
+    // p: { opids: [7350, 7349], use_track: bool }
+    // use_track narrows the exec overload to one whose first parameter accepts the
+    // SELECTED track's document class - the loose (first (Object,List) method) match is
+    // a prime suspect for dispatching the wrong overload on a re-obfuscated build.
+    "dev.find_commands": function (p) {
+        var ids = p.opids || [7350, 7349], byUClass = null, byUName = null;
+        try {
+            if (bget(p, "use_track", false)) {
+                var byU = cursorTrack.getDeepestTarget();
+                if (byU == null) return { error: "no track target (select a track first)" };
+                byUClass = _classOf(byU); byUName = "" + byUClass.getName();
+            }
+            return { found: _findCommandsByOpIds(ids, byUClass), byU_class: byUName,
+                     instantiated: _gCmdScanInstantiated };
+        } catch (e) { return { error: "" + e }; }
+    },
+
+    // Dispatch ONE clip-create with an explicit command spec, to test a candidate exec
+    // overload in isolation. p: { clip: {cls, field, factory, exec}, note: {...},
+    //                             start, duration, notes: [[ch,key,start,dur,vel],...] }
+    // Writes to the SELECTED track. Intentionally minimal: this is the path that crashes
+    // Bitwig 6.1, so it is driven one candidate at a time rather than inside doctor.
+    "dev.try_clip_insert": function (p) {
+        gDev = null; gDevErr = null;
+        var clipSpec = p.clip, noteSpec = p.note || null;
+        if (!clipSpec || !clipSpec.cls) return { error: "clip spec required" };
+        var start = Number(bget(p, "start", 0)), dur = Number(bget(p, "duration", 4));
+        var notes = p.notes || [];
+        _runOnDocumentThread(cursorTrack, function () {
+            try {
+                var byU = cursorTrack.getDeepestTarget();
+                if (byU == null) throw "no track target";
+                var ArrayList = Java.type("java.util.ArrayList");
+                var Dbl = Java.type("java.lang.Double"), Int = Java.type("java.lang.Integer");
+                var args1 = new ArrayList();
+                args1.add(Dbl.valueOf(start)); args1.add(Dbl.valueOf(dur));
+                var cc = _cmdResolve(clipSpec);
+                var clipDoc = cc.exec.invoke(cc.cmd, byU, args1);
+                var out = { clip_created: (clipDoc != null),
+                            clip_cls: (clipDoc == null ? null : "" + _classOf(clipDoc).getName()),
+                            notes_inserted: 0 };
+                if (clipDoc != null && noteSpec && noteSpec.cls && notes.length) {
+                    var nc = _cmdResolve(noteSpec);
+                    for (var i = 0; i < notes.length; i++) {
+                        var n = notes[i], a2 = new ArrayList();
+                        a2.add(Int.valueOf(n[0] | 0)); a2.add(Int.valueOf(n[1] | 0));
+                        a2.add(Dbl.valueOf(Number(n[2]))); a2.add(Dbl.valueOf(Number(n[3])));
+                        a2.add(Dbl.valueOf(Number(n[4])));
+                        nc.exec.invoke(nc.cmd, clipDoc, a2);
+                        out.notes_inserted++;
+                    }
+                }
+                gDev = out;
+                return out;
+            } catch (e) { gDevErr = "" + e; return { error: gDevErr }; }
+        });
+        return { queued: true, note: "fetch with dev.result" };
+    },
+
+    // Inspect what the descriptor value-getter actually RETURNS on this build, by
+    // reflecting on the live object (its class name only shows up via toString, so a
+    // by-name class lookup finds the wrong class). For each of the first `limit`
+    // descriptors of the selected track: the descriptor class, its prop id, and the
+    // value object's class + toString; plus, per distinct value class, every no-arg
+    // getter with the value it returns - that is where the typed raw value lives.
+    // p: { reader: {...} (applied first, kept), limit }
+    "dev.member_probe": function (p) {
+        gDev = null; gDevErr = null;
+        var lim = bget(p, "limit", 14) | 0, names = p.reader || null;
+        _runOnDocumentThread(cursorTrack, function () {
+            try {
+                if (names) _applyReaderNames(names);
+                var byU = cursorTrack.getDeepestTarget();
+                if (byU == null) throw "no track target (select a track first)";
+                var cwo = _mx(byU);
+                if (cwo == null) throw "mX_ returned null";
+                var descrs = _descriptors(cwo);
+                var n = (descrs == null) ? 0 : descrs.size();
+                var rows = [], byClass = {};
+                for (var i = 0; i < n && rows.length < lim; i++) {
+                    var d = descrs.get(i), pid, v = null, verr = null;
+                    try { pid = "" + _inv0(d, SYM.ngq); } catch (e) { pid = "i" + i; }
+                    try { v = _inv1(d, SYM.Xzy, byU); } catch (e) { verr = "" + e; }
+                    var vcls = null;
+                    if (v != null) { try { vcls = "" + _classOf(v).getName(); } catch (e) { vcls = "?"; } }
+                    rows.push({ pid: pid, dcls: ("" + _classOf(d).getName()),
+                                vcls: vcls, vstr: (v == null ? null : ("" + v).substring(0, 160)),
+                                err: verr });
+                    // first object of each value class: enumerate its no-arg getters + values
+                    if (v != null && vcls && !byClass[vcls]) {
+                        var getters = [], c = _classOf(v), seen = {};
+                        while (c != null) {
+                            var ms = c.getDeclaredMethods();
+                            for (var j = 0; j < ms.length; j++) {
+                                var m = ms[j];
+                                if (m.getParameterCount() !== 0) continue;
+                                var mn = "" + m.getName();
+                                if (seen[mn] || mn === "wait" || mn === "notify" || mn === "notifyAll" ||
+                                    mn === "finalize" || mn === "clone" || mn === "getClass") continue;
+                                seen[mn] = 1;
+                                var got;
+                                try { m.setAccessible(true); got = m.invoke(v); }
+                                catch (e) { got = "<err>"; }
+                                getters.push({ name: mn, ret: "" + m.getReturnType().getSimpleName(),
+                                               value: (got == null ? null : ("" + got).substring(0, 120)) });
+                            }
+                            c = c.getSuperclass();
+                        }
+                        byClass[vcls] = getters.slice(0, 40);
+                    }
+                }
+                gDev = { total_descriptors: n, rows: rows, value_classes: byClass,
+                         reader: { mX_: SYM.mX_, KRt: SYM.KRt, bf: SYM.bf, ngq: SYM.ngq,
+                                   nI_: SYM.nI_, Xzy: SYM.Xzy, uEK: SYM.uEK } };
+                return { rows: rows.length };
+            } catch (e) { gDevErr = "" + e; return { error: gDevErr }; }
+        });
+        return { queued: true, note: "fetch with dev.result" };
+    }
+};
+for (var _dk in DEV_HANDLERS) { HANDLERS[_dk] = DEV_HANDLERS[_dk]; _DOCTOR_METHODS[_dk] = true; }
+
+// ── public clip-edit surface (headless: needs no arranger selection) ──────────
+// The productised form of the mechanism worked out on the dev.* surface: locate a clip as
+// a DOCUMENT OBJECT (_findClipDocs) and then either dispatch one of its command members
+// (transpose_clip, set_end_time, duplicate_content, ...) or write one of its value members
+// (time = arranger position, 2958 = name, is_muted, ...). Bitwig's cursor-clip API can
+// only touch the clip the user has SELECTED; this can address any clip on the track.
+//
+// These run under the scoped clip gate, exactly like clip creation (they are registered
+// into _CLIP_METHODS below). Each is an async document-thread op: it returns {queued:true}
+// and the outcome is fetched with clip.edit_result, mirroring obj.walk / resolver.probe.
+var gClipEdit = null, gClipEditErr = null;
+
+function _clipEditResultOp() {
+    return { result: gClipEdit, error: gClipEditErr,
+             ready: (gClipEdit != null || gClipEditErr != null) };
+}
+
+// Resolve clip `idx` on the selected track, or throw with the count that was found.
+function _clipDocAt(idx) {
+    var byU = cursorTrack.getDeepestTarget();
+    if (byU == null) throw "no track target (select a track first)";
+    var clips = _findClipDocs(byU, 12, { n: 40000 });
+    if (clips.length <= idx) throw "clip " + idx + " not found (" + clips.length + " on this track)";
+    return { clip: clips[idx], all: clips };
+}
+
+// A clip's member by reported NAME or by numeric property id. The id is the reliable
+// selector for value members: a clip's name sits on prop 2958, whose member reports a
+// different label entirely.
+function _clipMemberOf(doc, name, pid) {
+    var cwo = _mx(doc), list = _descriptors(cwo);
+    var n = (list == null) ? 0 : list.size();
+    for (var j = 0; j < n; j++) {
+        var d = list.get(j), v = null, dpid = null;
+        try { dpid = "" + _inv0(d, SYM.ngq); } catch (e) { dpid = null; }
+        try { v = _inv1(d, SYM.Xzy, doc); } catch (e) { continue; }
+        if (v == null) continue;
+        if ((name && _memberName(v) === name) || (pid && dpid === pid)) return v;
+    }
+    return null;
+}
+
+function _clipValueOf(member) {
+    try {
+        var g = _findMethod(_classOf(member), "getValue", 0, null);
+        if (g) { var v = g.invoke(member); return (v == null) ? null : ("" + v); }
+    } catch (e) {}
+    return null;
+}
+
+// clip.list -> every arranger clip on the selected track: index, start, length, name.
+function _clipListOp(p) {
+    gClipEdit = null; gClipEditErr = null;
+    _runOnDocumentThread(cursorTrack, function () {
+        try {
+            var byU = cursorTrack.getDeepestTarget();
+            if (byU == null) throw "no track target (select a track first)";
+            var clips = _findClipDocs(byU, 12, { n: 40000 }), out = [];
+            for (var i = 0; i < clips.length; i++) {
+                var nameV = _clipMemberOf(clips[i].doc, null, "2958");
+                out.push({ index: i, start: clips[i].start, duration: clips[i].duration,
+                           name: (nameV == null ? null : _clipValueOf(nameV)) });
+            }
+            gClipEdit = { clips: out };
+            return { clips: out.length };
+        } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
+    });
+    return { queued: true, note: "fetch with clip.edit_result" };
+}
+
+// clip.cmd -> dispatch a command member on clip `index`.
+// p: { index, name, args: [value | ["int"|"num"|"bool"|"str", value], ...] }
+function _clipCmdOp(p) {
+    gClipEdit = null; gClipEditErr = null;
+    var idx = bget(p, "index", 0) | 0, name = "" + bget(p, "name", "");
+    var args = p.args || [];
+    if (!name) return { error: "name required" };
+    _runOnDocumentThread(cursorTrack, function () {
+        try {
+            var target = _clipMemberOf(_clipDocAt(idx).clip.doc, name, null);
+            if (target == null) throw "member '" + name + "' not found on clip " + idx;
+            var ArrayList = Java.type("java.util.ArrayList"), jargs = new ArrayList();
+            for (var a = 0; a < args.length; a++) jargs.add(_boxArg(args[a]));
+            // The dispatch is the member's single-List method; resolved by SHAPE so the
+            // obfuscated name is free to move between builds.
+            var m = null, c = _classOf(target);
+            while (c != null && m == null) {
+                var ms = c.getDeclaredMethods();
+                for (var q = 0; q < ms.length; q++) {
+                    var mm = ms[q];
+                    if (mm.getParameterCount() !== 1) continue;
+                    if (!Java.type("java.util.List").class.isAssignableFrom(mm.getParameterTypes()[0])) continue;
+                    mm.setAccessible(true); m = mm; break;
+                }
+                c = c.getSuperclass();
+            }
+            if (m == null) throw "no (List) dispatch on member '" + name + "'";
+            // Pass the List as ONE argument: Method.invoke is varargs, and handing it a
+            // java.util.List directly makes the JS interop spread the list into separate
+            // arguments ("wrong number of arguments: N expected: 1").
+            var out = m.invoke(target, Java.to([jargs], "java.lang.Object[]"));
+            gClipEdit = { dispatched: name, clip: idx, args: jargs.size(),
+                          result: (out == null ? null : ("" + out).substring(0, 200)) };
+            return gClipEdit;
+        } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
+    });
+    return { queued: true, note: "fetch with clip.edit_result" };
+}
+
+// clip.insert_notes -> add notes to an EXISTING clip.
+// Uses the op-id-resolved note-insert command (the one the create path uses, validated by
+// doctor) targeted at the located clip document. The clip's own insert_note member cannot
+// be driven from here: it expects Bitwig's internal note-spec objects, not plain numbers.
+// p: { index, notes: [[channel, key, start_in_clip, duration, velocity], ...] }
+function _clipInsertNotesOp(p) {
+    gClipEdit = null; gClipEditErr = null;
+    var idx = bget(p, "index", 0) | 0, notes = p.notes || [];
+    _runOnDocumentThread(cursorTrack, function () {
+        try {
+            var found = _clipDocAt(idx), doc = found.clip.doc;
+            var nc = _cmdResolve(SYM.noteCmd);
+            var ArrayList = Java.type("java.util.ArrayList");
+            var Dbl = Java.type("java.lang.Double"), Int = Java.type("java.lang.Integer");
+            var count = 0;
+            for (var i = 0; i < notes.length; i++) {
+                var nt = notes[i], a = new ArrayList();
+                a.add(Int.valueOf(nt[0] | 0));           // channel
+                a.add(Int.valueOf(nt[1] | 0));           // key
+                a.add(Dbl.valueOf(Number(nt[2])));       // start within the clip
+                a.add(Dbl.valueOf(Number(nt[3])));       // duration
+                a.add(Dbl.valueOf(Number(nt[4])));       // velocity
+                nc.exec.invoke(nc.cmd, doc, a);
+                count++;
+            }
+            gClipEdit = { clip: idx, inserted: count,
+                          clip_start: found.clip.start, clip_duration: found.clip.duration };
+            return gClipEdit;
+        } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
+    });
+    return { queued: true, note: "fetch with clip.edit_result" };
+}
+
+// clip.set_value -> write a value member of clip `index` (or, with no `value`, report it).
+// p: { index, name | pid, value?, type?: "int"|"num"|"bool"|"str" }
+function _clipSetValueOp(p) {
+    gClipEdit = null; gClipEditErr = null;
+    var idx = bget(p, "index", 0) | 0, name = "" + bget(p, "name", "");
+    var pid = (p.pid === undefined || p.pid === null) ? null : ("" + p.pid);
+    var hasVal = (p.value !== undefined && p.value !== null);
+    var vtype = "" + bget(p, "type", "num");
+    if (!name && !pid) return { error: "name or pid required" };
+    _runOnDocumentThread(cursorTrack, function () {
+        try {
+            var target = _clipMemberOf(_clipDocAt(idx).clip.doc, name, pid);
+            if (target == null)
+                throw "member '" + (name || ("pid " + pid)) + "' not found on clip " + idx;
+            var out = { clip: idx, member: (name || null), pid: pid };
+            try { out.cls = "" + _classOf(target).getName(); } catch (e) {}
+            out.current = _clipValueOf(target);
+            try { var st = _findMethod(_classOf(target), "isSettable", 0, null);
+                  if (st) out.settable = !!st.invoke(target); } catch (e) {}
+            if (!hasVal) {
+                // Report-only mode also lists the member's single-argument methods. On a
+                // build where a write fails, that is what shows which setter the member
+                // actually exposes (setValue, or an obfuscated typed one).
+                var cands = [], cc = _classOf(target), seenS = {};
+                while (cc != null) {
+                    var msS = cc.getDeclaredMethods();
+                    for (var qs = 0; qs < msS.length; qs++) {
+                        var mS = msS[qs];
+                        if (mS.getParameterCount() !== 1) continue;
+                        var nmS = "" + mS.getName();
+                        if (seenS[nmS]) continue;
+                        seenS[nmS] = 1;
+                        cands.push({ name: nmS, param: "" + mS.getParameterTypes()[0].getSimpleName(),
+                                     ret: "" + mS.getReturnType().getSimpleName() });
+                    }
+                    cc = cc.getSuperclass();
+                }
+                out.setter_candidates = cands.slice(0, 30);
+            }
+            if (hasVal) {
+                var boxed = _boxArg([vtype, p.value]);
+                var setter = _findMethod(_classOf(target), "setValue", 1, null);
+                if (setter == null) {
+                    var c2 = _classOf(target);
+                    while (c2 != null && setter == null) {
+                        var ms2 = c2.getDeclaredMethods();
+                        for (var q2 = 0; q2 < ms2.length; q2++) {
+                            var m2 = ms2[q2];
+                            if (m2.getParameterCount() !== 1) continue;
+                            if (("" + m2.getReturnType().getName()) !== "void") continue;
+                            var pt = m2.getParameterTypes()[0];
+                            if (pt.isPrimitive() || !pt.isInstance(boxed)) continue;
+                            m2.setAccessible(true); setter = m2; break;
+                        }
+                        c2 = c2.getSuperclass();
+                    }
+                }
+                if (setter == null) throw "no setter found for member '" + (name || pid) + "'";
+                setter.invoke(target, boxed);
+                out.set_via = "" + setter.getName();
+                out.wrote = "" + p.value;
+            }
+            gClipEdit = out;
+            return out;
+        } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
+    });
+    return { queued: true, note: "fetch with clip.edit_result" };
+}
+
+var CLIP_EDIT_HANDLERS = {
+    "clip.list": _clipListOp,
+    "clip.cmd": _clipCmdOp,
+    "clip.insert_notes": _clipInsertNotesOp,
+    "clip.set_value": _clipSetValueOp,
+    "clip.edit_result": _clipEditResultOp
+};
+// Registered into the scoped clip gate (not the doctor-exempt surface): these are normal
+// public ops and stay blocked until doctor has validated the clip paths for this build.
+for (var _ck in CLIP_EDIT_HANDLERS) {
+    HANDLERS[_ck] = CLIP_EDIT_HANDLERS[_ck];
+    _CLIP_METHODS[_ck] = true;
+}
 
 // ── required stubs ────────────────────────────────────────────────────────────
 

@@ -44,7 +44,14 @@ print(s.render("first.wav"))
 
 | openwig | Bitwig Studio | Python | OS |
 |------------|---------------|--------|----|
-| 0.1.x      | **6.0.6**     | 3.11+  | Windows |
+| 0.1.x      | **6.0.6** (full) · **6.1** (arrangement + clips) | 3.11+  | Windows |
+
+On **6.1** Bitwig's internals moved. `doctor` re-resolves them for your build and enables
+the arrangement/clip surface: creating and reading arranger clips, and editing existing
+ones (move, resize, transpose, rename, add notes) without needing a clip selected in the
+GUI. Two paths could not be verified on that build - the serialize filter (its class is
+gone) and the parameter normalize function - so device and automation writes stay gated
+there; `doctor` says exactly which.
 
 ## Install
 
@@ -59,7 +66,8 @@ Full guide (requirements, troubleshooting, uninstall): **[Install docs →](http
 
 ## Contributing
 
-Issues and PRs welcome. Currently Windows + Bitwig 6, tested on Bitwig 6.0.6 only.
+Issues and PRs welcome. Currently Windows + Bitwig 6: tested fully on 6.0.6, and on 6.1
+for the arrangement/clip surface.
 
 Found a bug or have a question? Open an [issue](https://github.com/Axyom/openwig/issues) for bugs, or start a thread in [Discussions](https://github.com/Axyom/openwig/discussions) for questions, ideas, and feedback.
 

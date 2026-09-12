@@ -149,7 +149,27 @@ def run_selftest(b=None, *, timeout=90.0):
             if idx is None:
                 base["error"] = "probe track did not appear (cannot run round-trip)"
                 return base
-            b.request_op("resolver.probe", timeout=timeout)
+            # Pass the probe track's name as a reader sentinel. The written sentinels
+            # (automation time / note start) only exist if those writes worked, but the
+            # track name is in the document regardless - so the descriptor reader can be
+            # resolved even on a build where the write paths are not yet verified. That is
+            # what lets a re-obfuscated build bootstrap instead of failing everything.
+            # Both the requested name and whatever the snapshot reports for that slot: the
+            # post-create rename can silently fail, so the two can differ and only one of
+            # them is actually in the document.
+            snap_name = next((t.get("name") for t in b.request("state.snapshot").get("tracks", [])
+                              if t.get("index") == idx), None)
+            sentinels = [n for n in (PROBE_TRACK, snap_name) if n]
+            # Two ops on purpose. On Bitwig 6.1 a write is not visible to the descriptor
+            # reader inside the same document-edit task, so the sentinels can only be read
+            # back - and the reader validated against them - in a LATER task. The write
+            # phase inserts them; the verify phase resolves the reader and checks the
+            # read-back. (On 6.0.x a single "all" pass also works.)
+            b.request_op("resolver.probe",
+                         {"phase": "write", "name_sentinel": sentinels}, timeout=timeout)
+            time.sleep(0.5)
+            b.request_op("resolver.probe",
+                         {"phase": "verify", "name_sentinel": sentinels}, timeout=timeout)
             res = b.request("resolver.result")
             report = res.get("report") or dict(base)
             report["connected"] = True

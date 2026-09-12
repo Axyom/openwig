@@ -85,6 +85,34 @@ them at the end of a chain, not in the middle.
 | `t.describe_clip()` | List all property IDs on the selected clip (discovery). |
 | `t.set_clip_prop(prop_id, value)` | Set a clip property by ID (discovered via `describe_clip`). |
 
+### Editing existing clips
+
+These address a clip by **index** in arranger order (see `t.clips_info()`), so they work on
+any clip on the track. That is the difference from `transpose_cursor` / `quantize_cursor` /
+`step_attr` above, which drive Bitwig's *cursor* clip and therefore only affect the clip
+selected in the GUI - doing nothing when nothing is selected.
+
+| Method | Description |
+|---|---|
+| `t.clips_info()` | This track's arranger clips: `[{index, start, duration, name}, ...]`. |
+| `t.move_clip(index, start)` | Move the clip to `start` beats on the arranger. |
+| `t.resize_clip(index, end)` | Resize by setting the clip's END position (absolute beats). |
+| `t.transpose_clip(index, semitones)` | Transpose every note in the clip. |
+| `t.rename_clip(index, name)` | Rename the clip. |
+| `t.add_notes(index, notes)` | Add notes to the existing clip (starts are clip-relative). |
+| `t.clip_cmd(index, name, args)` | Dispatch a raw clip command (escape hatch), e.g. `duplicate_content`. |
+
+```python
+t = s.track("BASS")
+t.clip(notes, dur=4, start=4)
+
+t.move_clip(0, 8.0)
+t.resize_clip(0, end=10.0)
+t.transpose_clip(0, 12)
+t.rename_clip(0, "verse")
+t.add_notes(0, [Note(55, 0.5, 0.5, 0.9)])
+```
+
 ### Devices
 
 | Method | Description |

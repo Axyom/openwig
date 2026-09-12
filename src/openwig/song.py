@@ -295,6 +295,80 @@ class Track:
             self.audio_clip(path, start=start, duration=dur)
         return self
 
+    # ── editing EXISTING arranger clips (no GUI selection needed) ────────────
+    # These address a clip by INDEX in arranger order; the controller resolves it from the
+    # document graph. That is the difference from transpose_cursor / quantize_cursor /
+    # step_attr, which drive Bitwig's CURSOR clip and therefore only ever affect the clip
+    # selected in the GUI (doing nothing at all when no clip is selected).
+
+    def _clip_edit(self, method, params):
+        """Fire one clip-edit op on this track and return its result (or raise)."""
+        self.select()
+        self.s.b.request_op(method, params, fallback=0.6, floor=0.2, timeout=20.0)
+        res = self.s.b.request("clip.edit_result") or {}
+        if res.get("error"):
+            raise BridgeError(f"{method} failed: {res['error']}")
+        return res.get("result")
+
+    def clips_info(self):
+        """This track's arranger clips: `[{index, start, duration, name}, ...]`.
+
+        The index of each entry is what the other clip-edit methods take."""
+        return (self._clip_edit("clip.list", {}) or {}).get("clips", [])
+
+    def move_clip(self, index, start):
+        """Move clip `index` so it starts at `start` beats on the arranger."""
+        self._clip_edit("clip.set_value", {"index": int(index), "name": "time",
+                                           "value": float(start), "type": "num"})
+        return self
+
+    def resize_clip(self, index, end):
+        """Resize clip `index` by setting its END position (absolute beats)."""
+        self._clip_edit("clip.cmd", {"index": int(index), "name": "set_end_time",
+                                     "args": [["num", float(end)]]})
+        return self
+
+    def transpose_clip(self, index, semitones):
+        """Transpose every note in clip `index` by `semitones`."""
+        self._clip_edit("clip.cmd", {"index": int(index), "name": "transpose_clip",
+                                     "args": [["int", int(semitones)]]})
+        return self
+
+    def rename_clip(self, index, name):
+        """Rename clip `index`.
+
+        The name lives on document property 2958; that member reports a different label of
+        its own, so it is addressed by property id rather than by name."""
+        self._clip_edit("clip.set_value", {"index": int(index), "pid": "2958",
+                                           "value": str(name), "type": "str"})
+        return self
+
+    def add_notes(self, index, notes):
+        """Add `notes` to the EXISTING clip `index` (note starts are clip-relative).
+
+        notes: iterable of (key, start_beat, dur_beats, velocity_0_1[, channel])."""
+        payload = []
+        for nt in notes:
+            if len(nt) < 4:
+                raise ValueError(
+                    f"each note needs at least (key, start, dur, vel); got {nt!r}. "
+                    f"Use Note(key, start, dur=..., vel=...) or a 4+ element tuple.")
+            key, st, du, vel = nt[0], nt[1], nt[2], nt[3]
+            ch = nt[4] if len(nt) > 4 else 0
+            payload.append([int(ch), int(key), float(st), float(du), float(vel)])
+        self._clip_edit("clip.insert_notes", {"index": int(index), "notes": payload})
+        return self
+
+    def clip_cmd(self, index, name, args=None):
+        """Dispatch a raw command member on clip `index` - the escape hatch the methods
+        above are built on (e.g. `duplicate_content`, `set_is_loop_enabled`).
+
+        args: `[value | ("int"|"num"|"bool"|"str", value), ...]`. Commands mix int and
+        double parameters, so the typed form is what makes an exact match possible."""
+        return self._clip_edit("clip.cmd", {"index": int(index), "name": str(name),
+                                            "args": [list(a) if isinstance(a, (list, tuple)) else a
+                                                     for a in (args or [])]})
+
     def describe_clip(self):
         """Enumerate every descriptor of the currently-selected clip
         (property IDs + current values). Used to discover stretch / loop / etc.
