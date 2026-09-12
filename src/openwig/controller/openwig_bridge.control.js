@@ -2973,16 +2973,16 @@ var DEV_HANDLERS = {
 };
 for (var _dk in DEV_HANDLERS) { HANDLERS[_dk] = DEV_HANDLERS[_dk]; _DOCTOR_METHODS[_dk] = true; }
 
-// ── public clip-edit surface (headless: needs no arranger selection) ──────────
-// The productised form of the mechanism worked out on the dev.* surface: locate a clip as
-// a DOCUMENT OBJECT (_findClipDocs) and then either dispatch one of its command members
-// (transpose_clip, set_end_time, duplicate_content, ...) or write one of its value members
-// (time = arranger position, 2958 = name, is_muted, ...). Bitwig's cursor-clip API can
-// only touch the clip the user has SELECTED; this can address any clip on the track.
+// ── public clip + note edit surface (headless: needs no arranger selection) ────
+// Bitwig's cursor-clip API can only touch the clip the user has SELECTED. The document
+// graph has no such constraint: a clip - and each note inside it - is an ordinary document
+// object, so it can be located and edited directly. Two mechanisms cover everything here:
+// dispatch a COMMAND member (transpose_clip, set_end_time, ...) or write a VALUE member
+// (time = position, 2958 = name, 239 = velocity, ...).
 //
-// These run under the scoped clip gate, exactly like clip creation (they are registered
-// into _CLIP_METHODS below). Each is an async document-thread op: it returns {queued:true}
-// and the outcome is fetched with clip.edit_result, mirroring obj.walk / resolver.probe.
+// These run under the scoped clip gate, like clip creation (registered into _CLIP_METHODS
+// below). Each is an async document-thread op returning {queued:true}; the outcome is
+// fetched with clip.edit_result, mirroring obj.walk / resolver.probe.
 var gClipEdit = null, gClipEditErr = null;
 
 function _clipEditResultOp() {
@@ -2999,9 +2999,9 @@ function _clipDocAt(idx) {
     return { clip: clips[idx], all: clips };
 }
 
-// A clip's member by reported NAME or by numeric property id. The id is the reliable
-// selector for value members: a clip's name sits on prop 2958, whose member reports a
-// different label entirely.
+// A member of any document object, by reported NAME or by numeric property id. The id is
+// the reliable selector for value members: a clip name sits on prop 2958, whose member
+// reports a different label entirely.
 function _clipMemberOf(doc, name, pid) {
     var cwo = _mx(doc), list = _descriptors(cwo);
     var n = (list == null) ? 0 : list.size();
@@ -3022,6 +3022,158 @@ function _clipValueOf(member) {
     } catch (e) {}
     return null;
 }
+
+// ── locating the NOTES inside a clip ─────────────────────────────────────────
+// Pitch and MIDI channel live on a per-key timeline; the individual note events beneath it
+// carry time, duration and velocity. The walk therefore inherits key/channel from the
+// nearest enclosing key timeline, exactly as the Python reader does.
+var _NOTE_P_KEY = "238", _NOTE_P_CHAN = "9857", _NOTE_P_MUTED = "4344";
+
+function _findNoteDocs(clipDoc, budget) {
+    var found = [], seen = {};
+    if (_IHC == null) _IHC = Java.type("java.lang.System");
+    function rec(uo1, depth, key, chan, parent) {
+        if (uo1 == null || depth > 10 || budget.n <= 0 || found.length >= 512) return;
+        var id; try { id = _IHC.identityHashCode(uo1); } catch (e) { id = 0; }
+        if (seen[id]) return;
+        seen[id] = 1;
+        var cwo = null; try { cwo = _mx(uo1); } catch (e) { return; }
+        if (cwo == null) return;
+        var list = _descriptors(cwo);
+        var n = (list == null) ? 0 : list.size();
+        var props = {}, rels = [];
+        for (var i = 0; i < n && budget.n > 0; i++) {
+            var d = list.get(i), pid;
+            try { pid = "" + _inv0(d, SYM.ngq); } catch (e) { pid = "i" + i; }
+            budget.n--;
+            var kids = null;
+            try { kids = _relChildren(d, uo1); } catch (e) { kids = null; }
+            if (kids != null) rels.push(kids);
+            else { try { props[pid] = _jval(_memberValue(_inv1(d, SYM.Xzy, uo1))); } catch (e) {} }
+        }
+        if (props[_NOTE_P_KEY] !== undefined && props[_NOTE_P_CHAN] !== undefined) {
+            key = Number(props[_NOTE_P_KEY]);
+            chan = Number(props[_NOTE_P_CHAN]);
+            parent = uo1;                       // the per-key timeline owning these notes
+        }
+        if (props[_CLIP_P_TIME] !== undefined && props[_CLIP_P_DUR] !== undefined &&
+            props[_CLIP_P_VON] !== undefined) {
+            found.push({ doc: uo1, parent: parent, key: key, channel: chan,
+                         start: Number(props[_CLIP_P_TIME]),
+                         duration: Number(props[_CLIP_P_DUR]),
+                         velocity: Number(props[_CLIP_P_VON]),
+                         muted: (props[_NOTE_P_MUTED] === true ||
+                                 props[_NOTE_P_MUTED] === "true") });
+            return;                             // a note event has no notes beneath it
+        }
+        for (var r = 0; r < rels.length && budget.n > 0; r++) {
+            var kids2 = rels[r], nk = 0;
+            try { nk = kids2.size(); } catch (e) { nk = 0; }
+            for (var k = 0; k < nk && budget.n > 0; k++) {
+                var ch = null; try { ch = kids2.get(k); } catch (e) { ch = null; }
+                rec(ch, depth + 1, key, chan, parent);
+            }
+        }
+    }
+    rec(clipDoc, 0, -1, 0, null);
+    // Stable order (start, then pitch) so an index means the same note across calls.
+    found.sort(function (a, b) { return (a.start - b.start) || (a.key - b.key); });
+    return found;
+}
+
+function _noteDocAt(clipIdx, noteIdx) {
+    var found = _clipDocAt(clipIdx);
+    var notes = _findNoteDocs(found.clip.doc, { n: 40000 });
+    if (notes.length <= noteIdx)
+        throw "note " + noteIdx + " not found (" + notes.length + " in clip " + clipIdx + ")";
+    return { note: notes[noteIdx], all: notes, clip: found.clip };
+}
+
+// ── the two shared mechanisms ────────────────────────────────────────────────
+
+// Dispatch a command member on any document object.
+function _docCmd(doc, name, args, where) {
+    var target = _clipMemberOf(doc, name, null);
+    if (target == null) throw "member " + name + " not found on " + where;
+    var ArrayList = Java.type("java.util.ArrayList"), jargs = new ArrayList();
+    for (var a = 0; a < args.length; a++) jargs.add(_boxArg(args[a]));
+    // The dispatch is the single-List method on the member, resolved by SHAPE so the
+    // obfuscated name is free to move between builds.
+    var m = null, c = _classOf(target);
+    while (c != null && m == null) {
+        var ms = c.getDeclaredMethods();
+        for (var q = 0; q < ms.length; q++) {
+            var mm = ms[q];
+            if (mm.getParameterCount() !== 1) continue;
+            if (!Java.type("java.util.List").class.isAssignableFrom(mm.getParameterTypes()[0])) continue;
+            mm.setAccessible(true); m = mm; break;
+        }
+        c = c.getSuperclass();
+    }
+    if (m == null) throw "no (List) dispatch on member " + name;
+    // Pass the List as ONE argument: Method.invoke is varargs, and handing it a
+    // java.util.List directly makes the JS interop spread the list into separate arguments
+    // (seen as "wrong number of arguments: N expected: 1").
+    var out = m.invoke(target, Java.to([jargs], "java.lang.Object[]"));
+    return { dispatched: name, args: jargs.size(),
+             result: (out == null ? null : ("" + out).substring(0, 200)) };
+}
+
+// Report - or, with hasVal, write - a value member on any document object.
+function _docValue(doc, name, pid, hasVal, vtype, value, where) {
+    var target = _clipMemberOf(doc, name, pid);
+    if (target == null)
+        throw "member " + (name || ("pid " + pid)) + " not found on " + where;
+    var out = { member: (name || null), pid: pid };
+    try { out.cls = "" + _classOf(target).getName(); } catch (e) {}
+    out.current = _clipValueOf(target);
+    try { var st = _findMethod(_classOf(target), "isSettable", 0, null);
+          if (st) out.settable = !!st.invoke(target); } catch (e) {}
+    if (!hasVal) {
+        // Report-only mode also lists the single-argument methods of the member. On a build
+        // where a write fails, that shows which setter the member actually exposes.
+        var cands = [], cc = _classOf(target), seenS = {};
+        while (cc != null) {
+            var msS = cc.getDeclaredMethods();
+            for (var qs = 0; qs < msS.length; qs++) {
+                var mS = msS[qs];
+                if (mS.getParameterCount() !== 1) continue;
+                var nmS = "" + mS.getName();
+                if (seenS[nmS]) continue;
+                seenS[nmS] = 1;
+                cands.push({ name: nmS, param: "" + mS.getParameterTypes()[0].getSimpleName(),
+                             ret: "" + mS.getReturnType().getSimpleName() });
+            }
+            cc = cc.getSuperclass();
+        }
+        out.setter_candidates = cands.slice(0, 30);
+        return out;
+    }
+    var boxed = _boxArg([vtype, value]);
+    var setter = _findMethod(_classOf(target), "setValue", 1, null);
+    if (setter == null) {
+        var c2 = _classOf(target);
+        while (c2 != null && setter == null) {
+            var ms2 = c2.getDeclaredMethods();
+            for (var q2 = 0; q2 < ms2.length; q2++) {
+                var m2 = ms2[q2];
+                if (m2.getParameterCount() !== 1) continue;
+                if (("" + m2.getReturnType().getName()) !== "void") continue;
+                var pt = m2.getParameterTypes()[0];
+                if (pt.isPrimitive() || !pt.isInstance(boxed)) continue;
+                m2.setAccessible(true); setter = m2; break;
+            }
+            c2 = c2.getSuperclass();
+        }
+    }
+    if (setter == null) throw "no setter found for member " + (name || pid);
+    setter.invoke(target, boxed);
+    out.set_via = "" + setter.getName();
+    out.wrote = "" + value;
+    return out;
+}
+
+// ── clip-level ops ───────────────────────────────────────────────────────────
 
 // clip.list -> every arranger clip on the selected track: index, start, length, name.
 function _clipListOp(p) {
@@ -3052,31 +3204,10 @@ function _clipCmdOp(p) {
     if (!name) return { error: "name required" };
     _runOnDocumentThread(cursorTrack, function () {
         try {
-            var target = _clipMemberOf(_clipDocAt(idx).clip.doc, name, null);
-            if (target == null) throw "member '" + name + "' not found on clip " + idx;
-            var ArrayList = Java.type("java.util.ArrayList"), jargs = new ArrayList();
-            for (var a = 0; a < args.length; a++) jargs.add(_boxArg(args[a]));
-            // The dispatch is the member's single-List method; resolved by SHAPE so the
-            // obfuscated name is free to move between builds.
-            var m = null, c = _classOf(target);
-            while (c != null && m == null) {
-                var ms = c.getDeclaredMethods();
-                for (var q = 0; q < ms.length; q++) {
-                    var mm = ms[q];
-                    if (mm.getParameterCount() !== 1) continue;
-                    if (!Java.type("java.util.List").class.isAssignableFrom(mm.getParameterTypes()[0])) continue;
-                    mm.setAccessible(true); m = mm; break;
-                }
-                c = c.getSuperclass();
-            }
-            if (m == null) throw "no (List) dispatch on member '" + name + "'";
-            // Pass the List as ONE argument: Method.invoke is varargs, and handing it a
-            // java.util.List directly makes the JS interop spread the list into separate
-            // arguments ("wrong number of arguments: N expected: 1").
-            var out = m.invoke(target, Java.to([jargs], "java.lang.Object[]"));
-            gClipEdit = { dispatched: name, clip: idx, args: jargs.size(),
-                          result: (out == null ? null : ("" + out).substring(0, 200)) };
-            return gClipEdit;
+            var out = _docCmd(_clipDocAt(idx).clip.doc, name, args, "clip " + idx);
+            out.clip = idx;
+            gClipEdit = out;
+            return out;
         } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
     });
     return { queued: true, note: "fetch with clip.edit_result" };
@@ -3084,8 +3215,8 @@ function _clipCmdOp(p) {
 
 // clip.insert_notes -> add notes to an EXISTING clip.
 // Uses the op-id-resolved note-insert command (the one the create path uses, validated by
-// doctor) targeted at the located clip document. The clip's own insert_note member cannot
-// be driven from here: it expects Bitwig's internal note-spec objects, not plain numbers.
+// doctor) targeted at the located clip document. The insert_note member of the clip cannot
+// be driven from here: it expects Bitwig internal note-spec objects, not plain numbers.
 // p: { index, notes: [[channel, key, start_in_clip, duration, velocity], ...] }
 function _clipInsertNotesOp(p) {
     gClipEdit = null; gClipEditErr = null;
@@ -3126,59 +3257,167 @@ function _clipSetValueOp(p) {
     if (!name && !pid) return { error: "name or pid required" };
     _runOnDocumentThread(cursorTrack, function () {
         try {
-            var target = _clipMemberOf(_clipDocAt(idx).clip.doc, name, pid);
-            if (target == null)
-                throw "member '" + (name || ("pid " + pid)) + "' not found on clip " + idx;
-            var out = { clip: idx, member: (name || null), pid: pid };
-            try { out.cls = "" + _classOf(target).getName(); } catch (e) {}
-            out.current = _clipValueOf(target);
-            try { var st = _findMethod(_classOf(target), "isSettable", 0, null);
-                  if (st) out.settable = !!st.invoke(target); } catch (e) {}
-            if (!hasVal) {
-                // Report-only mode also lists the member's single-argument methods. On a
-                // build where a write fails, that is what shows which setter the member
-                // actually exposes (setValue, or an obfuscated typed one).
-                var cands = [], cc = _classOf(target), seenS = {};
-                while (cc != null) {
-                    var msS = cc.getDeclaredMethods();
-                    for (var qs = 0; qs < msS.length; qs++) {
-                        var mS = msS[qs];
-                        if (mS.getParameterCount() !== 1) continue;
-                        var nmS = "" + mS.getName();
-                        if (seenS[nmS]) continue;
-                        seenS[nmS] = 1;
-                        cands.push({ name: nmS, param: "" + mS.getParameterTypes()[0].getSimpleName(),
-                                     ret: "" + mS.getReturnType().getSimpleName() });
-                    }
-                    cc = cc.getSuperclass();
-                }
-                out.setter_candidates = cands.slice(0, 30);
-            }
-            if (hasVal) {
-                var boxed = _boxArg([vtype, p.value]);
-                var setter = _findMethod(_classOf(target), "setValue", 1, null);
-                if (setter == null) {
-                    var c2 = _classOf(target);
-                    while (c2 != null && setter == null) {
-                        var ms2 = c2.getDeclaredMethods();
-                        for (var q2 = 0; q2 < ms2.length; q2++) {
-                            var m2 = ms2[q2];
-                            if (m2.getParameterCount() !== 1) continue;
-                            if (("" + m2.getReturnType().getName()) !== "void") continue;
-                            var pt = m2.getParameterTypes()[0];
-                            if (pt.isPrimitive() || !pt.isInstance(boxed)) continue;
-                            m2.setAccessible(true); setter = m2; break;
-                        }
-                        c2 = c2.getSuperclass();
-                    }
-                }
-                if (setter == null) throw "no setter found for member '" + (name || pid) + "'";
-                setter.invoke(target, boxed);
-                out.set_via = "" + setter.getName();
-                out.wrote = "" + p.value;
-            }
+            var out = _docValue(_clipDocAt(idx).clip.doc, name, pid, hasVal, vtype,
+                                p.value, "clip " + idx);
+            out.clip = idx;
             gClipEdit = out;
             return out;
+        } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
+    });
+    return { queued: true, note: "fetch with clip.edit_result" };
+}
+
+// ── note-level ops (inside an existing clip) ─────────────────────────────────
+
+// clip.notes_list -> the notes of clip `index`, in (start, pitch) order. A position in this
+// list is the `note` index every other note op takes.
+function _clipNotesListOp(p) {
+    gClipEdit = null; gClipEditErr = null;
+    var idx = bget(p, "index", 0) | 0;
+    _runOnDocumentThread(cursorTrack, function () {
+        try {
+            var found = _clipDocAt(idx);
+            var notes = _findNoteDocs(found.clip.doc, { n: 40000 }), out = [];
+            for (var i = 0; i < notes.length; i++)
+                out.push({ note: i, key: notes[i].key, channel: notes[i].channel,
+                           start: notes[i].start, duration: notes[i].duration,
+                           velocity: notes[i].velocity, muted: notes[i].muted });
+            gClipEdit = { clip: idx, clip_start: found.clip.start, notes: out };
+            return { notes: out.length };
+        } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
+    });
+    return { queued: true, note: "fetch with clip.edit_result" };
+}
+
+// clip.note_members -> every member of one note event, and of the per-key timeline that
+// owns it. Reconnaissance: this is how the commands available on a note are found.
+// p: { index, note, limit }
+function _clipNoteMembersOp(p) {
+    gClipEdit = null; gClipEditErr = null;
+    var idx = bget(p, "index", 0) | 0, nidx = bget(p, "note", 0) | 0;
+    var limit = bget(p, "limit", 250) | 0;
+    _runOnDocumentThread(cursorTrack, function () {
+        try {
+            var at = _noteDocAt(idx, nidx);
+            function members(doc) {
+                if (doc == null) return [];
+                var cwo = _mx(doc), list = _descriptors(cwo), out = [];
+                var n = (list == null) ? 0 : list.size();
+                for (var j = 0; j < n && out.length < limit; j++) {
+                    var d = list.get(j), pid, v = null;
+                    try { pid = "" + _inv0(d, SYM.ngq); } catch (e) { pid = "i" + j; }
+                    try { v = _inv1(d, SYM.Xzy, doc); } catch (e) { v = null; }
+                    if (v == null) continue;
+                    var vcls = null; try { vcls = "" + _classOf(v).getName(); } catch (e) {}
+                    out.push({ pid: pid, name: _memberName(v), vcls: vcls });
+                }
+                return out;
+            }
+            gClipEdit = { clip: idx, note: nidx,
+                          note_info: { key: at.note.key, start: at.note.start,
+                                       duration: at.note.duration, velocity: at.note.velocity },
+                          note_members: members(at.note.doc),
+                          timeline_members: members(at.note.parent) };
+            return { note_members: gClipEdit.note_members.length,
+                     timeline_members: gClipEdit.timeline_members.length };
+        } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
+    });
+    return { queued: true, note: "fetch with clip.edit_result" };
+}
+
+// clip.note_set_value -> write a value member of one note: velocity (239), duration (38),
+// start (687), release velocity (240). p: { index, note, name | pid, value?, type? }
+function _clipNoteSetValueOp(p) {
+    gClipEdit = null; gClipEditErr = null;
+    var idx = bget(p, "index", 0) | 0, nidx = bget(p, "note", 0) | 0;
+    var name = "" + bget(p, "name", "");
+    var pid = (p.pid === undefined || p.pid === null) ? null : ("" + p.pid);
+    var hasVal = (p.value !== undefined && p.value !== null);
+    var vtype = "" + bget(p, "type", "num");
+    if (!name && !pid) return { error: "name or pid required" };
+    _runOnDocumentThread(cursorTrack, function () {
+        try {
+            var at = _noteDocAt(idx, nidx);
+            var out = _docValue(at.note.doc, name, pid, hasVal, vtype, p.value,
+                                "note " + nidx + " of clip " + idx);
+            out.clip = idx; out.note = nidx;
+            gClipEdit = out;
+            return out;
+        } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
+    });
+    return { queued: true, note: "fetch with clip.edit_result" };
+}
+
+// clip.note_cmd -> dispatch a command member on one note, or (with on = "timeline") on the
+// per-key timeline that owns it, which is where note REMOVAL is expected to live.
+// p: { index, note, name, args, on?: "note"|"timeline" }
+function _clipNoteCmdOp(p) {
+    gClipEdit = null; gClipEditErr = null;
+    var idx = bget(p, "index", 0) | 0, nidx = bget(p, "note", 0) | 0;
+    var name = "" + bget(p, "name", ""), args = p.args || [];
+    var on = "" + bget(p, "on", "note");
+    if (!name) return { error: "name required" };
+    _runOnDocumentThread(cursorTrack, function () {
+        try {
+            var at = _noteDocAt(idx, nidx);
+            var doc = (on === "timeline") ? at.note.parent : at.note.doc;
+            if (doc == null) throw "no " + on + " document for note " + nidx;
+            var out = _docCmd(doc, name, args, on + " of note " + nidx + " in clip " + idx);
+            out.clip = idx; out.note = nidx; out.on = on;
+            gClipEdit = out;
+            return out;
+        } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
+    });
+    return { queued: true, note: "fetch with clip.edit_result" };
+}
+
+// clip.note_delete -> remove ONE note from a clip.
+//
+// There is no per-event delete command in the document model: a note event exposes only
+// an is_about_to_be_deleted flag, and the per-key timeline that owns it exposes
+// delete_all_events, which removes every note of that pitch. So one note is removed by
+// wiping its pitch and re-inserting the others that shared it. Their values are captured
+// BEFORE the wipe - a write is not readable inside the same document task anyway.
+//
+// Caveat: survivors come back as plain notes. Per-note extras on them (chance, mute,
+// release velocity, occurrence/recurrence settings) are not preserved.
+// p: { index, note }
+function _clipNoteDeleteOp(p) {
+    gClipEdit = null; gClipEditErr = null;
+    var idx = bget(p, "index", 0) | 0, nidx = bget(p, "note", 0) | 0;
+    _runOnDocumentThread(cursorTrack, function () {
+        try {
+            var at = _noteDocAt(idx, nidx), victim = at.note;
+            if (victim.parent == null)
+                throw "note " + nidx + " has no owning key timeline";
+            var survivors = [];
+            for (var i = 0; i < at.all.length; i++) {
+                if (i === nidx) continue;
+                var nt = at.all[i];
+                if (nt.key !== victim.key || nt.channel !== victim.channel) continue;
+                survivors.push(nt);
+            }
+            _docCmd(victim.parent, "delete_all_events", [], "key timeline of note " + nidx);
+            var restored = 0;
+            if (survivors.length) {
+                var nc = _cmdResolve(SYM.noteCmd);
+                var ArrayList = Java.type("java.util.ArrayList");
+                var Dbl = Java.type("java.lang.Double"), Int = Java.type("java.lang.Integer");
+                for (var s2 = 0; s2 < survivors.length; s2++) {
+                    var sv = survivors[s2], a2 = new ArrayList();
+                    a2.add(Int.valueOf(sv.channel | 0));
+                    a2.add(Int.valueOf(sv.key | 0));
+                    a2.add(Dbl.valueOf(Number(sv.start)));
+                    a2.add(Dbl.valueOf(Number(sv.duration)));
+                    a2.add(Dbl.valueOf(Number(sv.velocity)));
+                    nc.exec.invoke(nc.cmd, at.clip.doc, a2);
+                    restored++;
+                }
+            }
+            gClipEdit = { clip: idx, note: nidx, deleted: { key: victim.key, start: victim.start,
+                          duration: victim.duration, velocity: victim.velocity },
+                          restored: restored, via: "delete_all_events + reinsert" };
+            return gClipEdit;
         } catch (e) { gClipEditErr = "" + e; return { error: gClipEditErr }; }
     });
     return { queued: true, note: "fetch with clip.edit_result" };
@@ -3189,6 +3428,11 @@ var CLIP_EDIT_HANDLERS = {
     "clip.cmd": _clipCmdOp,
     "clip.insert_notes": _clipInsertNotesOp,
     "clip.set_value": _clipSetValueOp,
+    "clip.notes_list": _clipNotesListOp,
+    "clip.note_members": _clipNoteMembersOp,
+    "clip.note_set_value": _clipNoteSetValueOp,
+    "clip.note_cmd": _clipNoteCmdOp,
+    "clip.note_delete": _clipNoteDeleteOp,
     "clip.edit_result": _clipEditResultOp
 };
 // Registered into the scoped clip gate (not the doctor-exempt surface): these are normal

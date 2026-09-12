@@ -369,6 +369,65 @@ class Track:
                                             "args": [list(a) if isinstance(a, (list, tuple)) else a
                                                      for a in (args or [])]})
 
+    # ── editing the NOTES inside an existing clip ────────────────────────────
+
+    def notes_info(self, clip_index=0):
+        """The notes of clip `clip_index`, in (start, pitch) order:
+        `[{note, key, channel, start, duration, velocity, muted}, ...]`.
+
+        `note` is the index the other note methods take. It is positional, so re-read
+        this after an edit that moves a note past another one. Note `start` is relative
+        to the clip, like the notes passed to `clip()`."""
+        res = self._clip_edit("clip.notes_list", {"index": int(clip_index)}) or {}
+        return res.get("notes", [])
+
+    def set_note(self, clip_index, note_index, *, velocity=None, duration=None,
+                 start=None, release=None, chance=None, muted=None):
+        """Change one note of a clip in place; only the given fields are written.
+
+        velocity / release / chance: `0..1`. duration / start: beats, with `start`
+        relative to the clip. muted: bool (a muted note stays in the clip, silent)."""
+        writes = [("239", velocity, "num"), ("38", duration, "num"),
+                  ("687", start, "num"), ("240", release, "num"),
+                  ("11772", chance, "num"), ("4344", muted, "bool")]
+        sent = 0
+        for pid, value, vtype in writes:
+            if value is None:
+                continue
+            self._clip_edit("clip.note_set_value", {
+                "index": int(clip_index), "note": int(note_index), "pid": pid,
+                "value": (bool(value) if vtype == "bool" else float(value)),
+                "type": vtype,
+            })
+            sent += 1
+        if not sent:
+            raise ValueError(
+                "set_note called with nothing to change; pass at least one of "
+                "velocity / duration / start / release / chance / muted")
+        return self
+
+    def delete_note(self, clip_index, note_index):
+        """Delete one note from a clip.
+
+        The document model has no per-event delete: the only removal command lives on the
+        per-key timeline and clears every note of that pitch. So this wipes the pitch and
+        re-inserts the notes that shared it - those survivors come back as plain notes and
+        lose per-note extras (chance, mute, release velocity)."""
+        self._clip_edit("clip.note_delete",
+                        {"index": int(clip_index), "note": int(note_index)})
+        return self
+
+    def note_cmd(self, clip_index, note_index, name, args=None, on="note"):
+        """Dispatch a raw command member on one note, or on the per-key timeline that owns
+        it (`on="timeline"`) - the escape hatch `delete_note` is built on.
+
+        args: `[value | ("int"|"num"|"bool"|"str", value), ...]`."""
+        return self._clip_edit("clip.note_cmd", {
+            "index": int(clip_index), "note": int(note_index),
+            "name": str(name), "on": str(on),
+            "args": [list(a) if isinstance(a, (list, tuple)) else a for a in (args or [])],
+        })
+
     def describe_clip(self):
         """Enumerate every descriptor of the currently-selected clip
         (property IDs + current values). Used to discover stretch / loop / etc.

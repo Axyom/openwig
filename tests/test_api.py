@@ -215,6 +215,54 @@ def test_clip_edit_mutators_chain(song):
     assert t.rename_clip(0, "x") is t
 
 
+# ── editing notes inside a clip ───────────────────────────────────────────────
+
+def test_notes_info_parses_controller_result(song):
+    t = song.track("BASS")
+    song.b.clip_edit_result = {"result": {"notes": [
+        {"note": 0, "key": 60, "channel": 0, "start": 0.0, "duration": 1.0,
+         "velocity": 0.8, "muted": False}]}}
+    info = t.notes_info(0)
+    assert "clip.notes_list" in song.b.methods()
+    assert info[0]["key"] == 60 and info[0]["velocity"] == 0.8
+
+
+def test_set_note_writes_only_the_given_fields(song):
+    t = song.track("BASS")
+    t.set_note(0, 2, velocity=0.25, duration=0.75)
+    writes = [p for m, p in song.b.calls if m == "clip.note_set_value"]
+    assert [(w["pid"], w["value"], w["type"]) for w in writes] == [
+        ("239", 0.25, "num"), ("38", 0.75, "num")]
+    assert all(w["index"] == 0 and w["note"] == 2 for w in writes)
+
+
+def test_set_note_muted_is_written_as_a_bool(song):
+    t = song.track("BASS")
+    t.set_note(0, 0, muted=True)
+    w = song.b.last("clip.note_set_value")
+    assert (w["pid"], w["value"], w["type"]) == ("4344", True, "bool")
+
+
+def test_set_note_with_nothing_to_change_raises(song):
+    t = song.track("BASS")
+    with pytest.raises(ValueError):
+        t.set_note(0, 0)
+
+
+def test_delete_note_calls_the_delete_op(song):
+    t = song.track("BASS")
+    t.delete_note(1, 3)
+    assert song.b.last("clip.note_delete") == {"index": 1, "note": 3}
+
+
+def test_note_cmd_normalizes_typed_args(song):
+    t = song.track("BASS")
+    t.note_cmd(0, 1, "delete_all_events", args=[("int", 2)], on="timeline")
+    p = song.b.last("clip.note_cmd")
+    assert p["name"] == "delete_all_events" and p["on"] == "timeline"
+    assert p["args"] == [["int", 2]]
+
+
 def test_clip_preserves_explicit_channel(song):
     t = song.track("BASS")
     t.clip([Note(33, 0.0, dur=0.5, vel=1.0, channel=3)])

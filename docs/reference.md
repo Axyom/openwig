@@ -113,6 +113,33 @@ t.rename_clip(0, "verse")
 t.add_notes(0, [Note(55, 0.5, 0.5, 0.9)])
 ```
 
+### Editing notes inside a clip
+
+Also index-addressed, so no clip needs to be selected in Bitwig.
+
+| Method | Description |
+|---|---|
+| `t.notes_info(clip_index)` | The clip notes: `[{note, key, channel, start, duration, velocity, muted}, ...]`, in (start, pitch) order. |
+| `t.set_note(clip_index, note_index, velocity=, duration=, start=, release=, chance=, muted=)` | Change one note in place; only the fields you pass are written. |
+| `t.delete_note(clip_index, note_index)` | Delete one note. |
+| `t.note_cmd(clip_index, note_index, name, args, on)` | Raw command on a note, or on the per-key timeline owning it (`on="timeline"`). |
+
+Note indices are positional in (start, pitch) order, so re-read `notes_info` after an edit
+that moves a note past another. Note `start` is relative to the clip.
+
+`delete_note` has a caveat worth knowing: the document model has no per-event delete, so it
+wipes the note pitch and re-inserts the notes that shared it. Those survivors come back as
+plain notes and lose per-note extras (chance, mute, release velocity).
+
+```python
+# tame every note that is too loud, then drop the third one
+for n in t.notes_info(0):
+    if n["velocity"] > 0.9:
+        t.set_note(0, n["note"], velocity=0.8)
+
+t.delete_note(0, 2)
+```
+
 ### Devices
 
 | Method | Description |
