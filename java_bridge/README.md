@@ -156,14 +156,12 @@ patch targets Windows; the shared PulseAudio/PipeWire capture backend remains
 available to the controller path on Linux. Capture failures stop playback and
 release the audio device.
 
-Transport playback, stopping, position, and loop readback passed live checks;
-play/stop state can take about 0.2 seconds to settle. Audible rendering live
-verification remains pending. On the development machine the default
-WASAPI loopback endpoint (an HDMI TV sink) captured silence even for a tone
-played by a separate Python process, while other endpoints captured it, so
-the silent WAV is currently attributed to the capture endpoint rather than
-the bridge. `render` warns when the capture is silent. Repeat the check in an
-open disposable project using `$env:PYTHONPATH="src"; python tests\live_java_render.py`.
+Transport playback, stopping, position, loop readback, and audible rendering
+passed live checks (FM-4 note render: 2.5 s, 48 kHz stereo, rms 0.103); play/stop
+state can take about 0.2 seconds to settle. Loopback capture records the
+default output, so a muted or powered-off default endpoint yields a silent
+WAV; `render` warns in that case. Repeat the check in an open disposable
+project using `$env:PYTHONPATH="src"; python tests\live_java_render.py`.
 That check creates and deletes one temporary FM-4 track, checks playback and
 loop readback, and writes `scratch/java-render-smoke.wav`. It does not clear or
 save the project. Use an empty disposable project so existing tracks cannot
