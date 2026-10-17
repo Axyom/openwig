@@ -1,17 +1,21 @@
 # Bitwig 6.1.5 Java bridge experiment
 
 This directory contains the first, independently written replacement for the
-controller-script transport. It is **not yet a replacement for openwig's song
-operations**. The current Java endpoint answers `ping`, `host.version`, and
-`bridge.capabilities`; it reports `song_edit: false`. The existing Python
+controller-script transport. It is **not yet a replacement for openwig's full
+Song API**. The current Java endpoint supports `ping`, `host.version`,
+`bridge.capabilities`, `document.status`, `transport.get_tempo`,
+`transport.set_tempo`, `track.count`, and appending a named instrument track
+with `track.create`. It reports `song_edit: false` because feature parity has
+not been reached. The existing Python
 `BridgeClient` can talk to it on `127.0.0.1:7778`. The controller remains on
 port 7777 until the Java backend reaches feature parity.
 
 The patch is locked to the Windows Bitwig Studio 6.1.5 build whose original
 `bin/bitwig.jar` has SHA-256
 `d56248d003101ead1381c8a4fd3e256d933773beccbeb3366c9abe744de41a49`.
-It modifies only `BitwigStudioMain.main` to call our bootstrap and adds one
-class. It does not contain Superpowers code.
+It modifies only `BitwigStudioMain.main` to call our bootstrap and adds two
+classes. The second class makes direct JVM calls to the exact-build Bitwig
+document API, with no runtime reflection. It does not contain Superpowers code.
 
 ## Build and test
 
@@ -24,9 +28,11 @@ python java_bridge\build.py --output scratch\bitwig-6.1.5-openwig.jar
 
 `smoke.py` checks the JAR diff and the framed JSON-RPC protocol. For a live
 test, install into a separate copy of Bitwig and launch that copy. The live
-test passed on 2026-10-17: the bundled Java 25 runtime loaded the patch and
-openwig's Python `BridgeClient` received the handshake, `pong`, and version
-from the running application. It did **not** exercise song editing.
+test passed on 2026-10-17: the bundled Java 25 runtime loaded the patch;
+openwig's Python `BridgeClient` received the handshake, changed tempo from
+128 to 123 BPM and read it back, and appended an instrument track to a
+disposable copy of `demo_openwig.bwproject` (track count 12 to 13). These are
+small integration checks, not a Song API parity test.
 
 ## Install and restore
 
@@ -48,7 +54,7 @@ patch; the installer rejects an unknown original.
 
 ## Next step
 
-Bind the Java endpoint to Bitwig's active document, add song operations with
-document-thread scheduling, and run the existing Python song examples against
-the patched application. Do not route openwig's Song API to this endpoint
-until those operations pass live tests.
+Port clips, notes, devices, automation, track properties, project clearing,
+and rendering controls. Then run the existing Python song examples against
+the patched application. The main Song API still targets the controller on
+port 7777 until those operations pass live tests.

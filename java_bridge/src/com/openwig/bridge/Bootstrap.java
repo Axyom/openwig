@@ -9,6 +9,9 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Callable;
 import org.json.JSONObject;
 
 /** Minimal in-process protocol endpoint. Song operations are added only after live validation. */
@@ -70,14 +73,50 @@ public final class Bootstrap {
             JSONObject response = new JSONObject().put("jsonrpc", "2.0")
                     .put("id", request.get("id"));
             String method = request.optString("method", "");
-            switch (method) {
+            try {
+                switch (method) {
                 case "ping" -> response.put("result", "pong");
                 case "host.version" -> response.put("result",
                         new JSONObject().put("version", "6.1.5"));
                 case "bridge.capabilities" -> response.put("result",
                         new JSONObject().put("backend", "java").put("song_edit", false));
+                case "document.status" -> response.put("result",
+                        new JSONObject().put("active", DirectAccess.hasActiveDocument()));
+                case "transport.get_tempo" -> response.put("result",
+                        new JSONObject().put("bpm", onDocumentEvent(DirectAccess::readTempo)));
+                case "transport.set_tempo" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    double bpm = params == null ? Double.NaN : params.optDouble("bpm", Double.NaN);
+                    if (!Double.isFinite(bpm) || bpm < 20 || bpm > 999) {
+                        throw new IllegalArgumentException("bpm must be between 20 and 999");
+                    }
+                    response.put("result", new JSONObject().put("bpm",
+                            onDocumentEvent(() -> {
+                                DirectAccess.writeTempo(bpm);
+                                return DirectAccess.readTempo();
+                            })));
+                }
+                case "track.count" -> response.put("result",
+                        new JSONObject().put("count", onDocumentEvent(DirectAccess::mainTrackCount)));
+                case "track.create" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    String type = params == null ? "instrument" : params.optString("type", "instrument");
+                    int index = params == null ? -1 : params.optInt("index", -1);
+                    String name = params == null ? "Openwig Track" :
+                            params.optString("name", "Openwig Track");
+                    if (!type.equals("instrument") || index != -1 || name.isBlank()) {
+                        throw new IllegalArgumentException(
+                                "only append of a named instrument track is supported");
+                    }
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.createInstrumentTrack(name))));
+                }
                 default -> response.put("error", new JSONObject()
                         .put("code", -32601).put("message", "method unavailable: " + method));
+                }
+            } catch (Throwable failure) {
+                response.put("error", new JSONObject().put("code", -32000)
+                        .put("message", failure.toString()));
             }
             send(output, response);
         }
@@ -87,5 +126,17 @@ public final class Bootstrap {
         output.write(value.toString());
         output.write('\n');
         output.flush();
+    }
+
+    private static <T> T onDocumentEvent(Callable<T> action) throws Exception {
+        CompletableFuture<T> completed = new CompletableFuture<>();
+        DirectAccess.dispatch(() -> {
+            try {
+                completed.complete(action.call());
+            } catch (Throwable failure) {
+                completed.completeExceptionally(failure);
+            }
+        });
+        return completed.get(4, TimeUnit.SECONDS);
     }
 }

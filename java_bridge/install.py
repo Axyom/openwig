@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from build import BRIDGE_CLASS, MAIN_CLASS, ORIGINAL_SHA256
+from build import ACCESS_CLASS, BRIDGE_CLASS, MAIN_CLASS, ORIGINAL_SHA256
 import zipfile
 
 DEFAULT_ROOT = Path(r"C:\Program Files\Bitwig Studio")
@@ -55,7 +55,7 @@ def install(root: Path, patched: Path, *, check_processes: bool = True) -> None:
     with zipfile.ZipFile(installed) as source, zipfile.ZipFile(patched) as target:
         source_names = set(source.namelist())
         target_names = set(target.namelist())
-        if target.testzip() is not None or target_names - source_names != {BRIDGE_CLASS}:
+        if target.testzip() is not None or target_names - source_names != {BRIDGE_CLASS, ACCESS_CLASS}:
             raise RuntimeError("patched JAR has unexpected contents")
         if source_names - target_names:
             raise RuntimeError("patched JAR removed original contents")

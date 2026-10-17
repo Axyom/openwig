@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import shutil
 import subprocess
 import tempfile
 import zipfile
@@ -12,6 +13,7 @@ from pathlib import Path
 ORIGINAL_SHA256 = "d56248d003101ead1381c8a4fd3e256d933773beccbeb3366c9abe744de41a49"
 MAIN_CLASS = "com/bitwig/flt/app/BitwigStudioMain.class"
 BRIDGE_CLASS = "com/openwig/bridge/Bootstrap.class"
+ACCESS_CLASS = "com/openwig/bridge/DirectAccess.class"
 HERE = Path(__file__).resolve().parent
 
 
@@ -28,16 +30,22 @@ def build(bitwig_root: Path, output: Path, jdk_bin: Path) -> None:
         work = Path(temp)
         classes = work / "classes"
         classes.mkdir()
-        sources = sorted((HERE / "src").rglob("*.java"))
+        patch_source = HERE / "src" / "com" / "openwig" / "bridge" / "PatchMain.java"
+        bootstrap_source = HERE / "src" / "com" / "openwig" / "bridge" / "Bootstrap.java"
         subprocess.run([str(jdk_bin / "javac"), "-proc:none", "-cp", str(libs),
-                        "-d", str(classes), *map(str, sources)], check=True)
+                        "-d", str(classes), str(patch_source)], check=True)
         original_class = work / "BitwigStudioMain.class"
         patched_class = work / "BitwigStudioMain.patched.class"
+        access_class = work / "DirectAccess.class"
         with zipfile.ZipFile(source) as jar:
             original_class.write_bytes(jar.read(MAIN_CLASS))
         subprocess.run([str(jdk_bin / "java"), "-cp", f"{classes};{libs}",
                         "com.openwig.bridge.PatchMain", str(original_class),
-                        str(patched_class)], check=True)
+                        str(patched_class), str(access_class)], check=True)
+        access_stub = HERE / "stubs" / "com" / "openwig" / "bridge" / "DirectAccess.java"
+        subprocess.run([str(jdk_bin / "javac"), "-proc:none", "-cp", f"{classes};{libs}",
+                        "-d", str(classes), str(bootstrap_source), str(access_stub)], check=True)
+        shutil.copy2(access_class, classes / ACCESS_CLASS)
         with zipfile.ZipFile(source) as original, zipfile.ZipFile(output, "w") as patched:
             for item in original.infolist():
                 contents = (patched_class.read_bytes() if item.filename == MAIN_CLASS
@@ -45,11 +53,13 @@ def build(bitwig_root: Path, output: Path, jdk_bin: Path) -> None:
                 patched.writestr(item, contents)
             patched.write(classes / BRIDGE_CLASS, BRIDGE_CLASS,
                           compress_type=zipfile.ZIP_DEFLATED)
+            patched.write(classes / ACCESS_CLASS, ACCESS_CLASS,
+                          compress_type=zipfile.ZIP_DEFLATED)
     with zipfile.ZipFile(output) as result:
         if result.testzip() is not None:
             raise ValueError("patched JAR failed ZIP integrity check")
-        if BRIDGE_CLASS not in result.namelist():
-            raise ValueError("bridge class missing from patched JAR")
+        if {BRIDGE_CLASS, ACCESS_CLASS} - set(result.namelist()):
+            raise ValueError("bridge classes missing from patched JAR")
     print(f"built {output}")
     print(f"source SHA-256 {digest}")
     print(f"output SHA-256 {hashlib.sha256(output.read_bytes()).hexdigest()}")

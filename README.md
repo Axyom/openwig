@@ -46,6 +46,12 @@ print(s.render("first.wav"))
 |------------|---------------|--------|----|
 | 0.1.x      | **6.0.6**     | 3.11+  | Windows; Linux experimental (`render()` needs pulseaudio-utils) |
 
+An experimental, exact-build Java bridge for **Bitwig 6.1.5 on Windows** is
+under development in [java_bridge](java_bridge/README.md). Its live-tested
+operations currently include tempo read/write and instrument-track creation.
+The Python `Song` API still uses the controller bridge while the Java backend
+is being completed.
+
 ## Install
 
 ```bash
