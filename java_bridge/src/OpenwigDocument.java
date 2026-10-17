@@ -1,0 +1,101 @@
+import com.bitwig.extension.api.project.Factory;
+import com.bitwig.extension.api.project.timeline.ClipTimeline;
+import com.bitwig.extension.api.project.timeline.Clip;
+import com.bitwig.extension.api.project.timeline.EventTimeline;
+import com.bitwig.extension.api.project.timeline.InstrumentNote;
+import com.bitwig.extension.api.project.timeline.NoteClip;
+import com.bitwig.extension.api.project.track.Track;
+import com.bitwig.flt.document.api.document.ApiProject;
+import com.bitwig.flt.document.core.master.oZU;
+import com.openwig.bridge.DirectAccess;
+import org.json.JSONArray;
+
+/** Exact-build song operations, called only from Bitwig's application event queue. */
+public final class OpenwigDocument {
+    private OpenwigDocument() {}
+
+    private static ApiProject project() {
+        return new ApiProject((oZU) DirectAccess.activeDocumentObject());
+    }
+
+    private static Track track(ApiProject project, int index) {
+        if (index < 0 || index >= project.getTrackGroup().mainTracks().size()) {
+            throw new IllegalArgumentException("main track index out of range: " + index);
+        }
+        return (Track) project.getTrackGroup().mainTracks().get(index);
+    }
+
+    public static int clipCount(int trackIndex) {
+        ApiProject project = project();
+        try {
+            return track(project, trackIndex).clipTimeline().getEvents().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int noteCount(int trackIndex, int clipIndex) {
+        ApiProject project = project();
+        try {
+            java.util.List<?> clips = track(project, trackIndex).clipTimeline().getEvents();
+            if (clipIndex < 0 || clipIndex >= clips.size()) {
+                throw new IllegalArgumentException("clip index out of range: " + clipIndex);
+            }
+            Clip clip = (Clip) clips.get(clipIndex);
+            if (!(clip instanceof NoteClip noteClip)) {
+                throw new IllegalArgumentException("clip is not a note clip");
+            }
+            return noteClip.getContent().getEventTimeline().getEvents().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int addNoteClip(int trackIndex, double start, double duration, JSONArray notes) {
+        ApiProject project = project();
+        String stage = "factory";
+        try {
+            Factory factory = project.getFactory();
+            stage = "track";
+            Track track = track(project, trackIndex);
+            stage = "new clip";
+            NoteClip clip = factory.createNoteClip(false);
+            stage = "set start";
+            clip.setTime(start);
+            stage = "set duration";
+            clip.setDuration(duration);
+            stage = "clip content";
+            EventTimeline noteTimeline = clip.getContent().getEventTimeline();
+            for (int i = 0; i < notes.length(); i++) {
+                JSONArray item = notes.getJSONArray(i);
+                if (item.length() != 5) {
+                    throw new IllegalArgumentException("note must be [channel,key,start,duration,velocity]");
+                }
+                int channel = item.getInt(0);
+                int key = item.getInt(1);
+                double noteStart = item.getDouble(2);
+                double noteDuration = item.getDouble(3);
+                double velocity = item.getDouble(4);
+                if (channel < 0 || channel > 15 || key < 0 || key > 127 ||
+                        !Double.isFinite(noteStart) || noteStart < 0 ||
+                        !Double.isFinite(noteDuration) || noteDuration <= 0 ||
+                        !Double.isFinite(velocity) || velocity < 0 || velocity > 1) {
+                    throw new IllegalArgumentException("invalid note at index " + i);
+                }
+                InstrumentNote note = factory.createInstrumentNote(channel, key,
+                        noteStart, noteDuration, velocity, 0.5);
+                stage = "add note " + i;
+                noteTimeline.addEvent(note);
+            }
+            stage = "attach clip";
+            ClipTimeline timeline = track.clipTimeline();
+            DirectAccess.runInUndo(timeline, () -> timeline.addEvent(clip));
+            stage = "count clips";
+            return timeline.getEvents().size();
+        } catch (Throwable failure) {
+            throw new IllegalStateException("clip stage " + stage, failure);
+        } finally {
+            project.dispose();
+        }
+    }
+}

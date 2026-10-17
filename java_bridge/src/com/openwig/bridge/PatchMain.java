@@ -14,8 +14,8 @@ public final class PatchMain {
     private PatchMain() {}
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 3) {
-            throw new IllegalArgumentException("usage: PatchMain input.class output.class access.class");
+        if (args.length != 4) {
+            throw new IllegalArgumentException("usage: PatchMain input.class output.class access.class undo.class");
         }
         byte[] original = Files.readAllBytes(Path.of(args[0]));
         int major = ((original[6] & 0xff) << 8) | (original[7] & 0xff);
@@ -58,6 +58,7 @@ public final class PatchMain {
         modified[7] = 69;
         Files.write(Path.of(args[1]), modified);
         Files.write(Path.of(args[2]), directAccess());
+        Files.write(Path.of(args[3]), undoAccess());
     }
 
     /**
@@ -246,6 +247,134 @@ public final class PatchMain {
         create.visitInsn(Opcodes.IRETURN);
         create.visitMaxs(0, 0);
         create.visitEnd();
+
+        MethodVisitor active = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "activeDocumentObject", "()Ljava/lang/Object;", null, null);
+        active.visitCode();
+        active.visitMethodInsn(Opcodes.INVOKESTATIC, "com/bitwig/flt/app/eY1", "ncg",
+                "()Lcom/bitwig/flt/app/eY1;", false);
+        active.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "com/bitwig/flt/app/eY1", "Lg",
+                "()LF;", false);
+        active.visitMethodInsn(Opcodes.INVOKEINTERFACE, "F", "getValue",
+                "()Ljava/lang/Object;", true);
+        active.visitTypeInsn(Opcodes.CHECKCAST, "java/util/List");
+        active.visitInsn(Opcodes.ICONST_0);
+        active.visitMethodInsn(Opcodes.INVOKEINTERFACE, "java/util/List", "get",
+                "(I)Ljava/lang/Object;", true);
+        active.visitTypeInsn(Opcodes.CHECKCAST, "aBx");
+        active.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "aBx", "wtf",
+                "()Lcom/bitwig/flt/document/core/iface/IPw;", false);
+        active.visitInsn(Opcodes.ARETURN);
+        active.visitMaxs(0, 0);
+        active.visitEnd();
+
+        MethodVisitor clipCount = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "clipCount", "(I)I", null, null);
+        clipCount.visitCode();
+        clipCount.visitVarInsn(Opcodes.ILOAD, 0);
+        clipCount.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "clipCount",
+                "(I)I", false);
+        clipCount.visitInsn(Opcodes.IRETURN);
+        clipCount.visitMaxs(0, 0);
+        clipCount.visitEnd();
+
+        MethodVisitor noteCount = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "noteCount", "(II)I", null, null);
+        noteCount.visitCode();
+        noteCount.visitVarInsn(Opcodes.ILOAD, 0);
+        noteCount.visitVarInsn(Opcodes.ILOAD, 1);
+        noteCount.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "noteCount",
+                "(II)I", false);
+        noteCount.visitInsn(Opcodes.IRETURN);
+        noteCount.visitMaxs(0, 0);
+        noteCount.visitEnd();
+
+        MethodVisitor undo = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "runInUndo", "(Ljava/lang/Object;Ljava/lang/Runnable;)V", null, null);
+        undo.visitCode();
+        undo.visitVarInsn(Opcodes.ALOAD, 0);
+        undo.visitVarInsn(Opcodes.ALOAD, 1);
+        undo.visitMethodInsn(Opcodes.INVOKESTATIC, "com/bitwig/ramona/core/OpenwigUndo",
+                "run", "(Ljava/lang/Object;Ljava/lang/Runnable;)V", false);
+        undo.visitInsn(Opcodes.RETURN);
+        undo.visitMaxs(0, 0);
+        undo.visitEnd();
+
+        MethodVisitor addClip = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "addNoteClip", "(IDDLorg/json/JSONArray;)I", null, null);
+        addClip.visitCode();
+        addClip.visitVarInsn(Opcodes.ILOAD, 0);
+        addClip.visitVarInsn(Opcodes.DLOAD, 1);
+        addClip.visitVarInsn(Opcodes.DLOAD, 3);
+        addClip.visitVarInsn(Opcodes.ALOAD, 5);
+        addClip.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "addNoteClip",
+                "(IDDLorg/json/JSONArray;)I", false);
+        addClip.visitInsn(Opcodes.IRETURN);
+        addClip.visitMaxs(0, 0);
+        addClip.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private static byte[] undoAccess() {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V1_5, Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL,
+                "com/bitwig/ramona/core/OpenwigUndo", null, "java/lang/Object", null);
+        MethodVisitor method = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "run", "(Ljava/lang/Object;Ljava/lang/Runnable;)V", null, null);
+        method.visitCode();
+        method.visitVarInsn(Opcodes.ALOAD, 0);
+        method.visitTypeInsn(Opcodes.CHECKCAST,
+                "com/bitwig/flt/document/api/document/ApiClipEventTimeline");
+        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
+                "com/bitwig/flt/document/api/document/ApiClipEventTimeline", "getTarget",
+                "()Ljava/lang/Object;", false);
+        method.visitTypeInsn(Opcodes.CHECKCAST, "iGQ");
+        method.visitVarInsn(Opcodes.ASTORE, 2);
+        method.visitVarInsn(Opcodes.ALOAD, 2);
+        method.visitLdcInsn("Insert Clip");
+        method.visitInsn(Opcodes.ICONST_1);
+        method.visitTypeInsn(Opcodes.ANEWARRAY, "com/bitwig/ramona/core/TWT");
+        method.visitInsn(Opcodes.DUP);
+        method.visitInsn(Opcodes.ICONST_0);
+        method.visitVarInsn(Opcodes.ALOAD, 2);
+        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "iGQ", "Ihe",
+                "()Lcom/bitwig/ramona/core/TWT;", false);
+        method.visitInsn(Opcodes.AASTORE);
+        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "com/bitwig/ramona/core/cq",
+                "IYM", "(Ljava/lang/String;[Lcom/bitwig/ramona/core/TWT;)Z", false);
+        Label started = new Label();
+        method.visitJumpInsn(Opcodes.IFNE, started);
+        method.visitTypeInsn(Opcodes.NEW, "java/lang/IllegalStateException");
+        method.visitInsn(Opcodes.DUP);
+        method.visitLdcInsn("Bitwig refused clip undo transaction");
+        method.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/IllegalStateException",
+                "<init>", "(Ljava/lang/String;)V", false);
+        method.visitInsn(Opcodes.ATHROW);
+        method.visitLabel(started);
+        Label tryStart = new Label();
+        Label tryEnd = new Label();
+        Label catchAll = new Label();
+        method.visitTryCatchBlock(tryStart, tryEnd, catchAll, null);
+        method.visitLabel(tryStart);
+        method.visitVarInsn(Opcodes.ALOAD, 1);
+        method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "java/lang/Runnable", "run", "()V", true);
+        method.visitLabel(tryEnd);
+        method.visitVarInsn(Opcodes.ALOAD, 2);
+        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "com/bitwig/ramona/core/cq",
+                "LTl", "()Z", false);
+        method.visitInsn(Opcodes.POP);
+        method.visitInsn(Opcodes.RETURN);
+        method.visitLabel(catchAll);
+        method.visitVarInsn(Opcodes.ASTORE, 3);
+        method.visitVarInsn(Opcodes.ALOAD, 2);
+        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "com/bitwig/ramona/core/cq",
+                "LTl", "()Z", false);
+        method.visitInsn(Opcodes.POP);
+        method.visitVarInsn(Opcodes.ALOAD, 3);
+        method.visitInsn(Opcodes.ATHROW);
+        method.visitMaxs(0, 0);
+        method.visitEnd();
         writer.visitEnd();
         return writer.toByteArray();
     }

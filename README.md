@@ -48,7 +48,8 @@ print(s.render("first.wav"))
 
 An experimental, exact-build Java bridge for **Bitwig 6.1.5 on Windows** is
 under development in [java_bridge](java_bridge/README.md). Its live-tested
-operations currently include tempo read/write and instrument-track creation.
+operations currently include tempo read/write, instrument-track creation, and
+arranger-clip creation with MIDI notes, plus clip and note count readback.
 The Python `Song` API still uses the controller bridge while the Java backend
 is being completed.
 

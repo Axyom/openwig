@@ -13,11 +13,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Callable;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 /** Minimal in-process protocol endpoint. Song operations are added only after live validation. */
 public final class Bootstrap {
     // Keep the prototype separate from the existing controller until parity is proven.
-    private static final int PORT = 7778;
+    private static final int PORT = Integer.getInteger("openwig.bridge.port", 7778);
     private static final int MAX_MESSAGE = 1024 * 1024;
     private static final AtomicBoolean STARTED = new AtomicBoolean();
 
@@ -111,12 +112,42 @@ public final class Bootstrap {
                     response.put("result", new JSONObject().put("count",
                             onDocumentEvent(() -> DirectAccess.createInstrumentTrack(name))));
                 }
+                case "clip.count" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.clipCount(track))));
+                }
+                case "clip.note_count" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    int clip = params == null ? -1 : params.optInt("clip", -1);
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.noteCount(track, clip))));
+                }
+                case "clip.create_arranger_with_notes" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    double start = params == null ? Double.NaN :
+                            params.optDouble("start", Double.NaN);
+                    double duration = params == null ? Double.NaN :
+                            params.optDouble("duration", Double.NaN);
+                    JSONArray notes = params == null ? null : params.optJSONArray("notes");
+                    if (track < 0 || !Double.isFinite(start) || start < 0 ||
+                            !Double.isFinite(duration) || duration <= 0 ||
+                            notes == null || notes.length() > 4096) {
+                        throw new IllegalArgumentException("invalid arranger clip request");
+                    }
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.addNoteClip(
+                                    track, start, duration, notes))));
+                }
                 default -> response.put("error", new JSONObject()
                         .put("code", -32601).put("message", "method unavailable: " + method));
                 }
             } catch (Throwable failure) {
                 response.put("error", new JSONObject().put("code", -32000)
-                        .put("message", failure.toString()));
+                        .put("message", describeFailure(failure)));
             }
             send(output, response);
         }
@@ -126,6 +157,21 @@ public final class Bootstrap {
         output.write(value.toString());
         output.write('\n');
         output.flush();
+    }
+
+    private static String describeFailure(Throwable failure) {
+        StringBuilder details = new StringBuilder();
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (!details.isEmpty()) {
+                details.append(" caused by ");
+            }
+            details.append(cause);
+            StackTraceElement[] stack = cause.getStackTrace();
+            for (int i = 0; i < Math.min(stack.length, 8); i++) {
+                details.append(" at ").append(stack[i]);
+            }
+        }
+        return details.toString();
     }
 
     private static <T> T onDocumentEvent(Callable<T> action) throws Exception {
