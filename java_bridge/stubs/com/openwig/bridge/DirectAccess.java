@@ -1,6 +1,7 @@
 package com.openwig.bridge;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 /** Compile-time signature only. The build replaces this with exact-build bytecode. */
 public final class DirectAccess {
@@ -27,6 +28,14 @@ public final class DirectAccess {
     }
 
     public static int createInstrumentTrack(String name) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONObject trackSnapshot(int index) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONObject updateTrack(int index, String field, JSONObject params) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 

@@ -248,6 +248,29 @@ public final class PatchMain {
         create.visitMaxs(0, 0);
         create.visitEnd();
 
+        MethodVisitor trackSnapshot = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "trackSnapshot", "(I)Lorg/json/JSONObject;", null, null);
+        trackSnapshot.visitCode();
+        trackSnapshot.visitVarInsn(Opcodes.ILOAD, 0);
+        trackSnapshot.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "trackSnapshot",
+                "(I)Lorg/json/JSONObject;", false);
+        trackSnapshot.visitInsn(Opcodes.ARETURN);
+        trackSnapshot.visitMaxs(0, 0);
+        trackSnapshot.visitEnd();
+
+        MethodVisitor updateTrack = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "updateTrack", "(ILjava/lang/String;Lorg/json/JSONObject;)Lorg/json/JSONObject;",
+                null, null);
+        updateTrack.visitCode();
+        updateTrack.visitVarInsn(Opcodes.ILOAD, 0);
+        updateTrack.visitVarInsn(Opcodes.ALOAD, 1);
+        updateTrack.visitVarInsn(Opcodes.ALOAD, 2);
+        updateTrack.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "updateTrack",
+                "(ILjava/lang/String;Lorg/json/JSONObject;)Lorg/json/JSONObject;", false);
+        updateTrack.visitInsn(Opcodes.ARETURN);
+        updateTrack.visitMaxs(0, 0);
+        updateTrack.visitEnd();
+
         MethodVisitor active = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "activeDocumentObject", "()Ljava/lang/Object;", null, null);
         active.visitCode();

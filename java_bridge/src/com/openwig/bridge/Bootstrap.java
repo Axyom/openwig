@@ -99,6 +99,41 @@ public final class Bootstrap {
                 }
                 case "track.count" -> response.put("result",
                         new JSONObject().put("count", onDocumentEvent(DirectAccess::mainTrackCount)));
+                case "track.snapshot" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int index = params == null ? -1 : params.optInt("index", -1);
+                    if (index < 0) {
+                        throw new IllegalArgumentException("main track index is required");
+                    }
+                    response.put("result", onDocumentEvent(() -> DirectAccess.trackSnapshot(index)));
+                }
+                case "track.rename", "track.set_volume", "track.set_pan", "track.set_mute" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int index = params == null ? -1 : params.optInt("index", -1);
+                    if (index < 0 || params == null) {
+                        throw new IllegalArgumentException("main track index is required");
+                    }
+                    String field;
+                    if (method.equals("track.rename")) {
+                        if (params.optString("name", "").isBlank()) {
+                            throw new IllegalArgumentException("track name is required");
+                        }
+                        field = "name";
+                    } else if (method.equals("track.set_mute")) {
+                        if (!params.has("on")) {
+                            throw new IllegalArgumentException("mute state is required");
+                        }
+                        field = "mute";
+                    } else {
+                        double value = params.optDouble("value", Double.NaN);
+                        if (!Double.isFinite(value) || value < 0 || value > 1) {
+                            throw new IllegalArgumentException("value must be between 0 and 1");
+                        }
+                        field = method.equals("track.set_volume") ? "volume" : "pan";
+                    }
+                    response.put("result", onDocumentEvent(
+                            () -> DirectAccess.updateTrack(index, field, params)));
+                }
                 case "track.create" -> {
                     JSONObject params = request.optJSONObject("params");
                     String type = params == null ? "instrument" : params.optString("type", "instrument");

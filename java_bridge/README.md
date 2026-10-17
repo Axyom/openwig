@@ -5,7 +5,9 @@ controller-script transport. It is **not yet a replacement for openwig's full
 Song API**. The current Java endpoint supports `ping`, `host.version`,
 `bridge.capabilities`, `document.status`, `transport.get_tempo`,
 `transport.set_tempo`, `track.count`, and appending a named instrument track
-with `track.create`. It also supports `clip.count`, `clip.note_count`, and
+with `track.create`. Main-track `track.snapshot`, `track.rename`,
+`track.set_volume`, `track.set_pan`, and `track.set_mute` are also available.
+It also supports `clip.count`, `clip.note_count`, and
 `clip.create_arranger_with_notes` for a selected main-track index. It reports
 `song_edit: false` because feature parity has
 not been reached. The existing Python
@@ -39,6 +41,9 @@ disposable copy of `demo_openwig.bwproject` (track count 12 to 13). A later
 live check created a one-note arranger clip on a new instrument track and
 read back one clip and one note. These are small integration checks, not a
 Song API parity test. The original Program Files installation was not patched.
+Track rename, volume, pan, and mute were verified with readback on another
+disposable track. Volume and pan use the controller-compatible normalized
+`0..1` scale; pan `0.5` is center.
 
 For the clip call, send an explicit zero-based main-track index and beat-based
 start and duration. Notes are `[channel, key, start, duration, velocity]`,

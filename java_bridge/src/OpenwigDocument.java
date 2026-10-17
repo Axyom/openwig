@@ -5,10 +5,13 @@ import com.bitwig.extension.api.project.timeline.EventTimeline;
 import com.bitwig.extension.api.project.timeline.InstrumentNote;
 import com.bitwig.extension.api.project.timeline.NoteClip;
 import com.bitwig.extension.api.project.track.Track;
+import com.bitwig.extension.api.project.mixer.Mixer;
+import com.bitwig.extension.api.project.parameter.Unit;
 import com.bitwig.flt.document.api.document.ApiProject;
 import com.bitwig.flt.document.core.master.oZU;
 import com.openwig.bridge.DirectAccess;
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 /** Exact-build song operations, called only from Bitwig's application event queue. */
 public final class OpenwigDocument {
@@ -29,6 +32,45 @@ public final class OpenwigDocument {
         ApiProject project = project();
         try {
             return track(project, trackIndex).clipTimeline().getEvents().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static JSONObject trackSnapshot(Track track, int index) {
+        Mixer mixer = track.mixer();
+        return new JSONObject()
+                .put("index", index)
+                .put("name", track.getTitle())
+                .put("volume", mixer.getVolume().getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0)
+                .put("pan", (mixer.getPan().getValue(Unit.PERCENTAGE_OF_RANGE) + 100.0) / 200.0)
+                .put("mute", mixer.getMute().getValue());
+    }
+
+    public static JSONObject trackSnapshot(int trackIndex) {
+        ApiProject project = project();
+        try {
+            return trackSnapshot(track(project, trackIndex), trackIndex);
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static JSONObject updateTrack(int trackIndex, String field, JSONObject params) {
+        ApiProject project = project();
+        try {
+            Track track = track(project, trackIndex);
+            switch (field) {
+                case "name" -> track.setTitle(params.getString("name"));
+                case "volume" -> track.mixer().getVolume()
+                        .setValue(params.getDouble("value") * 100.0, Unit.PERCENTAGE_OF_RANGE);
+                case "pan" -> track.mixer().getPan()
+                        .setValue((params.getDouble("value") * 2.0 - 1.0) * 100.0,
+                                Unit.PERCENTAGE_OF_RANGE);
+                case "mute" -> track.mixer().getMute().setValue(params.getBoolean("on"));
+                default -> throw new IllegalArgumentException("unknown track field: " + field);
+            }
+            return trackSnapshot(track, trackIndex);
         } finally {
             project.dispose();
         }
