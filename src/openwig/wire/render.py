@@ -13,7 +13,7 @@ CLI: python wire_render.py out.wav BEATS TEMPO
 """
 import subprocess
 import math
-import sys, time, wave
+import sys, time, wave, warnings
 from pathlib import Path
 import numpy as np
 
@@ -36,6 +36,10 @@ def _finish_wav(chunks, ch, sr, out_path):
     with wave.open(out_path, "wb") as w:
         w.setnchannels(ch); w.setsampwidth(2); w.setframerate(sr)
         w.writeframes(b"".join(chunks))
+    if rms < 1e-3:
+        warnings.warn("render captured silence: the song may be empty, or the default output "
+                      "endpoint's loopback may be dead (e.g. an HDMI/TV sink that is off or muted). "
+                      "Set a working default output device and retry.", RuntimeWarning, stacklevel=2)
     dur = len(audio) / ch / sr
     return {"path": out_path, "seconds": round(dur, 2), "rate": sr, "channels": ch,
             "rms": round(rms, 5), "silent": rms < 1e-3}
