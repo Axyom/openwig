@@ -11,6 +11,9 @@ import com.bitwig.extension.api.project.mixer.NativeDevice;
 import com.bitwig.extension.api.project.mixer.Device;
 import com.bitwig.extension.api.project.parameter.Unit;
 import com.bitwig.flt.document.api.document.ApiProject;
+import com.bitwig.flt.document.api.document.ApiObject;
+import com.bitwig.flt.document.core.master.Yko;
+import com.bitwig.flt.document.core.master.Kkl;
 import com.bitwig.flt.document.core.master.oZU;
 import com.openwig.bridge.DirectAccess;
 import org.json.JSONArray;
@@ -47,6 +50,36 @@ public final class OpenwigDocument {
         } finally {
             project.dispose();
         }
+    }
+
+    public static int deleteTrack(int trackIndex) {
+        ApiProject project = project();
+        try {
+            Track targetTrack = track(project, trackIndex);
+            Object groupApi = project.getTrackGroup();
+            Yko group = (Yko) ((ApiObject) groupApi).getTarget();
+            Kkl target = (Kkl) ((ApiObject) targetTrack).getTarget();
+            int before = project.getTrackGroup().mainTracks().size();
+            DirectAccess.runInUndo(targetTrack.clipTimeline(), () -> group.jPB(target));
+            int after = project.getTrackGroup().mainTracks().size();
+            if (after != before - 1) {
+                throw new IllegalStateException("track count did not decrease after deletion");
+            }
+            return after;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int clearMainTracks() {
+        int before = DirectAccess.mainTrackCount();
+        for (int index = before - 1; index >= 0; index--) {
+            deleteTrack(index);
+        }
+        if (DirectAccess.mainTrackCount() != 0) {
+            throw new IllegalStateException("main tracks remain after clear");
+        }
+        return before;
     }
 
     public static JSONArray deviceSnapshot(int trackIndex) {

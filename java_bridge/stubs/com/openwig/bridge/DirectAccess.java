@@ -31,6 +31,14 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static int deleteTrack(int index) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int clearMainTracks() {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static JSONObject trackSnapshot(int index) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }

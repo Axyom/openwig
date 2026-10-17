@@ -99,6 +99,18 @@ public final class Bootstrap {
                 }
                 case "track.count" -> response.put("result",
                         new JSONObject().put("count", onDocumentEvent(DirectAccess::mainTrackCount)));
+                case "track.delete" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int index = params == null ? -1 : params.optInt("index", -1);
+                    if (index < 0) {
+                        throw new IllegalArgumentException("main track index is required");
+                    }
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.deleteTrack(index))));
+                }
+                case "project.clear_main_tracks" -> response.put("result",
+                        new JSONObject().put("deleted",
+                                onDocumentEvent(DirectAccess::clearMainTracks, 60)));
                 case "device.count" -> {
                     JSONObject params = request.optJSONObject("params");
                     int track = params == null ? -1 : params.optInt("track", -1);
@@ -242,6 +254,10 @@ public final class Bootstrap {
     }
 
     private static <T> T onDocumentEvent(Callable<T> action) throws Exception {
+        return onDocumentEvent(action, 4);
+    }
+
+    private static <T> T onDocumentEvent(Callable<T> action, long timeoutSeconds) throws Exception {
         CompletableFuture<T> completed = new CompletableFuture<>();
         DirectAccess.dispatch(() -> {
             try {
@@ -250,6 +266,6 @@ public final class Bootstrap {
                 completed.completeExceptionally(failure);
             }
         });
-        return completed.get(4, TimeUnit.SECONDS);
+        return completed.get(timeoutSeconds, TimeUnit.SECONDS);
     }
 }

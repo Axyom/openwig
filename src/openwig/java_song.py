@@ -44,6 +44,10 @@ class JavaSong:
     def tempo(self, bpm: float) -> float:
         return self.b.request("transport.set_tempo", {"bpm": float(bpm)})["bpm"]
 
+    def clear_main_tracks(self) -> int:
+        """Remove all main tracks in the active project and return their count."""
+        return self.b.request("project.clear_main_tracks", timeout=65)["deleted"]
+
     def track(self, name: str, device: str | None = None) -> JavaTrack:
         if not name or not name.strip():
             raise ValueError("track name is required")

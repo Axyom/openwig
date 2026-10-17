@@ -248,6 +248,25 @@ public final class PatchMain {
         create.visitMaxs(0, 0);
         create.visitEnd();
 
+        MethodVisitor deleteTrack = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "deleteTrack", "(I)I", null, null);
+        deleteTrack.visitCode();
+        deleteTrack.visitVarInsn(Opcodes.ILOAD, 0);
+        deleteTrack.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "deleteTrack",
+                "(I)I", false);
+        deleteTrack.visitInsn(Opcodes.IRETURN);
+        deleteTrack.visitMaxs(0, 0);
+        deleteTrack.visitEnd();
+
+        MethodVisitor clearMain = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "clearMainTracks", "()I", null, null);
+        clearMain.visitCode();
+        clearMain.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "clearMainTracks",
+                "()I", false);
+        clearMain.visitInsn(Opcodes.IRETURN);
+        clearMain.visitMaxs(0, 0);
+        clearMain.visitEnd();
+
         MethodVisitor trackSnapshot = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "trackSnapshot", "(I)Lorg/json/JSONObject;", null, null);
         trackSnapshot.visitCode();
