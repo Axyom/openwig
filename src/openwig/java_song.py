@@ -85,6 +85,16 @@ class JavaTrack:
             raise BridgeError("device count did not increase after insertion")
         return self
 
+    def devices(self) -> list[dict]:
+        """Read device indexes, optional display names, and enabled states."""
+        return self.s.b.request("device.snapshot", {"track": self.idx})
+
+    def enable_device(self, index: int, on: bool = True) -> JavaTrack:
+        self.s.b.request("device.set_enabled", {
+            "track": self.idx, "index": int(index), "on": bool(on),
+        })
+        return self
+
     def rename(self, name: str) -> JavaTrack:
         self.s.b.request("track.rename", {"index": self.idx, "name": name})
         self.name = name

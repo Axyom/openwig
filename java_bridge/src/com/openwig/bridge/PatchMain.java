@@ -333,6 +333,28 @@ public final class PatchMain {
         deviceCount.visitMaxs(0, 0);
         deviceCount.visitEnd();
 
+        MethodVisitor deviceSnapshot = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "deviceSnapshot", "(I)Lorg/json/JSONArray;", null, null);
+        deviceSnapshot.visitCode();
+        deviceSnapshot.visitVarInsn(Opcodes.ILOAD, 0);
+        deviceSnapshot.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "deviceSnapshot",
+                "(I)Lorg/json/JSONArray;", false);
+        deviceSnapshot.visitInsn(Opcodes.ARETURN);
+        deviceSnapshot.visitMaxs(0, 0);
+        deviceSnapshot.visitEnd();
+
+        MethodVisitor deviceEnabled = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "setDeviceEnabled", "(IIZ)Lorg/json/JSONObject;", null, null);
+        deviceEnabled.visitCode();
+        deviceEnabled.visitVarInsn(Opcodes.ILOAD, 0);
+        deviceEnabled.visitVarInsn(Opcodes.ILOAD, 1);
+        deviceEnabled.visitVarInsn(Opcodes.ILOAD, 2);
+        deviceEnabled.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "setDeviceEnabled",
+                "(IIZ)Lorg/json/JSONObject;", false);
+        deviceEnabled.visitInsn(Opcodes.ARETURN);
+        deviceEnabled.visitMaxs(0, 0);
+        deviceEnabled.visitEnd();
+
         MethodVisitor insertDevice = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "insertFactoryDevice", "(ILjava/lang/String;)I", null, null);
         insertDevice.visitCode();

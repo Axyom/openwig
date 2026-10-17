@@ -9,6 +9,8 @@ with `track.create`. Main-track `track.snapshot`, `track.rename`,
 `track.set_volume`, `track.set_pan`, and `track.set_mute` are also available.
 `device.count` and `device.insert_factory` append native factory devices by
 their exact catalog names, such as `FM-4`.
+`device.snapshot` returns each device's index, optional display name, and
+enabled state; `device.set_enabled` toggles that state.
 It also supports `clip.count`, `clip.note_count`, and
 `clip.create_arranger_with_notes` for a selected main-track index. It reports
 `song_edit: false` because feature parity has
@@ -49,6 +51,8 @@ disposable track. Volume and pan use the controller-compatible normalized
 FM-4 insertion was verified on an isolated instrument track with device count
 changing from zero to one. Bitwig requires an undo transaction around this
 edit; the bridge uses the owning track timeline's transaction token.
+The FM-4 device's enabled state was toggled off and on with live readback.
+Bitwig returns an empty display name for an unrenamed factory device.
 
 For the clip call, send an explicit zero-based main-track index and beat-based
 start and duration. Notes are `[channel, key, start, duration, velocity]`,

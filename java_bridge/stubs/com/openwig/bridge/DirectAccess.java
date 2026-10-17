@@ -59,6 +59,14 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static JSONArray deviceSnapshot(int trackIndex) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONObject setDeviceEnabled(int trackIndex, int deviceIndex, boolean on) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static int insertFactoryDevice(int trackIndex, String name) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }

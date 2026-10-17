@@ -8,6 +8,7 @@ import com.bitwig.extension.api.project.track.Track;
 import com.bitwig.extension.api.project.mixer.Mixer;
 import com.bitwig.extension.api.project.mixer.DeviceChain;
 import com.bitwig.extension.api.project.mixer.NativeDevice;
+import com.bitwig.extension.api.project.mixer.Device;
 import com.bitwig.extension.api.project.parameter.Unit;
 import com.bitwig.flt.document.api.document.ApiProject;
 import com.bitwig.flt.document.core.master.oZU;
@@ -43,6 +44,40 @@ public final class OpenwigDocument {
         ApiProject project = project();
         try {
             return track(project, trackIndex).deviceChain().getDevices().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static JSONArray deviceSnapshot(int trackIndex) {
+        ApiProject project = project();
+        try {
+            JSONArray devices = new JSONArray();
+            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
+            for (int i = 0; i < members.size(); i++) {
+                Device device = (Device) members.get(i);
+                devices.put(new JSONObject().put("index", i)
+                        .put("display_name", device.getDisplayName())
+                        .put("enabled", device.getEnabled().getValue()));
+            }
+            return devices;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static JSONObject setDeviceEnabled(int trackIndex, int deviceIndex, boolean enabled) {
+        ApiProject project = project();
+        try {
+            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
+            if (deviceIndex < 0 || deviceIndex >= members.size()) {
+                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+            }
+            Device device = (Device) members.get(deviceIndex);
+            device.getEnabled().setValue(enabled);
+            return new JSONObject().put("index", deviceIndex)
+                    .put("display_name", device.getDisplayName())
+                    .put("enabled", device.getEnabled().getValue());
         } finally {
             project.dispose();
         }

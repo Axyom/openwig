@@ -105,6 +105,21 @@ public final class Bootstrap {
                     response.put("result", new JSONObject().put("count",
                             onDocumentEvent(() -> DirectAccess.deviceCount(track))));
                 }
+                case "device.snapshot" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    response.put("result", onDocumentEvent(() -> DirectAccess.deviceSnapshot(track)));
+                }
+                case "device.set_enabled" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    int index = params == null ? -1 : params.optInt("index", -1);
+                    if (track < 0 || index < 0 || !params.has("on")) {
+                        throw new IllegalArgumentException("track, device index, and enabled state are required");
+                    }
+                    response.put("result", onDocumentEvent(() ->
+                            DirectAccess.setDeviceEnabled(track, index, params.getBoolean("on"))));
+                }
                 case "device.insert_factory" -> {
                     JSONObject params = request.optJSONObject("params");
                     int track = params == null ? -1 : params.optInt("track", -1);

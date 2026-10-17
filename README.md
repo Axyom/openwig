@@ -50,7 +50,7 @@ An experimental, exact-build Java bridge for **Bitwig 6.1.5 on Windows** is
 under development in [java_bridge](java_bridge/README.md). Its live-tested
 operations currently include tempo read/write, instrument-track creation,
 track mixer controls, native factory device insertion, and arranger-clip
-creation with MIDI notes, plus device, clip, and note count readback.
+creation with MIDI notes, plus device state and clip/note count readback.
 The experimental Python `JavaSong` API exercises that subset directly. The
 full `Song` API still uses the controller bridge while the Java backend is
 being completed.
