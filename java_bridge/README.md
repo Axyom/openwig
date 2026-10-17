@@ -50,6 +50,22 @@ start and duration. Notes are `[channel, key, start, duration, velocity]`,
 where each start is relative to the clip. The endpoint uses the same framed
 JSON-RPC protocol as `BridgeClient` and runs on port 7778.
 
+The Python package exposes `JavaSong` for this tested subset. Open a project
+in the patched Bitwig copy, then run:
+
+```python
+from openwig import JavaSong, Note
+
+with JavaSong(tempo=128, bars=4) as song:
+    song.track("Java Probe").volume(0.7).pan(0).clip([
+        Note(60, 0, dur=1), Note(64, 1, dur=1),
+    ])
+```
+
+`JavaSong` currently appends instrument tracks and MIDI arranger clips. It
+does not yet expose devices, automation, launcher clips, project clearing,
+or rendering.
+
 ## Install and restore
 
 Close Bitwig first. A live install under `C:\Program Files` requires a Windows
