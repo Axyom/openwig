@@ -44,9 +44,77 @@ class JavaSong:
     def tempo(self, bpm: float) -> float:
         return self.b.request("transport.set_tempo", {"bpm": float(bpm)})["bpm"]
 
+    def transport(self) -> dict:
+        """Read playback position, playing state, and arranger loop region."""
+        return self.b.request("transport.snapshot")
+
+    def play(self, loop: bool = True) -> JavaSong:
+        """Play the arrangement from beat zero, optionally looping this song."""
+        self.b.request("transport.set_position", {"beats": 0.0})
+        if loop:
+            self.b.request("transport.set_loop_region", {
+                "start": 0.0, "length": float(self.total),
+            })
+        self.b.request("transport.set_loop", {"on": bool(loop)})
+        self.b.request("transport.play")
+        self._wait_playing(True)
+        return self
+
+    def _wait_playing(self, playing: bool) -> None:
+        import time
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if self.transport()["playing"] == playing:
+                return
+            time.sleep(0.02)
+        raise BridgeError(f"transport did not reach playing={playing}")
+
+    def stop(self) -> JavaSong:
+        self.b.request("transport.stop")
+        self._wait_playing(False)
+        return self
+
+    def render(self, path, *, tail: float = 1.0, lead: float = 0.3) -> dict:
+        """Capture one arrangement pass to WAV through system audio loopback.
+
+        This is a real-time recording of the default audio output, including
+        other applications using that output. Returns capture duration, sample
+        rate, channel count, RMS, and a silence flag. Bitwig's native tempo map
+        determines capture duration, including arranger tempo automation.
+        """
+        import math
+        import time
+        from openwig.wire.render import render_to_wav
+
+        if not math.isfinite(tail) or tail < 0:
+            raise ValueError("tail must be a finite nonnegative duration")
+        if not math.isfinite(lead) or lead < 0:
+            raise ValueError("lead must be a finite nonnegative duration")
+        self.stop()
+        # The engine's tempo-map cache follows document edits asynchronously.
+        time.sleep(0.2)
+        bpm = self.b.request("transport.get_tempo")["bpm"]
+        duration = self.b.request("transport.beats_to_seconds", {
+            "beats": float(self.total),
+        })["seconds"]
+        try:
+            return render_to_wav(self.b, path, beats=self.total,
+                                 tempo=bpm, tail=tail, lead=lead,
+                                 duration_seconds=duration, set_tempo=False)
+        finally:
+            self.stop()
+
     def clear_main_tracks(self) -> int:
         """Remove all main tracks in the active project and return their count."""
         return self.b.request("project.clear_main_tracks", timeout=65)["deleted"]
+
+    def automate_tempo(self, points) -> JavaSong:
+        """Replace arranger tempo automation with beat/BPM points (20..666 BPM)."""
+        self.b.request("automation.write", {
+            "param": "tempo", "points": [list(point) for point in points],
+        })
+        return self
 
     def clear(self) -> dict:
         """Remove main/effect tracks and master devices from the active project."""
@@ -186,6 +254,26 @@ class JavaTrack:
         self.s.b.request("track.rename", {"index": self.idx, "name": name})
         self.name = name
         return self
+
+    def automate(self, param: str, points, device_index: int = 0,
+                 unit: str | None = None) -> JavaTrack:
+        """Replace an arranger lane for volume, pan, or a native parameter path.
+
+        Points are (beat, value[, curvature, 'linear'|'hold']). Numeric values
+        default to 0..1, including pan (0.5 is center). Use an explicit Bitwig
+        Unit for native parameters when needed. At least two points are required.
+        """
+        self.s.b.request("automation.write", {
+            "track": self.idx, "device": int(device_index), "param": param,
+            "unit": unit, "points": [list(point) for point in points],
+        })
+        return self
+
+    def automation(self, param: str, device_index: int = 0) -> dict:
+        """Read stored beats, normalized values, curvature, and interpolation."""
+        return self.s.b.request("automation.read", {
+            "track": self.idx, "device": int(device_index), "param": param,
+        })
 
     def volume(self, value: float) -> JavaTrack:
         self.s.b.request("track.set_volume", {"index": self.idx, "value": float(value)})

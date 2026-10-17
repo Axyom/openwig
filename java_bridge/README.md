@@ -38,10 +38,26 @@ not been reached. The existing Python
 `BridgeClient` can talk to it on `127.0.0.1:7778`. The controller remains on
 port 7777 until the Java backend reaches feature parity.
 
+The Java transport also implements `transport.snapshot`, `transport.play`,
+`transport.stop`, `transport.set_position` (`beats`), `transport.set_loop`
+(`on`), and `transport.set_loop_region` (`start`, `length`, in beats).
+`transport.beats_to_seconds` converts a beat position using Bitwig's native
+tempo map, including arranger tempo automation.
+Snapshots contain `playing`, `beats`, `loop`, `loop_start`, and `loop_length`.
+These call the same native transport methods that Bitwig's `TransportProxy`
+uses, without starting a JavaScript controller.
+
+`automation.write`, `automation.read`, and `automation.clear` manage arranger
+lanes for track `volume`, `pan`, native double parameter paths, and `tempo`.
+Writes replace the lane with `[beat, value, curvature?, interpolation?]`
+points; interpolation is `linear` or `hold`, and curvature is -1..1. Mixer
+and native values default to normalized 0..1, with pan 0.5 at center.
+Tempo values use BPM. Native parameters also accept an explicit Bitwig Unit.
+
 The patch is locked to the Windows Bitwig Studio 6.1.5 build whose original
 `bin/bitwig.jar` has SHA-256
 `d56248d003101ead1381c8a4fd3e256d933773beccbeb3366c9abe744de41a49`.
-It modifies only `BitwigStudioMain.main` to call our bootstrap and adds four
+It modifies only `BitwigStudioMain.main` to call our bootstrap and adds five
 classes. The direct adapter makes JVM calls to the exact-build Bitwig
 document API. Parameter path discovery uses reflection on the exact-build
 native model's read-only child and identifier methods; parameter reads and
@@ -56,6 +72,7 @@ Run from the repository root with Python 3.11+ and a JDK 21 with `javac`:
 ```powershell
 python java_bridge\smoke.py
 python java_bridge\build.py --output scratch\bitwig-6.1.5-openwig.jar
+python -m pytest tests\test_render.py
 ```
 
 `smoke.py` checks the JAR diff and the framed JSON-RPC protocol. For a live
@@ -96,6 +113,14 @@ it loads; callers should wait until the desired path appears.
 Solo and arm are not exposed by the document API used here; they need the
 obfuscated layer and are still missing.
 
+Arranger automation passed live checks on a disposable FM-4 track: volume and
+pan normalized readback, native `OUTPUT` parameter automation, curvature 0.4,
+hold interpolation, lane replacement, and invalid-input rejection without
+changing the existing lane. Tempo automation also passed point readback.
+Repeat using `$env:PYTHONPATH="src"; python tests\live_java_automation.py` on a
+disposable project with no existing tempo automation. Clearing a lane removes
+its time-varying automation; Bitwig can retain one constant fallback point.
+
 For the clip call, send an explicit zero-based main-track index and beat-based
 start and duration. Notes are `[channel, key, start, duration, velocity]`,
 where each start is relative to the clip. The endpoint uses the same framed
@@ -118,7 +143,29 @@ MIDI arranger clips. A `JavaTrack` can call `list_parameters(0)`,
 `parameters(0, OUTPUT=0.35)`, and `get_parameters(0, ["OUTPUT"])` after its
 native device has loaded. Boolean values and enum integer indexes are also
 supported; enum writes have not yet been verified live.
-Automation, launcher clips, and rendering are still missing. `JavaSong.clear()` clears the active project of
+
+`JavaSong.play(loop=True)`, `stop()`, and `transport()` use the Java playback
+endpoints. `render("out.wav", tail=1.0)` records one arrangement
+pass through the existing system audio loopback backend and returns
+`{path, seconds, rate, channels, rms, silent}`. This takes real time, records
+the default audio output (including other applications), and requires
+Bitwig to send audio to that output. It is not Bitwig's offline export.
+Bitwig's native tempo map supplies the capture duration, so tempo automation
+is included without changing the tempo during render setup. The Java
+patch targets Windows; the shared PulseAudio/PipeWire capture backend remains
+available to the controller path on Linux. Capture failures stop playback and
+release the audio device.
+
+Transport playback, stopping, position, and loop readback passed live checks;
+play/stop state can take about 0.2 seconds to settle. Audible rendering live
+verification remains pending. Repeat it in an
+open disposable project using `$env:PYTHONPATH="src"; python tests\live_java_render.py`.
+That check creates and deletes one temporary FM-4 track, checks playback and
+loop readback, and writes `scratch/java-render-smoke.wav`. It does not clear or
+save the project. Use an empty disposable project so existing tracks cannot
+produce a false positive for the non-silence check.
+
+Launcher clips are outside the current migration scope. `JavaSong.clear()` clears the active project of
 main/effect tracks and master devices. Use it on a disposable project while
 the bridge is experimental. `JavaSong.clear_main_tracks()` and
 `JavaSong.clear_effect_tracks()` expose the individual clear operations.
@@ -143,7 +190,7 @@ patch; the installer rejects an unknown original.
 
 ## Next step
 
-Port automation, remaining track properties, launcher clips, and rendering
-controls. Then run the existing Python song examples against
+Finish audible rendering verification, then port remaining track properties and run
+the existing Python song examples against
 the patched application. The main Song API still targets the controller on
 port 7777 until those operations pass live tests.

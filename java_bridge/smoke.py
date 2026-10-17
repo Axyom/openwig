@@ -11,7 +11,7 @@ import time
 import zipfile
 from pathlib import Path
 
-from build import ACCESS_CLASS, BRIDGE_CLASS, MAIN_CLASS, SONG_CLASS, UNDO_CLASS, build
+from build import ACCESS_CLASS, BRIDGE_CLASS, MAIN_CLASS, SONG_CLASS, TRANSPORT_CLASS, UNDO_CLASS, build
 
 BITWIG_ROOT = Path(r"C:\Program Files\Bitwig Studio")
 JDK_BIN = Path(r"C:\Program Files\Eclipse Adoptium\jdk-21.0.3.9-hotspot\bin")
@@ -37,7 +37,7 @@ def main() -> None:
         build(BITWIG_ROOT, patched, JDK_BIN)
         with zipfile.ZipFile(BITWIG_ROOT / "bin" / "bitwig.jar") as original, \
              zipfile.ZipFile(patched) as result:
-            assert set(result.namelist()) - set(original.namelist()) == {BRIDGE_CLASS, ACCESS_CLASS, SONG_CLASS, UNDO_CLASS}
+            assert set(result.namelist()) - set(original.namelist()) == {BRIDGE_CLASS, ACCESS_CLASS, SONG_CLASS, TRANSPORT_CLASS, UNDO_CLASS}
             assert {name for name in original.namelist()
                     if original.read(name) != result.read(name)} == {MAIN_CLASS}
         probe = work / "BridgeProbe.java"

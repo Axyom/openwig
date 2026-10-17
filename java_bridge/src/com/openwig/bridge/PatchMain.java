@@ -607,6 +607,39 @@ public final class PatchMain {
         addClip.visitInsn(Opcodes.IRETURN);
         addClip.visitMaxs(0, 0);
         addClip.visitEnd();
+        MethodVisitor automation = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "automation", "(Lorg/json/JSONObject;Z)Lorg/json/JSONObject;", null, null);
+        automation.visitCode();
+        automation.visitVarInsn(Opcodes.ALOAD, 0);
+        automation.visitVarInsn(Opcodes.ILOAD, 1);
+        automation.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "automation",
+                "(Lorg/json/JSONObject;Z)Lorg/json/JSONObject;", false);
+        automation.visitInsn(Opcodes.ARETURN);
+        automation.visitMaxs(0, 0);
+        automation.visitEnd();
+
+        MethodVisitor transportObject = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "activeTransportObject", "()Ljava/lang/Object;", null, null);
+        transportObject.visitCode();
+        transportObject.visitMethodInsn(Opcodes.INVOKESTATIC, "com/openwig/bridge/DirectAccess",
+                "activeDocumentObject", "()Ljava/lang/Object;", false);
+        transportObject.visitTypeInsn(Opcodes.CHECKCAST, "com/bitwig/flt/document/core/iface/IPw");
+        transportObject.visitMethodInsn(Opcodes.INVOKEINTERFACE,
+                "com/bitwig/flt/document/core/iface/IPw", "ONV", "()LSsT;", true);
+        transportObject.visitInsn(Opcodes.ARETURN);
+        transportObject.visitMaxs(0, 0);
+        transportObject.visitEnd();
+
+        MethodVisitor transport = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "transport", "(Ljava/lang/String;Lorg/json/JSONObject;)Lorg/json/JSONObject;", null, null);
+        transport.visitCode();
+        transport.visitVarInsn(Opcodes.ALOAD, 0);
+        transport.visitVarInsn(Opcodes.ALOAD, 1);
+        transport.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigTransport", "execute",
+                "(Ljava/lang/String;Lorg/json/JSONObject;)Lorg/json/JSONObject;", false);
+        transport.visitInsn(Opcodes.ARETURN);
+        transport.visitMaxs(0, 0);
+        transport.visitEnd();
         writer.visitEnd();
         return writer.toByteArray();
     }

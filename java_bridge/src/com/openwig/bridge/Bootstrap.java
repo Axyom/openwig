@@ -83,6 +83,25 @@ public final class Bootstrap {
                         new JSONObject().put("backend", "java").put("song_edit", false));
                 case "document.status" -> response.put("result",
                         new JSONObject().put("active", DirectAccess.hasActiveDocument()));
+                case "automation.write", "automation.read", "automation.clear" -> {
+                    JSONObject params = request.getJSONObject("params");
+                    params.put("clear", method.equals("automation.clear"));
+                    params.put("shape", false);
+                    if (!method.equals("automation.read")) {
+                        onDocumentEvent(() -> DirectAccess.automation(params, true));
+                        if (method.equals("automation.write")) {
+                            params.put("shape", true);
+                            onDocumentEvent(() -> DirectAccess.automation(params, true));
+                        }
+                    }
+                    response.put("result", onDocumentEvent(() -> DirectAccess.automation(params, false)));
+                }
+                case "document.audio_status", "document.activate_audio", "transport.snapshot", "transport.play", "transport.stop",
+                     "transport.set_position", "transport.set_loop", "transport.set_loop_region",
+                     "transport.beats_to_seconds" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    response.put("result", onDocumentEvent(() -> DirectAccess.transport(method, params)));
+                }
                 case "transport.get_tempo" -> response.put("result",
                         new JSONObject().put("bpm", onDocumentEvent(DirectAccess::readTempo)));
                 case "transport.set_tempo" -> {

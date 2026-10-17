@@ -7,6 +7,7 @@ import com.bitwig.extension.api.project.track.TrackGroup;
 public class ApiProject {
     public ApiProject(oZU project) {}
     public Factory getFactory() { throw new UnsupportedOperationException(); }
+    public com.bitwig.extension.api.project.Transport getTransport() { throw new UnsupportedOperationException(); }
     public TrackGroup getTrackGroup() { throw new UnsupportedOperationException(); }
     public void dispose() {}
 }

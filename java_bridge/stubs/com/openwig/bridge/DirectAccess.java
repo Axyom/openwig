@@ -95,6 +95,18 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static Object activeTransportObject() {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONObject transport(String method, JSONObject params) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONObject automation(JSONObject params, boolean write) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static void runInUndo(Object timeline, Runnable action) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }

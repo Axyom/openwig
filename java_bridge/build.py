@@ -15,6 +15,7 @@ MAIN_CLASS = "com/bitwig/flt/app/BitwigStudioMain.class"
 BRIDGE_CLASS = "com/openwig/bridge/Bootstrap.class"
 ACCESS_CLASS = "com/openwig/bridge/DirectAccess.class"
 SONG_CLASS = "OpenwigDocument.class"
+TRANSPORT_CLASS = "OpenwigTransport.class"
 UNDO_CLASS = "com/bitwig/ramona/core/OpenwigUndo.class"
 HERE = Path(__file__).resolve().parent
 
@@ -51,6 +52,7 @@ def build(bitwig_root: Path, output: Path, jdk_bin: Path) -> None:
         bitwig_stubs = sorted((HERE / "stubs" / "bitwig").rglob("*.java"))
         subprocess.run([str(jdk_bin / "javac"), "-proc:none", "-cp", f"{classes};{libs}",
                         "-d", str(classes), str(HERE / "src" / "OpenwigDocument.java"),
+                        str(HERE / "src" / "OpenwigTransport.java"),
                         str(access_stub), *map(str, bitwig_stubs)], check=True)
         shutil.copy2(access_class, classes / ACCESS_CLASS)
         (classes / UNDO_CLASS).parent.mkdir(parents=True, exist_ok=True)
@@ -66,12 +68,14 @@ def build(bitwig_root: Path, output: Path, jdk_bin: Path) -> None:
                           compress_type=zipfile.ZIP_DEFLATED)
             patched.write(classes / SONG_CLASS, SONG_CLASS,
                           compress_type=zipfile.ZIP_DEFLATED)
+            patched.write(classes / TRANSPORT_CLASS, TRANSPORT_CLASS,
+                          compress_type=zipfile.ZIP_DEFLATED)
             patched.write(classes / UNDO_CLASS, UNDO_CLASS,
                           compress_type=zipfile.ZIP_DEFLATED)
     with zipfile.ZipFile(output) as result:
         if result.testzip() is not None:
             raise ValueError("patched JAR failed ZIP integrity check")
-        if {BRIDGE_CLASS, ACCESS_CLASS, SONG_CLASS, UNDO_CLASS} - set(result.namelist()):
+        if {BRIDGE_CLASS, ACCESS_CLASS, SONG_CLASS, TRANSPORT_CLASS, UNDO_CLASS} - set(result.namelist()):
             raise ValueError("bridge classes missing from patched JAR")
     print(f"built {output}")
     print(f"source SHA-256 {digest}")

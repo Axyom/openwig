@@ -4,6 +4,7 @@ import com.bitwig.extension.api.project.parameter.BooleanParameter;
 import com.bitwig.extension.api.project.parameter.DoubleParameter;
 import com.bitwig.extension.api.project.parameter.EnumParameter;
 import com.bitwig.extension.api.project.parameter.Unit;
+import com.bitwig.extension.api.project.parameter.AutomationEvents;
 import com.bitwig.extension.api.project.timeline.ClipTimeline;
 import com.bitwig.extension.api.project.timeline.Clip;
 import com.bitwig.extension.api.project.timeline.EventTimeline;
@@ -30,6 +31,24 @@ public final class OpenwigDocument {
 
     private static ApiProject project() {
         return new ApiProject((oZU) DirectAccess.activeDocumentObject());
+    }
+
+    public static JSONObject audioStatus() {
+        ApiProject project = project();
+        try {
+            oZU document = (oZU) DirectAccess.activeDocumentObject();
+            return new JSONObject().put("connected", document.KF3())
+                    .put("ready", document.va2()).put("active", document.NFl())
+                    .put("can_activate", document.TEI()).put("realtime", document.GZM())
+                    .put("master", trackSnapshot(project.getTrackGroup().masterTrack(), -1));
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static JSONObject activateAudio() {
+        ((oZU) DirectAccess.activeDocumentObject()).Gcr(null);
+        return audioStatus();
     }
 
     private static Track track(ApiProject project, int index) {
@@ -250,6 +269,120 @@ public final class OpenwigDocument {
             throw new IllegalArgumentException("device has no named parameters");
         }
         return target;
+    }
+
+    private static DoubleParameter automationParameter(ApiProject project, JSONObject params) {
+        String name = params.getString("param");
+        if (name.equals("tempo")) return project.getTransport().getTempo();
+        Track target = track(project, params.getInt("track"));
+        if (name.equals("volume")) return target.mixer().getVolume();
+        if (name.equals("pan")) return target.mixer().getPan();
+        DoubleParameter parameter = nativeDevice(project, params.getInt("track"),
+                params.optInt("device", 0)).getDoubleParameter(name);
+        if (parameter == null) throw new IllegalArgumentException("no numeric parameter: " + name);
+        return parameter;
+    }
+
+    private static Olb automationTimeline(DoubleParameter parameter) {
+        W2C lane = ((m1C) ((ApiObject) parameter).getTarget()).Noo();
+        return lane == null ? null : lane.oLP().ExU();
+    }
+
+    private static JSONArray automationPoints(DoubleParameter parameter) {
+        JSONArray result = new JSONArray();
+        Olb timeline = automationTimeline(parameter);
+        if (timeline == null) return result;
+        aB range = ((Ob) ((ApiObject) parameter).getTarget()).ViH();
+        for (Object item : timeline.IYM()) {
+            GUX point = (GUX) item;
+            result.put(new JSONObject().put("beat", point.tS())
+                    .put("normalized", range.IYM(point.IYM()))
+                    .put("curvature", point.dT_())
+                    .put("interpolation", point.AOA() == HWV.IYM ? "hold" : "linear"));
+        }
+        return result;
+    }
+
+    /** Replace one arranger automation lane after validating the complete request. */
+    public static JSONObject automation(JSONObject params, boolean write) {
+        ApiProject project = project();
+        try {
+            DoubleParameter parameter = automationParameter(project, params);
+            if (write && params.optBoolean("shape", false)) {
+                JSONArray points = params.getJSONArray("points");
+                Olb timeline = automationTimeline(parameter);
+                if (timeline == null || timeline.IYM().size() != points.length()) {
+                    throw new IllegalStateException("automation point count mismatch after document commit");
+                }
+                DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                    aB range = ((Ob) ((ApiObject) parameter).getTarget()).ViH();
+                    for (int i = 0; i < points.length(); i++) {
+                        JSONArray input = points.getJSONArray(i);
+                        GUX point = (GUX) timeline.IYM().get(i);
+                        String unit = params.optString("unit", "");
+                        if (!params.getString("param").equals("tempo") && unit.isBlank()) {
+                            point.IYM(range.jPB(input.getDouble(1)));
+                        }
+                        point.IYM(input.optString(3, "linear").equals("hold") ? HWV.IYM : HWV.jPB);
+                        point.jPB(input.optDouble(2, 0));
+                    }
+                });
+            } else if (write && params.optBoolean("clear", false)) {
+                DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                    Olb existing = automationTimeline(parameter);
+                    if (existing != null) existing.W1k();
+                });
+            } else if (write) {
+                JSONArray points = params.getJSONArray("points");
+                if (points.length() < 2 || points.length() > 4096) {
+                    throw new IllegalArgumentException("automation needs 2..4096 points");
+                }
+                String name = params.getString("param");
+                String unitName = params.optString("unit", null);
+                Unit unit = name.equals("tempo") ? Unit.BPM : unitByName(unitName);
+                AutomationEvents events = project.getFactory().createDoubleAutomationEvents(unit);
+                double previous = -1;
+                for (int i = 0; i < points.length(); i++) {
+                    JSONArray point = points.getJSONArray(i);
+                    if (point.length() < 2 || point.length() > 4) {
+                        throw new IllegalArgumentException("point must be [beat,value,curvature?,interpolation?]");
+                    }
+                    double beat = point.getDouble(0);
+                    double value = point.getDouble(1);
+                    double curvature = point.optDouble(2, 0);
+                    String mode = point.optString(3, "linear");
+                    if (!Double.isFinite(beat) || beat < 0 || beat <= previous
+                            || !Double.isFinite(value) || !Double.isFinite(curvature)
+                            || curvature < -1 || curvature > 1
+                            || (!mode.equals("linear") && !mode.equals("hold"))) {
+                        throw new IllegalArgumentException("invalid automation point at " + i);
+                    }
+                    if (name.equals("tempo")) {
+                        if (value < 20 || value > 666) throw new IllegalArgumentException("tempo must be 20..666 BPM");
+                    } else {
+                        value = fromClientValue(value, unitName);
+                        if (name.equals("pan") && (unitName == null || unitName.isBlank())) {
+                            value = value * 2 - 100;
+                        }
+                    }
+                    events.addPoint(beat, value);
+                    previous = beat;
+                }
+                // The public API creates the lane; model caches update after this
+                // document event. Shape its points in a subsequent committed event.
+                DirectAccess.runInUndo(project.getTrackGroup().mainTracks().isEmpty()
+                        ? project.getTrackGroup().masterTrack().clipTimeline()
+                        : ((Track) project.getTrackGroup().mainTracks().get(0)).clipTimeline(), () -> {
+                    Olb existing = automationTimeline(parameter);
+                    if (existing != null) existing.W1k();
+                    parameter.setAutomation(events);
+                });
+            }
+            JSONArray result = automationPoints(parameter);
+            return new JSONObject().put("count", result.length()).put("points", result);
+        } finally {
+            project.dispose();
+        }
     }
 
     private static Unit unitByName(String name) {

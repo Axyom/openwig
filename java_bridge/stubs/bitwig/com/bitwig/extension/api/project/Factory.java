@@ -6,6 +6,8 @@ import com.bitwig.extension.api.project.mixer.NativeDevice;
 import com.bitwig.extension.api.project.track.Track;
 
 public interface Factory {
+    com.bitwig.extension.api.project.parameter.AutomationEvents createDoubleAutomationEvents(
+            com.bitwig.extension.api.project.parameter.Unit unit);
     Track createAudioTrack();
     Track createInstrumentTrack();
     Track createHybridTrack();
