@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository.
 
 ## What this is
 
@@ -28,6 +28,8 @@ python java_bridge\smoke.py                                         # offline JA
 python java_bridge\build.py --output scratch\bitwig-6.1.5-openwig.jar
 python java_bridge\install.py install|status|restore [--bitwig-root <copy>]
 ```
+
+Java reverse engineering used CFR 0.152 (`scratch/tools/cfr.jar`); decompile with `java -jar scratch/tools/cfr.jar <class-or-jar> --outputdir scratch/decomp` and keep generated output in ignored `scratch/`.
 
 ## Architecture
 
