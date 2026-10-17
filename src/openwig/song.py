@@ -310,8 +310,8 @@ class Track:
     def audio_clip(self, path, start=0.0, duration=4.0):
         """Drop a `.wav`/`.aiff` onto the arranger at `start` (beats) with `duration` (beats).
 
-        Uses the arranger insertion point resolved by `openwig doctor` (run it once per Bitwig
-        build). Sleeps 1.5s after the call: Bitwig decodes the file off-thread and back-to-back
+        Uses the arranger insertion point named in the shipped symbol data file.
+        Sleeps 1.5s after the call: Bitwig decodes the file off-thread and back-to-back
         inserts can saturate the controller queue."""
         self.s.b.request("track.insert_audio_clip", {
             "track": self.idx, "path": str(path),

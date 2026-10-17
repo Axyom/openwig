@@ -43,17 +43,14 @@ var transport, trackBank, effectTrackBank, masterTrack, sceneBank;
 var cursorTrack, cursorDevice, remoteControlsPage, cursorTrackDeviceBank;
 var masterCursorDevice, masterRemotes, masterDeviceBank;
 var gWalk = null, gWalkErr = null;           // generic descriptor-graph reader result (JSON string)
-var gProbe = null, gProbeErr = null;         // resolver self-test report (JSON-able object); see resolver.probe
 var _AUTO_SYM = null;                         // cached structurally-discovered automation symbols
-var gBlindDiscovery = false;                  // test switch: structural discovery only (no name hints, no fallback)
 // Resolved obfuscated-symbol table. NO obfuscated names are hardcoded here: it is populated
-// at init from the bootstrap DATA file (symbols_default.json, shipped + installed next to the
-// cache) and then overwritten per-build by doctor's validated cache (symbols_cache.json).
-// Reflection sites read names from here, so a re-obfuscated build keeps working once doctor
-// has refreshed the cache. Numeric op-ids in the data are protocol data, not obfuscated names.
+// at init from the bootstrap DATA file (symbols_default.json, shipped + installed beside the
+// log). Reflection sites read names from here; the mapping is only guaranteed for the exact
+// Bitwig build the data file was captured from. Numeric op-ids in the data are protocol data,
+// not obfuscated names.
 var SYM = { clipCmd: {}, noteCmd: {}, audio: {}, szFilter: {} };
 var ACIP_CLASS = "com.bitwig.flt.document.core.iface.clipboard.clip.ArrangerClipInsertionPoint"; // stable, non-obfuscated
-var gSymSource = "UNRESOLVED (init pending)";  // "cache"|"discovered+cached"|"defaults ..."|"UNRESOLVED ..."  (validated iff cache or discovered+cached); set by _loadSymbols() at init
 var gOpsDone = 0;                            // count of finished document-thread ops (completion signal; see ops.done)
 var gClipNotes = {}, gNoteScroll = 0, gNoteStepSize = 0.25;
 var arranger, cueMarkerBank;
@@ -124,8 +121,8 @@ function init() {
     masterTrack = host.createMasterTrack(0);
     sceneBank   = host.createSceneBank(NUM_SCENES);
     cursorTrack = host.createCursorTrack("openwig-cursor", "Openwig Cursor", NUM_SENDS, NUM_CLIPS, true);
-    // mark cursor-track volume/pan values so the resolver self-test can read their raw +
-    // normalized values (the normalize-fn probe); .get()/.getRaw() throw without this.
+    // mark cursor-track volume/pan values so raw + normalized values are readable
+    // (the normalize-fn lookup needs both); .get()/.getRaw() throw without this.
     cursorTrack.volume().markInterested(); cursorTrack.volume().value().markInterested();
     cursorTrack.pan().markInterested();    cursorTrack.pan().value().markInterested();
     cursorDevice       = cursorTrack.createCursorDevice();
@@ -192,8 +189,7 @@ function init() {
         }
     } catch (e) { host.errorln("noteStepObserver setup: " + e); }
 
-    _loadSymbols();              // load obfuscated-name mapping from the data file + per-build cache
-    flog("symbol source: " + gSymSource + "  (fingerprint " + _fingerprint() + ")");
+    _loadSymbols();              // load obfuscated-name mapping from the data file
 
     buildState();
     wireObservers();
@@ -407,28 +403,6 @@ function sendObj(obj) {
     gConnection.send(bytes);
 }
 
-// doctor is MANDATORY: until the symbol mapping has been VALIDATED for this exact Bitwig
-// build, refuse every internals-dependent op. The mapping is validated when a matching
-// per-build cache exists (loaded at init) or when doctor validated + cached it this session.
-// The only methods allowed before that are the ones `openwig doctor` itself needs to probe
-// and validate the build, plus basic connectivity - so doctor can break the chicken-and-egg.
-function _symbolsValidated() { return gSymSource === "cache" || gSymSource === "discovered+cached"; }
-// Public-API methods (e.g. track.insert_audio_clip) are NOT here: they stay gated. Doctor
-// reaches the audio-insert reflection path via the resolver.audio_probe_insert alias instead.
-// The resolver surface is listed EXPLICITLY (not exempted by prefix) so adding a resolver
-// method never silently bypasses the gate; audio_probe_insert is the one pre-validation
-// mutation, used by doctor on its throwaway track only.
-var _DOCTOR_METHODS = {
-    "ping": true, "hello": true, "ops.done": true, "host.version": true, "state.snapshot": true,
-    "track.create": true, "track.select": true, "track.delete": true,
-    "obj.walk": true, "obj.walk_result": true,
-    "resolver.classes": true, "resolver.status": true, "resolver.probe": true,
-    "resolver.result": true, "resolver.audio_candidates": true,
-    "resolver.audio_probe_insert": true, "resolver.set_audio_hrv": true
-};
-function _gateAllows(method) {
-    return _symbolsValidated() || _DOCTOR_METHODS[method] === true;
-}
 
 function handleLine(line) {
     var msg;
@@ -444,13 +418,6 @@ function handleLine(line) {
     if (!fn) {
         log("unknown method: " + method);
         if (id !== null) sendObj({ jsonrpc: "2.0", id: id, error: { code: -32601, message: "unknown method: " + method } });
-        return;
-    }
-    if (!_gateAllows(method)) {
-        log("BLOCKED (symbols not validated; run doctor): " + method);
-        if (id !== null) sendObj({ jsonrpc: "2.0", id: id, error: { code: -32002,
-            message: "openwig: symbols are not validated for this Bitwig build (" + gSymSource +
-                     "). Run `openwig doctor` to resolve + cache them, then retry." } });
         return;
     }
     try {
@@ -500,8 +467,7 @@ function _invokeNoArg(obj, name) {
     throw "no no-arg method " + name;
 }
 // fj = the document automatable-value base; reach it from a control-surface target. The fj
-// class name is resolved into SYM.fj (bootstrap seed, overwritten by doctor's cache and by
-// automation discovery), so this is not a hardcoded dependence.
+// class name is resolved into SYM.fj (bootstrap seed), so this is not a hardcoded dependence.
 function _fjFrom(obj) {
     var fjC = Java.type(SYM.fj).class;
     if (obj != null && fjC.isInstance(obj)) return obj;
@@ -679,7 +645,7 @@ function _runOnDocumentThread(proxy, jsRun) {
 // release. To survive a release, we IDENTIFY the same symbols by SHAPE instead of by name,
 // anchored on the stable public-API objects (a track target + a parameter proxy). This is
 // the headline path ("write arranger automation, which the official API can't"); the other
-// internal paths still use the hardcoded names and are covered by the doctor self-test.
+// internal paths read their names from the shipped symbol data file.
 function _dtype(t) { return "" + t.getName(); }
 // Robust runtime class of a host object. Inside a long reflection loop on the document
 // thread, the JS-side `obj.getClass()` member access intermittently fails with a GraalJS
@@ -692,7 +658,7 @@ function _classOf(o) {
 // ── op-id command discovery: resolve obfuscated command-host classes (clip create, note
 // insert, ...) by the STABLE numeric op-id the command exposes via ngq(), rather than by
 // hardcoded class name. The op-id is wire-protocol data (not obfuscated), so this survives a
-// re-obfuscated build. Scans the Bitwig jar's default package (one-time, at doctor).
+// re-obfuscated build. Scans the Bitwig jar's default package (one-time, lazily).
 var _JAR_CLASSES = null, _gCmdScanInstantiated = 0;
 function _jarDefaultPkgClasses() {
     if (_JAR_CLASSES) return _JAR_CLASSES;
@@ -897,7 +863,7 @@ function _autoCandidates(byU) {
         c = c.getSuperclass();
     }
     var hint = SYM.autoLanes;   // known-good lanes accessor (from data); try it first, not blind
-    if (!gBlindDiscovery && hint) out.sort(function (a, b) { return (b.name === hint) - (a.name === hint); });
+    if (hint) out.sort(function (a, b) { return (b.name === hint) - (a.name === hint); });
     return out;
 }
 // Insert points with a resolved symbol set S. Throws if the lane is not a valid target
@@ -984,7 +950,7 @@ function automationWriteOffline(p) {
 //   p: { start: beats, duration: beats, notes: [[channel, key, start, dur, vel], ...] }
 // Core arranger-clip create + note fill. MUST run on the document-edit thread. Calls the
 // same GUI commands the wire ops would dispatch, reached via internal command objects.
-// Extracted so the public handler and the resolver self-test share one path.
+// Extracted so the wire op and the launcher-clip path share one body.
 // Returns { created, notes, start, duration }.
 // Resolve a command spec {cls, field, factory, exec} into { cmd, exec(Method) }. The field
 // is a static singleton, factory() yields the command, exec(target, List) dispatches it.
@@ -1028,8 +994,8 @@ function _insertClip(byU, start, dur, notes) {
 // ArrangerClipInsertionPoint (ACIP) is a STABLE class. Resolve its 5-arg constructor, its
 // (File, mode, hook)->ok dispatch method (the only inherited method whose first arg is a
 // File), the mode class (dispatch param[1]) and the mode singleton (the mode class's only
-// self-typed static field). The track-as-HrV accessor name comes from SYM.audio.hrv (data /
-// cache / validated by doctor). All structural except the HrV accessor.
+// self-typed static field). The track-as-HrV accessor name comes from SYM.audio.hrv (data
+// file). All structural except the HrV accessor.
 function _acipParts() {
     var ACIP = Java.type(ACIP_CLASS).class, FileC = Java.type("java.io.File").class;
     var ctors = ACIP.getDeclaredConstructors(), ctor = null;
@@ -1051,7 +1017,7 @@ function _acipParts() {
     // Prefer the known-good mode field from the data/cache: getDeclaredFields() order is
     // unspecified, so if the mode class ever carries several self-typed constants
     // (insert/replace/ask) the structural first-match could pick the wrong one.
-    var modeHint = (!gBlindDiscovery && SYM.audio && SYM.audio.modeField) ? ("" + SYM.audio.modeField) : null;
+    var modeHint = (SYM.audio && SYM.audio.modeField) ? ("" + SYM.audio.modeField) : null;
     if (modeHint) {
         try {
             var hf = zjsType.getDeclaredField(modeHint);
@@ -1081,9 +1047,7 @@ function _insertAudioClip(byU, path, start, dur, hrvName) {
     var ok = P.dispatch.invoke(aip, new File(path), P.mode, null);
     return { dispatched: !!ok };
 }
-// Shared body for the public `track.insert_audio_clip` op and doctor's gate-exempt
-// `resolver.audio_probe_insert` alias (so the public op stays gated like any reflection-
-// dependent mutation, while doctor can still validate the path on its throwaway track).
+// Body for the public `track.insert_audio_clip` op.
 function _audioInsertHandler(p) {
     var trackIdx = bget(p, "track", 0) | 0;
     var path = "" + bget(p, "path", "");
@@ -1258,7 +1222,7 @@ function _selectNgq(cwo, KRt, ngqOpts) {
 // only if that fails). With forceStructural (or blind mode): pure structural discovery, picking
 // the candidate whose walk surfaces the most sentinels. Returns the reader name-set or null.
 function _discoverReader(uo1, sentinels, forceStructural) {
-    if (!forceStructural && !gBlindDiscovery && SYM.mX_ && SYM.KRt && SYM.uEK && SYM.Xzy) {
+    if (!forceStructural && SYM.mX_ && SYM.KRt && SYM.uEK && SYM.Xzy) {
         return { mX_: SYM.mX_, KRt: SYM.KRt, bf: SYM.bf, ngq: SYM.ngq, nI_: SYM.nI_, Xzy: SYM.Xzy, uEK: SYM.uEK };
     }
     // structural (blind, no mapping, or the trusted mapping failed validation): among the
@@ -1284,32 +1248,6 @@ function _discoverReader(uo1, sentinels, forceStructural) {
     return { mX_: _bestN.mX_, KRt: _bestN.KRt, bf: _bestN.bf, ngq: ngq, nI_: _bestN.nI_, Xzy: _bestXzy, uEK: _bestN.uEK };
 }
 
-// ── symbol cache: doctor resolves + validates the reader names, persists them keyed by a
-// build fingerprint; the bridge loads them at init. The reader is the one path that cannot
-// self-validate during a plain read (no sentinel to check against), so it relies on the
-// cache; automation/clip resolve + validate live on every write.
-var _CACHE_SCHEMA = 4;   // bump invalidates old caches (4: +fj/szFilter/autoLanes, write gated on full self-test)
-function _fingerprint() {
-    var parts = [];
-    try { parts.push("v=" + host.getHostVersion()); } catch (e) {}
-    try {
-        var loc = host.getClass().getProtectionDomain().getCodeSource().getLocation();
-        var f = new (Java.type("java.io.File"))(loc.toURI());
-        parts.push("len=" + f.length()); parts.push("mt=" + f.lastModified());
-    } catch (e) { parts.push("nojar"); }
-    parts.push("schema=" + _CACHE_SCHEMA);
-    return parts.join("|");
-}
-function _cachePath() { return ("" + LOG_FILE).replace(/openwig_bridge\.log$/, "symbols_cache.json"); }
-function _writeCache(obj) {
-    try {
-        var BW = Java.type("java.io.BufferedWriter"), FW = Java.type("java.io.FileWriter");
-        var w = new BW(new FW(_cachePath(), false));
-        w.write(JSON.stringify(obj)); w.newLine(); w.flush(); w.close();
-        return true;
-    } catch (e) { flog("symbol cache write failed: " + e); return false; }
-}
-function _readCache() { return _readJson(_cachePath()); }
 // Apply a validated reader name-set into SYM (called from a mapping and from the probe).
 function _applyReaderNames(rd) {
     if (!rd) return;
@@ -1343,316 +1281,16 @@ function _readJson(path) {
     } catch (e) { flog("read json failed (" + path + "): " + e); return null; }
 }
 function _defaultsPath() { return ("" + LOG_FILE).replace(/openwig_bridge\.log$/, "symbols_default.json"); }
-// init-time: load the bootstrap DATA mapping, then override with doctor's per-build cache
-// (only when its fingerprint matches THIS build). No obfuscated names live in code.
+// init-time: load the bootstrap DATA mapping. No obfuscated names live in code.
 function _loadSymbols() {
-    var hadDefaults = false;
     var d = _readJson(_defaultsPath());
-    if (d) { _applyMapping(d); hadDefaults = true; }
-    var c = _readCache();
-    if (c && c.fingerprint === _fingerprint() && c.reader) {
-        _applyMapping(c);
-        gSymSource = "cache";
-    } else if (hadDefaults) {
-        gSymSource = c ? "defaults (cache stale; re-run doctor)" : "defaults (run doctor to validate + cache)";
-    } else {
-        gSymSource = "UNRESOLVED (run openwig install + doctor)";
-    }
-}
-
-// ── resolver / self-test (run by `openwig doctor`) ──────────────────────────────
-// The reflection paths above hardcode Bitwig's obfuscated class/method names. Those names
-// are stable for a given Bitwig build but are re-obfuscated each release, so they can move
-// from one version to the next. This self-test VERIFIES, on a throwaway track, that the
-// paths still work on the LIVE build: it round-trips an arranger automation write, an
-// arranger clip+note, and a descriptor read, checking that each landed (distinctive
-// sentinel values must reappear in the descriptor walk). It fails SAFE - a broken path is
-// reported, never silently corrupting a project - and reports which obfuscated classes
-// still load, so an unsupported build yields an actionable report instead of a crash.
-
-function _hostInfo() {
-    var out = {};
-    try { out.product = "" + host.getHostProduct(); } catch (e) {}
-    try { out.vendor  = "" + host.getHostVendor();  } catch (e) {}
-    try { out.version = "" + host.getHostVersion(); } catch (e) {}
-    try { out.api_version = host.getHostApiVersion(); } catch (e) {}
-    return out;
-}
-
-// Verify the obfuscated classes the bridge actually depends on still load - derived from the
-// RESOLVED symbols (SYM + the discovered automation cluster), not a hardcoded list, so this
-// reflects whatever was discovered/cached for this build. A renamed-and-unresolved class
-// shows up here as failing to load.
-function _resolverClasses() {
-    var out = {}, names = [SYM.fj, SYM.SZo];
-    if (SYM.clipCmd && SYM.clipCmd.cls) names.push(SYM.clipCmd.cls);
-    if (SYM.noteCmd && SYM.noteCmd.cls) names.push(SYM.noteCmd.cls);
-    if (_AUTO_SYM) { try { names.push("" + _AUTO_SYM.avr.getName()); } catch (e) {}
-                     try { names.push("" + _AUTO_SYM.interp.getName()); } catch (e) {} }
-    for (var i = 0; i < names.length; i++) {
-        var nm = names[i]; if (nm == null || out[nm] !== undefined) continue;
-        try { Java.type(nm); out[nm] = true; } catch (e) { out[nm] = false; }
-    }
-    return out;
-}
-
-// sentinels: distinctive constants we write, then look for in the descriptor-walk JSON.
-// NB: automation TIMES (beat positions) and the note START are stored as TIMES we can search
-// for; an automation VALUE and a note velocity are stored normalized and are NOT searchable -
-// hence we verify by the distinctive TIME. Bitwig stores these times as 32-bit floats, so the
-// double we write is widened back from float32 (e.g. 1.6180339 -> 1.6180343627929688). We
-// therefore search for the float32 form (Math.fround), trimmed to a stable leading prefix, so
-// the match survives that rounding instead of depending on the exact decimal we sent.
-var _SENT_AUTO_T = 1.4142135, _SENT_AUTO_T2 = 2.2360679;        // sqrt2, sqrt5 (beat positions)
-var _SENT_NOTE_START = 1.6180339, _SENT_NOTE_VEL = 0.6789, _SENT_NOTE_KEY = 61;  // golden ratio
-// float32-safe searchable form: nearest-float32 string, first 7 chars ("N.NNNNN") - distinctive
-// (irrational constants) yet robust to the last-digit rounding the float storage introduces.
-function _sentStr(x) { return ("" + Math.fround(x)).slice(0, 7); }
-var _SENT_AUTO_S = _sentStr(_SENT_AUTO_T), _SENT_AUTO_S2 = _sentStr(_SENT_AUTO_T2);
-var _SENT_NOTE_S = _sentStr(_SENT_NOTE_START);
-
-function _walkTrackJSON(byU) {
-    var budget = { n: 9000 };
-    var opts = { prune: {}, noFilter: false, seen: {}, noDedup: {} };
-    return JSON.stringify(_walkObj(byU, 0, 16, budget, opts));
-}
-
-// Runs on the document-edit thread (inside resolver.probe's exec). Mutates ONLY the
-// currently-selected track, which the caller has created as a throwaway and deletes after.
-function _runResolverProbe() {
-    var report = {
-        bitwig: _hostInfo(),
-        classes: _resolverClasses(),
-        capabilities: {
-            automation_write: { ok: false, detail: "" },
-            clip_create:      { ok: false, detail: "" },
-            descriptor_read:  { ok: false, detail: "" },
-            serialize:        { ok: false, detail: "" },
-            normalize:        { ok: false, detail: "" }
-        },
-        ok: false
-    };
-    var byU = cursorTrack.getDeepestTarget();
-    if (byU == null) { report.error = "no track target (probe track not selected)"; return report; }
-
-    // 1. arranger automation write (self-discovered, name-free).
-    try {
-        var r = _insertAutomationPoints(byU, function () { return cursorTrack.volume(); }, "volume",
-            [[_SENT_AUTO_T, 0.3], [_SENT_AUTO_T2, 0.7]]);
-        report.capabilities.automation_write.detail = "inserted " + r.inserted + " (" + r.via + ")";
-        report.capabilities.automation_write.via = r.via;
-    } catch (e) { report.capabilities.automation_write.detail = "insert failed: " + e; }
-
-    // 1.5 resolve the clip-create + note-insert command hosts by stable op-id (jar scan,
-    //     doctor-only, self-contained: reads each command's numeric op-id directly, no reader
-    //     dependency). Skipped in blind mode. On success SYM.clipCmd/noteCmd are resolved.
-    if (!gBlindDiscovery) {
-        if (SYM.clipCmd.opid == null || SYM.noteCmd.opid == null) {
-            report.commands_err = "command op-ids missing (symbols_default.json not installed? re-run openwig install)";
-        } else {
-            try {
-                var got = _findCommandsByOpIds([SYM.clipCmd.opid, SYM.noteCmd.opid], null);
-                var gc = got["" + SYM.clipCmd.opid], gn = got["" + SYM.noteCmd.opid];
-                if (gc) _applyCommandSpec(SYM.clipCmd, gc);
-                if (gn) _applyCommandSpec(SYM.noteCmd, gn);
-                report.commands = { clipCmd: SYM.clipCmd, noteCmd: SYM.noteCmd, resolved: !!(gc && gn),
-                                    instantiated: _gCmdScanInstantiated };
-            } catch (e) { report.commands_err = "" + e; }
-        }
-    }
-
-    // 2. arranger clip + one note (via the resolved command hosts).
-    try {
-        var c = _insertClip(byU, 0.0, 4.0, [[0, _SENT_NOTE_KEY, _SENT_NOTE_START, 0.5, _SENT_NOTE_VEL]]);
-        report.capabilities.clip_create.detail = "created clip, " + c.notes + " note(s)";
-    } catch (e) { report.capabilities.clip_create.detail = "create failed: " + e; }
-
-    // 2.5 reader: trust the SYM mapping (validated cache / shipped data); the descriptor read
-    //     below validates it against the automation + note sentinels just written.
-    var SENT = [_SENT_AUTO_S, _SENT_AUTO_S2, _SENT_NOTE_S];
-    var rd = null;
-    try { rd = _discoverReader(byU, SENT, false); } catch (e) { report.reader_err = "" + e; }
-    if (rd) { _applyReaderNames(rd); report.reader = rd; }
-
-    // 3. descriptor read-back + sentinel verification. If the trusted reader does NOT surface
-    //    both sentinels (a build where the mapping moved), re-resolve the reader STRUCTURALLY
-    //    and walk again. autoFound = automation point; noteFound = clip note.
-    var json = null, autoFound = false, noteFound = false;
-    var walkCheck = function () {
-        try { json = _walkTrackJSON(byU); } catch (e) { json = null; report.capabilities.descriptor_read.detail = "walk failed: " + e; return; }
-        autoFound = json.indexOf(_SENT_AUTO_S) >= 0 || json.indexOf(_SENT_AUTO_S2) >= 0;
-        noteFound = json.indexOf(_SENT_NOTE_S) >= 0;
-    };
-    walkCheck();
-    if (json != null && !(autoFound && noteFound) && !gBlindDiscovery) {
-        var rd2 = null; try { rd2 = _discoverReader(byU, SENT, true); } catch (e) {}
-        if (rd2) { _applyReaderNames(rd2); report.reader = rd2; rd = rd2; walkCheck(); }
-    }
-    if (json != null) {
-        // A broken reader still yields short non-empty JSON ({_err: ...} / {_noazd: ...}), so
-        // "non-trivial output" is NOT validation. The reader is verified only if the walk
-        // surfaced at least one sentinel we just wrote (a real read-back of real data).
-        report.capabilities.descriptor_read.ok = (autoFound || noteFound);
-        report.capabilities.descriptor_read.detail = "walk " + json.length + " chars" +
-            ((autoFound || noteFound) ? " | sentinel verified" : " | no sentinel surfaced (reader NOT verified)");
-        if (report.capabilities.automation_write.detail.indexOf("inserted") === 0)
-            report.capabilities.automation_write.ok = autoFound;
-        report.capabilities.automation_write.detail += autoFound ? " | verified" : " | sentinel NOT found";
-        if (report.capabilities.clip_create.detail.indexOf("created") === 0)
-            report.capabilities.clip_create.ok = noteFound;
-        report.capabilities.clip_create.detail += noteFound ? " | verified" : " | sentinel NOT found";
-    }
-
-    // 4. serialize filter: the SZo filter the descriptor reader uses to decide which properties
-    //    are serialized. Confirm the SZo class loads and the filter (SYM.szFilter) classifies a
-    //    real descriptor (returns a boolean for a true property, false for the dedup sentinel).
-    try {
-        Java.type(SYM.SZo);                          // class must load
-        _SZFILT = null;                              // force re-resolve from SYM.szFilter
-        var cwoS = _mx(byU), dl = _descriptors(cwoS);
-        var classified = false;
-        if (dl && dl.size() > 0) { _szPass(dl.get(0), byU); classified = (_SZFILT !== null && _SZFILT !== false); }
-        report.capabilities.serialize.ok = classified;
-        report.capabilities.serialize.detail = classified ? ("filter ok (" + SYM.szFilter.method + ")") : "filter not resolved";
-    } catch (e) { report.capabilities.serialize.detail = "failed: " + e; }
-
-    // 5. normalize: resolve a parameter's native->0..1 normalize fn (structural, behavioural).
-    //    Underpins device.remote_normalize and exact automation/breakpoint value conversion.
-    try {
-        var vp = cursorTrack.volume();
-        var vdt = vp.getDeepestTarget();
-        var vfj = _fjFrom(_invokeNoArg(vdt, "getAtom")); if (vfj == null) vfj = _fjFrom(vdt);
-        if (vfj == null) throw "no fj for volume";
-        var curN = vp.value().getRaw(), curNorm = vp.value().get();
-        var nf = _findNormalizeFn(vfj, curN, curNorm);
-        report.capabilities.normalize.ok = (nf != null);
-        report.capabilities.normalize.detail = nf ? ("resolved " + nf.getName() + "()") : "no normalize fn found";
-    } catch (e) { report.capabilities.normalize.detail = "failed: " + e; }
-
-    // structurally-discovered automation symbols (for transparency + crowdsourced maps):
-    // these names should match the hardcoded ones on a supported build.
-    if (_AUTO_SYM) {
-        report.discovered = {
-            al_accessor: "" + _AUTO_SYM.alAccessor,
-            insert: "" + _AUTO_SYM.insert.getName(),
-            value_ref: "" + _AUTO_SYM.avr.getName(),
-            factory: "" + _AUTO_SYM.factory.getName(),
-            value_base: "" + _AUTO_SYM.fjClass.getName(),
-            interp_enum: "" + _AUTO_SYM.interp.getName(),
-            interp_resolved: _AUTO_SYM.interpResolved
-        };
-    }
-
-    var caps = report.capabilities;
-    report.ok = caps.automation_write.ok && caps.clip_create.ok && caps.descriptor_read.ok &&
-                caps.serialize.ok && caps.normalize.ok;
-
-    // persist the validated symbols so the bridge can use them at read time (no cache in
-    // blind/test mode). Gated on the FULL self-test: a cache opens the mandatory-doctor gate
-    // for every op (this session and, via the fingerprint match, all future sessions), so it
-    // must only exist when every capability verified. The cache carries everything
-    // _applyMapping needs to reproduce a working session: reader, fj, SZo, szFilter,
-    // autoLanes (the discovered+validated lanes accessor), commands and audio.
-    if (!gBlindDiscovery && rd && report.ok) {
-        var cacheObj = {
-            schema: _CACHE_SCHEMA, fingerprint: _fingerprint(), bitwig: report.bitwig,
-            reader: rd, fj: SYM.fj, SZo: SYM.SZo, szFilter: SYM.szFilter,
-            autoLanes: (_AUTO_SYM ? ("" + _AUTO_SYM.alAccessor) : SYM.autoLanes),
-            clipCmd: SYM.clipCmd, noteCmd: SYM.noteCmd, audio: SYM.audio,
-            verdicts: { automation: caps.automation_write.ok, clip: caps.clip_create.ok,
-                        descriptor: caps.descriptor_read.ok, serialize: caps.serialize.ok, normalize: caps.normalize.ok }
-        };
-        var wrote = _writeCache(cacheObj);
-        gSymSource = wrote ? "discovered+cached" : "discovered";
-        report.cache = { written: wrote, path: _cachePath(), fingerprint: cacheObj.fingerprint };
-        if (!wrote) report.cache.reason = "cache write FAILED (data dir not writable?) - the gate stays shut; see " + LOG_FILE;
-    } else {
-        report.cache = { written: false, reason: gBlindDiscovery ? "blind mode" :
-            (rd ? "self-test failed (cache withheld so the gate stays shut)" : "reader not discovered") };
-    }
-    report.symbol_source = gSymSource;
-    _JAR_CLASSES = null;   // doctor-only data: free the (large) jar class-name list
-    return report;
+    if (d) _applyMapping(d);
 }
 
 var HANDLERS = {
 
     // ── meta ──
     "ping": function () { return "pong"; },
-    // ── resolver / self-test (driven by `openwig doctor`) ──
-    // Cheap, synchronous: which obfuscated classes still load on this build (no doc thread).
-    "resolver.classes": function () { return { bitwig: _hostInfo(), classes: _resolverClasses() }; },
-    // arranger audio-clip insert. SYM.audio.hrv (data/cache/validated) names the track-as-HrV
-    // accessor; p.hrv overrides it (used by doctor to validate candidates). dispatch/ZjS/mode
-    // resolve structurally from the stable ArrangerClipInsertionPoint.
-    "track.insert_audio_clip": _audioInsertHandler,
-    // doctor-only alias: same insert, but under the gate-exempt resolver.* prefix so the audio
-    // reflection path can be validated on a throwaway track BEFORE symbols are validated.
-    "resolver.audio_probe_insert": _audioInsertHandler,
-    // doctor: candidate track-as-HrV accessor names for the SELECTED track (+ resolved parts),
-    // so the SDK can validate each by inserting a test wav. Select a track first.
-    "resolver.audio_candidates": function () {
-        var byU = cursorTrack.getDeepestTarget();
-        if (byU == null) return { error: "select a track first" };
-        var P; try { P = _acipParts(); } catch (e) { return { error: "" + e }; }
-        var cands = [], c = _classOf(byU), seen = {};
-        while (c != null) {
-            var ms = c.getDeclaredMethods();
-            for (var a = 0; a < ms.length; a++) {
-                var am = ms[a]; if (am.getParameterCount() !== 0) continue;
-                var an = "" + am.getName(); if (seen[an]) continue; seen[an] = 1;
-                if (P.hrvType.isAssignableFrom(am.getReturnType())) cands.push(an);
-            }
-            c = c.getSuperclass();
-        }
-        return { hrv_candidates: cands, dispatch: "" + P.dispatch.getName(),
-                 zjs: "" + P.dispatch.getParameterTypes()[1].getName() };
-    },
-    // doctor: record the validated audio HrV accessor + refresh the cache with it.
-    "resolver.set_audio_hrv": function (p) {
-        SYM.audio.hrv = "" + bget(p, "hrv", SYM.audio.hrv);
-        var c = _readCache();
-        if (c) { c.audio = SYM.audio; _writeCache(c); }
-        return { ok: true, hrv: SYM.audio.hrv };
-    },
-    // Where SYM's reader names came from this session (cache / seed) + the build fingerprint.
-    "resolver.status": function () {
-        var c = _readCache();
-        return { symbol_source: gSymSource, fingerprint: _fingerprint(),
-                 cache_exists: (c != null), cache_matches: (c != null && c.fingerprint === _fingerprint()),
-                 reader: { mX_: SYM.mX_, KRt: SYM.KRt, bf: SYM.bf, ngq: SYM.ngq, nI_: SYM.nI_, Xzy: SYM.Xzy, uEK: SYM.uEK } };
-    },
-    // Full round-trip probe on the document thread; fetch the report with resolver.result.
-    // The caller MUST have created + selected a throwaway track first (this writes to it).
-    // params: { blind: bool } - blind forces name-free structural discovery only (no name
-    // hints, no hardcoded fallback), simulating a build where the obfuscated names changed.
-    "resolver.probe": function (p) {
-        gProbe = null; gProbeErr = null;
-        var blind = !!bget(p, "blind", false);
-        _runOnDocumentThread(cursorTrack, function () {
-            var prevBlind = gBlindDiscovery;
-            // blind discovery overwrites SYM's reader names via _applyReaderNames with a
-            // possibly non-canonical set; snapshot them so the session is not left running
-            // on the blind picks after the probe.
-            var prevReader = blind ? { mX_: SYM.mX_, KRt: SYM.KRt, bf: SYM.bf, ngq: SYM.ngq,
-                                       nI_: SYM.nI_, Xzy: SYM.Xzy, uEK: SYM.uEK } : null;
-            gBlindDiscovery = blind;
-            if (blind) _AUTO_SYM = null;            // force a fresh structural-only resolution
-            try { gProbe = _runResolverProbe(); gProbe.blind = blind; return { ok: gProbe.ok }; }
-            catch (e) { gProbeErr = "" + e; return { error: gProbeErr }; }
-            finally {                                // don't leak the blind cache / reader picks
-                gBlindDiscovery = prevBlind;
-                if (blind) {
-                    _AUTO_SYM = null;
-                    SYM.mX_ = prevReader.mX_; SYM.KRt = prevReader.KRt; SYM.bf = prevReader.bf;
-                    SYM.ngq = prevReader.ngq; SYM.nI_ = prevReader.nI_; SYM.Xzy = prevReader.Xzy;
-                    SYM.uEK = prevReader.uEK;
-                }
-            }
-        });
-        return { queued: true, note: "fetch with resolver.result" };
-    },
-    "resolver.result": function () { return { report: gProbe, error: gProbeErr, ready: (gProbe != null || gProbeErr != null) }; },
     // Completion counter for async document-thread ops (clip create, automation write, ...).
     // The SDK reads it before firing an op and polls until it advances - replaces fixed
     // sleeps with "wait until the op actually finished" (faster + race-free).

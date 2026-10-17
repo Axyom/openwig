@@ -36,48 +36,12 @@ obfuscated names, so without the data file it cannot resolve anything.
 2. **Settings -> Controllers -> openwig -> Add -> OpenwigBridge**.
 3. One-time. Bitwig remembers it across launches.
 
-## 4. Validate (required)
+## 4. Version check
 
-```bash
-python -m openwig doctor
-```
-
-!!! warning "doctor is mandatory"
-    openwig refuses every operation until `doctor` has validated and cached the
-    obfuscated symbols for your exact Bitwig build. Run it once after installing,
-    and again after any Bitwig update (the cache is keyed to the build). Until then
-    the bridge replies to normal calls with "symbols are not validated for this
-    Bitwig build. Run `openwig doctor`."
-
-Expected output:
-
-```
-openwig 0.1.3 (supports Bitwig: 6.x)
-controller dir : C:\Users\<you>\Documents\Bitwig Studio\Controller Scripts
-controller     : OK
-bridge :7777   : OK (Bitwig 6.0.6) compatible
-internals      : self-test on a throwaway track ...
-  classes      : 4/4 internal classes load
-  automation   : OK
-  clip create  : OK
-  descriptor   : OK
-  serialize    : OK
-  normalize    : OK
-  audio clip   : OK
-  cache        : written -> ...\openwig\symbols_cache.json
-  symbol source: discovered+cached
-  => all reflection paths verified on this Bitwig build
-```
-
-`doctor` runs a self-test on a temporary track (created and deleted automatically,
-existing tracks untouched) that confirms openwig's reflection paths work on your exact
-Bitwig build. If any line says `FAIL`, that build is unsupported: please
-[open an issue](https://github.com/Axyom/openwig/issues) with the output.
-
-It also resolves Bitwig's obfuscated internal names and writes a small
-`symbols_cache.json` keyed to your exact build; openwig loads it on connect so it
-keeps working across Bitwig updates that re-obfuscate those names. Re-run `doctor`
-after updating Bitwig to refresh the cache.
+The controller's obfuscated-name mapping (`symbols_default.json`) is captured
+from a specific Bitwig build. If you hit reflection errors after a Bitwig
+update, that build is unsupported: please
+[open an issue](https://github.com/Axyom/openwig/issues).
 
 Then write your [first song](quickstart.md).
 
@@ -90,8 +54,7 @@ pip install -e .[dev]
 pytest
 ```
 
-The live auto-adaptability tests drive a real Bitwig (they create and delete a throwaway
-probe track to verify the resolver against your actual build). They require Bitwig running
+The live tests drive a real Bitwig. They require Bitwig running
 with the OpenwigBridge controller enabled and are opt-in:
 
 ```bash

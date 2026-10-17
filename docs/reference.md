@@ -77,7 +77,7 @@ them at the end of a chain, not in the middle.
 | `t.scene(slot, notes, dur, step_size)` | Launcher clip in slot `slot`. |
 | `t.launch(slot)` | Launch launcher slot. |
 | `t.sample(path, slot)` | Load audio into a launcher slot (audio tracks). |
-| `t.audio_clip(path, start, duration)` | Drop a `.wav`/`.aiff` onto the arranger at `start` beats for `duration` beats (audio tracks; needs `openwig doctor` run once per build). |
+| `t.audio_clip(path, start, duration)` | Drop a `.wav`/`.aiff` onto the arranger at `start` beats for `duration` beats (audio tracks). |
 | `t.audio_clips(segments)` | Several arranger audio clips. `segments`: `[(path, start, duration), ...]`. |
 | `t.transpose_cursor(semitones)` | Transpose the selected clip. |
 | `t.quantize_cursor(amount)` | Quantize the selected clip's notes (`0..1`). |
