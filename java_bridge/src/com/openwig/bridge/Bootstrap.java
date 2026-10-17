@@ -111,6 +111,46 @@ public final class Bootstrap {
                 case "project.clear_main_tracks" -> response.put("result",
                         new JSONObject().put("deleted",
                                 onDocumentEvent(DirectAccess::clearMainTracks, 60)));
+                case "fxtrack.count" -> response.put("result",
+                        new JSONObject().put("count", onDocumentEvent(DirectAccess::effectTrackCount)));
+                case "fxtrack.create" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    String name = params == null ? "" : params.optString("name", "");
+                    if (name.isBlank()) {
+                        throw new IllegalArgumentException("effect track name is required");
+                    }
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.createEffectTrack(name))));
+                }
+                case "fxtrack.delete" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int index = params == null ? -1 : params.optInt("index", -1);
+                    if (index < 0) {
+                        throw new IllegalArgumentException("effect track index is required");
+                    }
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.deleteEffectTrack(index))));
+                }
+                case "project.clear_effect_tracks" -> response.put("result",
+                        new JSONObject().put("deleted",
+                                onDocumentEvent(DirectAccess::clearEffectTracks, 60)));
+                case "master.device_count" -> response.put("result",
+                        new JSONObject().put("count", onDocumentEvent(DirectAccess::masterDeviceCount)));
+                case "master.insert_factory" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    String name = params == null ? "" : params.optString("name", "");
+                    if (name.isBlank() || name.contains("/") || name.contains("\\") ||
+                            name.contains(".")) {
+                        throw new IllegalArgumentException("factory device name is required");
+                    }
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.insertMasterFactoryDevice(name))));
+                }
+                case "master.clear" -> response.put("result",
+                        new JSONObject().put("deleted",
+                                onDocumentEvent(DirectAccess::clearMasterDevices, 60)));
+                case "project.clear" -> response.put("result",
+                        onDocumentEvent(DirectAccess::clearProject, 120));
                 case "device.count" -> {
                     JSONObject params = request.optJSONObject("params");
                     int track = params == null ? -1 : params.optInt("track", -1);

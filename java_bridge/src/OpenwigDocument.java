@@ -34,6 +34,64 @@ public final class OpenwigDocument {
         return (Track) project.getTrackGroup().mainTracks().get(index);
     }
 
+    private static Track effectTrack(ApiProject project, int index) {
+        if (index < 0 || index >= project.getTrackGroup().effectTracks().size()) {
+            throw new IllegalArgumentException("effect track index out of range: " + index);
+        }
+        return (Track) project.getTrackGroup().effectTracks().get(index);
+    }
+
+    public static int effectTrackCount() {
+        ApiProject project = project();
+        try {
+            return project.getTrackGroup().effectTracks().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int createEffectTrack(String name) {
+        ApiProject project = project();
+        try {
+            Track effect = project.getFactory().createAudioTrack();
+            effect.setTitle(name);
+            project.getTrackGroup().addEffectTrack(effect);
+            return project.getTrackGroup().effectTracks().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int deleteEffectTrack(int effectIndex) {
+        ApiProject project = project();
+        try {
+            Track effect = effectTrack(project, effectIndex);
+            Yko group = (Yko) ((ApiObject) project.getTrackGroup()).getTarget();
+            Object target = ((ApiObject) effect).getTarget();
+            int before = project.getTrackGroup().effectTracks().size();
+            DirectAccess.runInUndo(effect.clipTimeline(),
+                    () -> DirectAccess.removeEffectTrack(group, target));
+            int after = project.getTrackGroup().effectTracks().size();
+            if (after != before - 1) {
+                throw new IllegalStateException("effect track count did not decrease after deletion");
+            }
+            return after;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int clearEffectTracks() {
+        int before = effectTrackCount();
+        for (int index = before - 1; index >= 0; index--) {
+            deleteEffectTrack(index);
+        }
+        if (effectTrackCount() != 0) {
+            throw new IllegalStateException("effect tracks remain after clear");
+        }
+        return before;
+    }
+
     public static int clipCount(int trackIndex) {
         ApiProject project = project();
         try {
@@ -50,6 +108,64 @@ public final class OpenwigDocument {
         } finally {
             project.dispose();
         }
+    }
+
+    public static int masterDeviceCount() {
+        ApiProject project = project();
+        try {
+            return project.getTrackGroup().masterTrack().deviceChain().getDevices().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int insertMasterFactoryDevice(String name) {
+        ApiProject project = project();
+        try {
+            java.util.UUID id = DirectAccess.factoryDeviceId(name + ".bwdevice");
+            if (id == null) {
+                throw new IllegalArgumentException("unknown Bitwig factory device: " + name);
+            }
+            Track master = project.getTrackGroup().masterTrack();
+            DeviceChain chain = master.deviceChain();
+            NativeDevice device = project.getFactory().createNativeDevice(id);
+            DirectAccess.runInUndo(master.clipTimeline(), () -> chain.addDevice(device));
+            return chain.getDevices().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int clearMasterDevices() {
+        int before = masterDeviceCount();
+        for (int index = before - 1; index >= 0; index--) {
+            ApiProject project = project();
+            try {
+                Track master = project.getTrackGroup().masterTrack();
+                DeviceChain chain = master.deviceChain();
+                Object device = chain.getDevices().get(index);
+                DirectAccess.runInUndo(master.clipTimeline(),
+                        () -> DirectAccess.removeDevice(chain, device));
+                if (chain.getDevices().size() != index) {
+                    throw new IllegalStateException("master device count did not decrease");
+                }
+            } finally {
+                project.dispose();
+            }
+        }
+        if (masterDeviceCount() != 0) {
+            throw new IllegalStateException("master devices remain after clear");
+        }
+        return before;
+    }
+
+    public static JSONObject clearProject() {
+        int masterDevices = clearMasterDevices();
+        int effectTracks = clearEffectTracks();
+        int mainTracks = clearMainTracks();
+        return new JSONObject().put("main_tracks_deleted", mainTracks)
+                .put("effect_tracks_deleted", effectTracks)
+                .put("master_devices_deleted", masterDevices);
     }
 
     public static int deleteTrack(int trackIndex) {

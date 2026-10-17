@@ -12,8 +12,11 @@ their exact catalog names, such as `FM-4`.
 `device.snapshot` returns each device's index, optional display name, and
 enabled state; `device.set_enabled` toggles that state.
 `track.delete` removes one main track by index. `project.clear_main_tracks`
-removes every main track and reports the number removed. Effect tracks and
-master devices remain in place.
+removes every main track and reports the number removed. `fxtrack.count`,
+`fxtrack.create`, `fxtrack.delete`, and `project.clear_effect_tracks` cover the
+effect bank. `master.device_count`, `master.insert_factory`, and `master.clear`
+cover the master device chain. `project.clear` removes main tracks, effect
+tracks, and master devices and reports each count.
 It also supports `clip.count`, `clip.note_count`, and
 `clip.create_arranger_with_notes` for a selected main-track index. It reports
 `song_edit: false` because feature parity has
@@ -59,6 +62,10 @@ Bitwig returns an empty display name for an unrenamed factory device.
 Deletion of one new track and then all 12 main tracks in the disposable
 project was verified by count readback. A fresh FM-4 track could be created
 after clearing, then deleted. The original project file was not saved.
+Effect-track deletion and clearing were verified with one and two newly
+created effect tracks. A full clear then removed 12 main tracks, one effect
+track, and five master devices from a freshly opened disposable project;
+all three counts read back zero, and a new FM-4 track could be created.
 
 For the clip call, send an explicit zero-based main-track index and beat-based
 start and duration. Notes are `[channel, key, start, duration, velocity]`,
@@ -79,8 +86,10 @@ with JavaSong(tempo=128, bars=4) as song:
 
 `JavaSong` currently appends instrument tracks, native factory devices, and
 MIDI arranger clips. It does not yet expose device parameters, automation,
-launcher clips, complete project clearing, or rendering.
-`JavaSong.clear_main_tracks()` exposes the tested main-track clearing slice.
+launcher clips, or rendering. `JavaSong.clear()` clears the active project of
+main/effect tracks and master devices. Use it on a disposable project while
+the bridge is experimental. `JavaSong.clear_main_tracks()` and
+`JavaSong.clear_effect_tracks()` expose the individual clear operations.
 
 ## Install and restore
 
@@ -102,8 +111,7 @@ patch; the installer rejects an unknown original.
 
 ## Next step
 
-Port device parameters, automation, remaining track properties, effect/master
-clearing, and rendering
+Port device parameters, automation, remaining track properties, and rendering
 controls. Then run the existing Python song examples against
 the patched application. The main Song API still targets the controller on
 port 7777 until those operations pass live tests.

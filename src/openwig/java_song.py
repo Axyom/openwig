@@ -48,6 +48,31 @@ class JavaSong:
         """Remove all main tracks in the active project and return their count."""
         return self.b.request("project.clear_main_tracks", timeout=65)["deleted"]
 
+    def clear(self) -> dict:
+        """Remove main/effect tracks and master devices from the active project."""
+        return self.b.request("project.clear", timeout=125)
+
+    def clear_effect_tracks(self) -> int:
+        return self.b.request("project.clear_effect_tracks", timeout=65)["deleted"]
+
+    def effect_track(self, name: str) -> int:
+        """Append an effect track and return its zero-based effect-bank index."""
+        if not name or not name.strip():
+            raise ValueError("effect track name is required")
+        index = self.b.request("fxtrack.count")["count"]
+        count = self.b.request("fxtrack.create", {"name": name})["count"]
+        if count != index + 1:
+            raise BridgeError("effect track count did not increase after insertion")
+        return index
+
+    def master_device(self, name: str) -> JavaSong:
+        """Append a native factory device to the master chain."""
+        before = self.b.request("master.device_count")["count"]
+        after = self.b.request("master.insert_factory", {"name": name})["count"]
+        if after != before + 1:
+            raise BridgeError("master device count did not increase after insertion")
+        return self
+
     def track(self, name: str, device: str | None = None) -> JavaTrack:
         if not name or not name.strip():
             raise ValueError("track name is required")

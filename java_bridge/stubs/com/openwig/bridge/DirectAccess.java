@@ -39,6 +39,46 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static int effectTrackCount() {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int createEffectTrack(String name) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int deleteEffectTrack(int index) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int clearEffectTracks() {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static void removeEffectTrack(Object group, Object target) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int masterDeviceCount() {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int insertMasterFactoryDevice(String name) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int clearMasterDevices() {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONObject clearProject() {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static void removeDevice(Object chain, Object device) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static JSONObject trackSnapshot(int index) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }

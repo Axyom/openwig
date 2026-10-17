@@ -267,6 +267,122 @@ public final class PatchMain {
         clearMain.visitMaxs(0, 0);
         clearMain.visitEnd();
 
+        MethodVisitor effectCount = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "effectTrackCount", "()I", null, null);
+        effectCount.visitCode();
+        effectCount.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "effectTrackCount",
+                "()I", false);
+        effectCount.visitInsn(Opcodes.IRETURN);
+        effectCount.visitMaxs(0, 0);
+        effectCount.visitEnd();
+
+        MethodVisitor createEffect = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "createEffectTrack", "(Ljava/lang/String;)I", null, null);
+        createEffect.visitCode();
+        createEffect.visitVarInsn(Opcodes.ALOAD, 0);
+        createEffect.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "createEffectTrack",
+                "(Ljava/lang/String;)I", false);
+        createEffect.visitInsn(Opcodes.IRETURN);
+        createEffect.visitMaxs(0, 0);
+        createEffect.visitEnd();
+
+        MethodVisitor deleteEffect = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "deleteEffectTrack", "(I)I", null, null);
+        deleteEffect.visitCode();
+        deleteEffect.visitVarInsn(Opcodes.ILOAD, 0);
+        deleteEffect.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "deleteEffectTrack",
+                "(I)I", false);
+        deleteEffect.visitInsn(Opcodes.IRETURN);
+        deleteEffect.visitMaxs(0, 0);
+        deleteEffect.visitEnd();
+
+        MethodVisitor clearEffect = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "clearEffectTracks", "()I", null, null);
+        clearEffect.visitCode();
+        clearEffect.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "clearEffectTracks",
+                "()I", false);
+        clearEffect.visitInsn(Opcodes.IRETURN);
+        clearEffect.visitMaxs(0, 0);
+        clearEffect.visitEnd();
+
+        MethodVisitor removeEffect = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "removeEffectTrack", "(Ljava/lang/Object;Ljava/lang/Object;)V", null, null);
+        removeEffect.visitCode();
+        removeEffect.visitVarInsn(Opcodes.ALOAD, 0);
+        removeEffect.visitTypeInsn(Opcodes.CHECKCAST,
+                "com/bitwig/flt/document/core/master/Yko");
+        removeEffect.visitVarInsn(Opcodes.ALOAD, 1);
+        removeEffect.visitTypeInsn(Opcodes.CHECKCAST, "roo");
+        removeEffect.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
+                "com/bitwig/flt/document/core/master/Yko", "Gcr", "(Lroo;)V", false);
+        removeEffect.visitInsn(Opcodes.RETURN);
+        removeEffect.visitMaxs(0, 0);
+        removeEffect.visitEnd();
+
+        MethodVisitor masterCount = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "masterDeviceCount", "()I", null, null);
+        masterCount.visitCode();
+        masterCount.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "masterDeviceCount",
+                "()I", false);
+        masterCount.visitInsn(Opcodes.IRETURN);
+        masterCount.visitMaxs(0, 0);
+        masterCount.visitEnd();
+
+        MethodVisitor insertMaster = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "insertMasterFactoryDevice", "(Ljava/lang/String;)I", null, null);
+        insertMaster.visitCode();
+        insertMaster.visitVarInsn(Opcodes.ALOAD, 0);
+        insertMaster.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "insertMasterFactoryDevice",
+                "(Ljava/lang/String;)I", false);
+        insertMaster.visitInsn(Opcodes.IRETURN);
+        insertMaster.visitMaxs(0, 0);
+        insertMaster.visitEnd();
+
+        MethodVisitor clearMaster = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "clearMasterDevices", "()I", null, null);
+        clearMaster.visitCode();
+        clearMaster.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "clearMasterDevices",
+                "()I", false);
+        clearMaster.visitInsn(Opcodes.IRETURN);
+        clearMaster.visitMaxs(0, 0);
+        clearMaster.visitEnd();
+
+        MethodVisitor clearProject = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "clearProject", "()Lorg/json/JSONObject;", null, null);
+        clearProject.visitCode();
+        clearProject.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "clearProject",
+                "()Lorg/json/JSONObject;", false);
+        clearProject.visitInsn(Opcodes.ARETURN);
+        clearProject.visitMaxs(0, 0);
+        clearProject.visitEnd();
+
+        MethodVisitor removeDevice = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "removeDevice", "(Ljava/lang/Object;Ljava/lang/Object;)V", null, null);
+        removeDevice.visitCode();
+        removeDevice.visitVarInsn(Opcodes.ALOAD, 0);
+        removeDevice.visitTypeInsn(Opcodes.CHECKCAST,
+                "com/bitwig/flt/document/api/document/ApiDeviceChain");
+        removeDevice.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
+                "com/bitwig/flt/document/api/document/ApiDeviceChain", "getTarget",
+                "()Ljava/lang/Object;", false);
+        removeDevice.visitTypeInsn(Opcodes.CHECKCAST,
+                "com/bitwig/flt/document/core/master/device/Wju");
+        removeDevice.visitVarInsn(Opcodes.ALOAD, 1);
+        removeDevice.visitTypeInsn(Opcodes.CHECKCAST,
+                "com/bitwig/flt/document/api/document/ApiDevice");
+        removeDevice.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
+                "com/bitwig/flt/document/api/document/ApiDevice", "getTarget",
+                "()Ljava/lang/Object;", false);
+        removeDevice.visitTypeInsn(Opcodes.CHECKCAST,
+                "com/bitwig/flt/document/core/master/device/Wcl");
+        removeDevice.visitInsn(Opcodes.ICONST_1);
+        removeDevice.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
+                "com/bitwig/flt/document/core/master/device/Wju", "IYM",
+                "(Lcom/bitwig/flt/document/core/master/device/Wcl;Z)V", false);
+        removeDevice.visitInsn(Opcodes.RETURN);
+        removeDevice.visitMaxs(0, 0);
+        removeDevice.visitEnd();
+
         MethodVisitor trackSnapshot = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "trackSnapshot", "(I)Lorg/json/JSONObject;", null, null);
         trackSnapshot.visitCode();
