@@ -73,12 +73,15 @@ class JavaSong:
             raise BridgeError("master device count did not increase after insertion")
         return self
 
-    def track(self, name: str, device: str | None = None) -> JavaTrack:
+    def track(self, name: str, device: str | None = None,
+              kind: str = "instrument") -> JavaTrack:
+        if kind not in ("instrument", "audio", "hybrid"):
+            raise ValueError("track kind must be instrument, audio, or hybrid")
         if not name or not name.strip():
             raise ValueError("track name is required")
         index = self.b.request("track.count")["count"]
         result = self.b.request("track.create", {
-            "type": "instrument", "index": -1, "name": name,
+            "type": kind, "index": -1, "name": name,
         })
         if result["count"] != index + 1:
             raise BridgeError("track count did not increase after insertion")
@@ -89,6 +92,9 @@ class JavaSong:
         if device is not None:
             track.add_device(device)
         return track
+
+    def audio_track(self, name: str) -> JavaTrack:
+        return self.track(name, kind="audio")
 
 
 class JavaTrack:
@@ -142,6 +148,29 @@ class JavaTrack:
 
     def mute(self, on: bool = True) -> JavaTrack:
         self.s.b.request("track.set_mute", {"index": self.idx, "on": bool(on)})
+        return self
+
+    def monitor(self, mode: str = "AUTO") -> JavaTrack:
+        """Set monitor mode: OFF, ON, or AUTO."""
+        if mode not in ("OFF", "ON", "AUTO"):
+            raise ValueError("monitor mode must be OFF, ON, or AUTO")
+        self.s.b.request("track.set_monitor", {
+            "index": self.idx, "mode": mode,
+        })
+        return self
+
+    def color(self, r: float, g: float, b: float, a: float = 1.0) -> JavaTrack:
+        self.s.b.request("track.set_color", {
+            "index": self.idx, "r": float(r), "g": float(g),
+            "b": float(b), "a": float(a),
+        })
+        return self
+
+    def send(self, send_index: int, value: float) -> JavaTrack:
+        """Set a send amount from 0 to 1; sends exist per effect track."""
+        self.s.b.request("track.set_send", {
+            "index": self.idx, "send": int(send_index), "value": float(value),
+        })
         return self
 
     def clip(self, notes, dur: float | None = None, start: float = 0.0) -> JavaTrack:

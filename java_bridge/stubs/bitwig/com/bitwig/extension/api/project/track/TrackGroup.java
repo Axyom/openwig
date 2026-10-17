@@ -5,6 +5,7 @@ import java.util.List;
 public interface TrackGroup {
     List mainTracks();
     List effectTracks();
+    void addMainTrack(TrackOrTrackGroup track);
     void addEffectTrack(Track track);
     Track masterTrack();
 }

@@ -11,6 +11,13 @@ with `track.create`. Main-track `track.snapshot`, `track.rename`,
 their exact catalog names, such as `FM-4`.
 `device.snapshot` returns each device's index, optional display name, and
 enabled state; `device.set_enabled` toggles that state.
+`track.create` also appends `audio` and `hybrid` tracks (`type` parameter).
+`track.set_color` sets RGB(A) in 0..1 and `track.snapshot` reads the color
+back as a hex string; Bitwig snaps track colors to its palette, so the readback
+can differ slightly from the requested value. `track.set_monitor` takes
+`OFF`, `ON`, or `AUTO` (the document API exposes no readback for it).
+`track.set_send` sets one send amount in 0..1; send slots exist per effect
+track and appear in `track.snapshot` as a `sends` array.
 `track.delete` removes one main track by index. `project.clear_main_tracks`
 removes every main track and reports the number removed. `fxtrack.count`,
 `fxtrack.create`, `fxtrack.delete`, and `project.clear_effect_tracks` cover the
@@ -66,6 +73,12 @@ Effect-track deletion and clearing were verified with one and two newly
 created effect tracks. A full clear then removed 12 main tracks, one effect
 track, and five master devices from a freshly opened disposable project;
 all three counts read back zero, and a new FM-4 track could be created.
+Audio and hybrid track creation, track color with hex readback (palette
+snapping observed), send amounts with readback against a new effect track,
+and monitor mode changes (accepted without readback; the API has no getter)
+were verified live on 2026-10-17 with invalid-input rejection checks.
+Solo and arm are not exposed by the document API used here; they need the
+obfuscated layer and are still missing.
 
 For the clip call, send an explicit zero-based main-track index and beat-based
 start and duration. Notes are `[channel, key, start, duration, velocity]`,

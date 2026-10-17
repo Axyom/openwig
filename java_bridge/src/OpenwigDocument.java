@@ -1,3 +1,4 @@
+import com.bitwig.extension.api.Color;
 import com.bitwig.extension.api.project.Factory;
 import com.bitwig.extension.api.project.timeline.ClipTimeline;
 import com.bitwig.extension.api.project.timeline.Clip;
@@ -10,6 +11,7 @@ import com.bitwig.extension.api.project.mixer.DeviceChain;
 import com.bitwig.extension.api.project.mixer.NativeDevice;
 import com.bitwig.extension.api.project.mixer.Device;
 import com.bitwig.extension.api.project.parameter.Unit;
+import com.bitwig.extension.api.project.track.MonitorMode;
 import com.bitwig.flt.document.api.document.ApiProject;
 import com.bitwig.flt.document.api.document.ApiObject;
 import com.bitwig.flt.document.core.master.Yko;
@@ -168,6 +170,26 @@ public final class OpenwigDocument {
                 .put("master_devices_deleted", masterDevices);
     }
 
+    public static int createMainTrack(String kind, String name) {
+        ApiProject project = project();
+        try {
+            Factory factory = project.getFactory();
+            Track created;
+            switch (kind) {
+                case "instrument" -> created = factory.createInstrumentTrack();
+                case "audio" -> created = factory.createAudioTrack();
+                case "hybrid" -> created = factory.createHybridTrack();
+                default -> throw new IllegalArgumentException(
+                        "track kind must be instrument, audio, or hybrid: " + kind);
+            }
+            created.setTitle(name);
+            project.getTrackGroup().addMainTrack(created);
+            return project.getTrackGroup().mainTracks().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
     public static int deleteTrack(int trackIndex) {
         ApiProject project = project();
         try {
@@ -257,12 +279,20 @@ public final class OpenwigDocument {
 
     private static JSONObject trackSnapshot(Track track, int index) {
         Mixer mixer = track.mixer();
+        JSONArray sends = new JSONArray();
+        for (int i = 0; i < mixer.getSendCount(); i++) {
+            sends.put(mixer.getSend(i).getAmount()
+                    .getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0);
+        }
+        Color color = track.getColor();
         return new JSONObject()
                 .put("index", index)
                 .put("name", track.getTitle())
                 .put("volume", mixer.getVolume().getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0)
                 .put("pan", (mixer.getPan().getValue(Unit.PERCENTAGE_OF_RANGE) + 100.0) / 200.0)
-                .put("mute", mixer.getMute().getValue());
+                .put("mute", mixer.getMute().getValue())
+                .put("sends", sends)
+                .put("color", color == null ? JSONObject.NULL : color.toHex());
     }
 
     public static JSONObject trackSnapshot(int trackIndex) {
@@ -271,6 +301,15 @@ public final class OpenwigDocument {
             return trackSnapshot(track(project, trackIndex), trackIndex);
         } finally {
             project.dispose();
+        }
+    }
+
+    private static MonitorMode monitorMode(String name) {
+        switch (name == null ? "" : name) {
+            case "OFF": return MonitorMode.OFF;
+            case "ON": return MonitorMode.ON;
+            case "AUTO": return MonitorMode.AUTO;
+            default: throw new IllegalArgumentException("monitor mode must be OFF, ON, or AUTO");
         }
     }
 
@@ -286,6 +325,32 @@ public final class OpenwigDocument {
                         .setValue((params.getDouble("value") * 2.0 - 1.0) * 100.0,
                                 Unit.PERCENTAGE_OF_RANGE);
                 case "mute" -> track.mixer().getMute().setValue(params.getBoolean("on"));
+                case "monitor" -> track.setMonitorMode(monitorMode(params.getString("mode")));
+                case "color" -> {
+                    double r = params.getDouble("r");
+                    double g = params.getDouble("g");
+                    double b = params.getDouble("b");
+                    double a = params.optDouble("a", 1.0);
+                    if (r < 0 || r > 1 || g < 0 || g > 1 || b < 0 || b > 1 ||
+                            a < 0 || a > 1) {
+                        throw new IllegalArgumentException("color components must be within 0..1");
+                    }
+                    track.setColor(a >= 1.0 ? Color.fromRGB(r, g, b)
+                            : Color.fromRGBA(r, g, b, a));
+                }
+                case "send" -> {
+                    int sendIndex = params.getInt("send");
+                    double value = params.getDouble("value");
+                    Mixer mixer = track.mixer();
+                    if (sendIndex < 0 || sendIndex >= mixer.getSendCount()) {
+                        throw new IllegalArgumentException("send index out of range: " + sendIndex);
+                    }
+                    if (!Double.isFinite(value) || value < 0 || value > 1) {
+                        throw new IllegalArgumentException("send value must be within 0..1");
+                    }
+                    mixer.getSend(sendIndex).getAmount()
+                            .setValue(value * 100.0, Unit.PERCENTAGE_OF_RANGE);
+                }
                 default -> throw new IllegalArgumentException("unknown track field: " + field);
             }
             return trackSnapshot(track, trackIndex);

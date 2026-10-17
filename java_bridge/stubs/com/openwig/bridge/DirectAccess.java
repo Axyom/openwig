@@ -31,6 +31,10 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static int createMainTrack(String kind, String name) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static int deleteTrack(int index) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }

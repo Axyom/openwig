@@ -248,6 +248,17 @@ public final class PatchMain {
         create.visitMaxs(0, 0);
         create.visitEnd();
 
+        MethodVisitor createMain = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "createMainTrack", "(Ljava/lang/String;Ljava/lang/String;)I", null, null);
+        createMain.visitCode();
+        createMain.visitVarInsn(Opcodes.ALOAD, 0);
+        createMain.visitVarInsn(Opcodes.ALOAD, 1);
+        createMain.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "createMainTrack",
+                "(Ljava/lang/String;Ljava/lang/String;)I", false);
+        createMain.visitInsn(Opcodes.IRETURN);
+        createMain.visitMaxs(0, 0);
+        createMain.visitEnd();
+
         MethodVisitor deleteTrack = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "deleteTrack", "(I)I", null, null);
         deleteTrack.visitCode();

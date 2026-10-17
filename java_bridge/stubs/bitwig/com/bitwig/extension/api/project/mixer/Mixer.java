@@ -7,4 +7,6 @@ public interface Mixer {
     DoubleParameter getVolume();
     DoubleParameter getPan();
     BooleanParameter getMute();
+    Send getSend(int index);
+    int getSendCount();
 }

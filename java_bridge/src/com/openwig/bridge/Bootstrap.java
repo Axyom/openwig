@@ -191,7 +191,8 @@ public final class Bootstrap {
                     }
                     response.put("result", onDocumentEvent(() -> DirectAccess.trackSnapshot(index)));
                 }
-                case "track.rename", "track.set_volume", "track.set_pan", "track.set_mute" -> {
+                case "track.rename", "track.set_volume", "track.set_pan", "track.set_mute",
+                     "track.set_monitor", "track.set_color", "track.set_send" -> {
                     JSONObject params = request.optJSONObject("params");
                     int index = params == null ? -1 : params.optInt("index", -1);
                     if (index < 0 || params == null) {
@@ -208,6 +209,21 @@ public final class Bootstrap {
                             throw new IllegalArgumentException("mute state is required");
                         }
                         field = "mute";
+                    } else if (method.equals("track.set_monitor")) {
+                        if (params.optString("mode", "").isBlank()) {
+                            throw new IllegalArgumentException("monitor mode is required");
+                        }
+                        field = "monitor";
+                    } else if (method.equals("track.set_color")) {
+                        if (!params.has("r") || !params.has("g") || !params.has("b")) {
+                            throw new IllegalArgumentException("r, g, and b are required");
+                        }
+                        field = "color";
+                    } else if (method.equals("track.set_send")) {
+                        if (!params.has("send") || !params.has("value")) {
+                            throw new IllegalArgumentException("send index and value are required");
+                        }
+                        field = "send";
                     } else {
                         double value = params.optDouble("value", Double.NaN);
                         if (!Double.isFinite(value) || value < 0 || value > 1) {
@@ -224,12 +240,17 @@ public final class Bootstrap {
                     int index = params == null ? -1 : params.optInt("index", -1);
                     String name = params == null ? "Openwig Track" :
                             params.optString("name", "Openwig Track");
-                    if (!type.equals("instrument") || index != -1 || name.isBlank()) {
+                    if (!type.equals("instrument") && !type.equals("audio") &&
+                            !type.equals("hybrid")) {
                         throw new IllegalArgumentException(
-                                "only append of a named instrument track is supported");
+                                "track type must be instrument, audio, or hybrid");
+                    }
+                    if (index != -1 || name.isBlank()) {
+                        throw new IllegalArgumentException(
+                                "only append of a named track is supported");
                     }
                     response.put("result", new JSONObject().put("count",
-                            onDocumentEvent(() -> DirectAccess.createInstrumentTrack(name))));
+                            onDocumentEvent(() -> DirectAccess.createMainTrack(type, name))));
                 }
                 case "clip.count" -> {
                     JSONObject params = request.optJSONObject("params");

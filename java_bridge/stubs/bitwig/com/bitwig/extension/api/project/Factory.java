@@ -7,6 +7,8 @@ import com.bitwig.extension.api.project.track.Track;
 
 public interface Factory {
     Track createAudioTrack();
+    Track createInstrumentTrack();
+    Track createHybridTrack();
     NativeDevice createNativeDevice(java.util.UUID id);
     NoteClip createNoteClip(boolean launcher);
     InstrumentNote createInstrumentNote(int channel, int key, double time,
