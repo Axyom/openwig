@@ -130,6 +130,58 @@ class JavaTrack:
         })
         return self
 
+    def rename_device(self, index: int, name: str) -> JavaTrack:
+        self.s.b.request("device.rename", {
+            "track": self.idx, "device": int(index), "name": name,
+        })
+        return self
+
+    def expand_device(self, index: int, on: bool = True) -> JavaTrack:
+        self.s.b.request("device.set_expanded", {
+            "track": self.idx, "device": int(index), "on": bool(on),
+        })
+        return self
+
+    def delete_device(self, index: int) -> JavaTrack:
+        before = self.s.b.request("device.count", {"track": self.idx})["count"]
+        after = self.s.b.request("device.delete", {
+            "track": self.idx, "device": int(index),
+        })["count"]
+        if after != before - 1:
+            raise BridgeError("device count did not decrease after deletion")
+        return self
+
+    def parameters(self, device_index: int = 0, unit: str | None = None,
+                   **values) -> JavaTrack:
+        """Set named parameters: floats 0..1, booleans, or enum integer indexes.
+
+        An explicit Bitwig ``Unit`` name changes the scale for float parameters.
+        """
+        if not values:
+            raise ValueError("at least one parameter value is required")
+        self.s.b.request("device.set_parameters", {
+            "track": self.idx, "device": int(device_index),
+            "params": values, "unit": unit,
+        })
+        return self
+
+    def get_parameters(self, device_index: int, names, unit: str | None = None) -> dict:
+        """Read named numeric, boolean, or enum-index parameters.
+
+        Numbers default to normalized 0..1 values. An explicit Bitwig Unit
+        (for example ``DECIBEL``) reads numbers in that unit instead.
+        """
+        return self.s.b.request("device.get_parameters", {
+            "track": self.idx, "device": int(device_index),
+            "names": [str(n) for n in names], "unit": unit,
+        })
+
+    def list_parameters(self, device_index: int = 0) -> list[dict]:
+        """List available parameter paths and kinds for a loaded native device."""
+        return self.s.b.request("device.list_parameters", {
+            "track": self.idx, "device": int(device_index),
+        })
+
     def rename(self, name: str) -> JavaTrack:
         self.s.b.request("track.rename", {"index": self.idx, "name": name})
         self.name = name

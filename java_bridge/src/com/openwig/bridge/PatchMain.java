@@ -394,6 +394,78 @@ public final class PatchMain {
         removeDevice.visitMaxs(0, 0);
         removeDevice.visitEnd();
 
+        MethodVisitor setParams = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "setDeviceParameters", "(IILorg/json/JSONObject;Ljava/lang/String;)Lorg/json/JSONObject;", null, null);
+        setParams.visitCode();
+        setParams.visitVarInsn(Opcodes.ILOAD, 0);
+        setParams.visitVarInsn(Opcodes.ILOAD, 1);
+        setParams.visitVarInsn(Opcodes.ALOAD, 2);
+        setParams.visitVarInsn(Opcodes.ALOAD, 3);
+        setParams.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "setDeviceParameters",
+                "(IILorg/json/JSONObject;Ljava/lang/String;)Lorg/json/JSONObject;", false);
+        setParams.visitInsn(Opcodes.ARETURN);
+        setParams.visitMaxs(0, 0);
+        setParams.visitEnd();
+
+        MethodVisitor getParams = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "getDeviceParameters", "(IILorg/json/JSONArray;Ljava/lang/String;)Lorg/json/JSONObject;", null, null);
+        getParams.visitCode();
+        getParams.visitVarInsn(Opcodes.ILOAD, 0);
+        getParams.visitVarInsn(Opcodes.ILOAD, 1);
+        getParams.visitVarInsn(Opcodes.ALOAD, 2);
+        getParams.visitVarInsn(Opcodes.ALOAD, 3);
+        getParams.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "getDeviceParameters",
+                "(IILorg/json/JSONArray;Ljava/lang/String;)Lorg/json/JSONObject;", false);
+        getParams.visitInsn(Opcodes.ARETURN);
+        getParams.visitMaxs(0, 0);
+        getParams.visitEnd();
+
+        MethodVisitor renameDev = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "renameDevice", "(IILjava/lang/String;)Lorg/json/JSONObject;", null, null);
+        renameDev.visitCode();
+        renameDev.visitVarInsn(Opcodes.ILOAD, 0);
+        renameDev.visitVarInsn(Opcodes.ILOAD, 1);
+        renameDev.visitVarInsn(Opcodes.ALOAD, 2);
+        renameDev.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "renameDevice",
+                "(IILjava/lang/String;)Lorg/json/JSONObject;", false);
+        renameDev.visitInsn(Opcodes.ARETURN);
+        renameDev.visitMaxs(0, 0);
+        renameDev.visitEnd();
+
+        MethodVisitor expandDev = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "setDeviceExpanded", "(IIZ)Lorg/json/JSONObject;", null, null);
+        expandDev.visitCode();
+        expandDev.visitVarInsn(Opcodes.ILOAD, 0);
+        expandDev.visitVarInsn(Opcodes.ILOAD, 1);
+        expandDev.visitVarInsn(Opcodes.ILOAD, 2);
+        expandDev.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "setDeviceExpanded",
+                "(IIZ)Lorg/json/JSONObject;", false);
+        expandDev.visitInsn(Opcodes.ARETURN);
+        expandDev.visitMaxs(0, 0);
+        expandDev.visitEnd();
+
+        MethodVisitor deleteDev = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "deleteTrackDevice", "(II)I", null, null);
+        deleteDev.visitCode();
+        deleteDev.visitVarInsn(Opcodes.ILOAD, 0);
+        deleteDev.visitVarInsn(Opcodes.ILOAD, 1);
+        deleteDev.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "deleteTrackDevice",
+                "(II)I", false);
+        deleteDev.visitInsn(Opcodes.IRETURN);
+        deleteDev.visitMaxs(0, 0);
+        deleteDev.visitEnd();
+
+        MethodVisitor listParams = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "listDeviceParameters", "(II)Lorg/json/JSONArray;", null, null);
+        listParams.visitCode();
+        listParams.visitVarInsn(Opcodes.ILOAD, 0);
+        listParams.visitVarInsn(Opcodes.ILOAD, 1);
+        listParams.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "listDeviceParameters",
+                "(II)Lorg/json/JSONArray;", false);
+        listParams.visitInsn(Opcodes.ARETURN);
+        listParams.visitMaxs(0, 0);
+        listParams.visitEnd();
+
         MethodVisitor trackSnapshot = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "trackSnapshot", "(I)Lorg/json/JSONObject;", null, null);
         trackSnapshot.visitCode();

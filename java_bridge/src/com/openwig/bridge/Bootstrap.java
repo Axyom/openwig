@@ -183,6 +183,76 @@ public final class Bootstrap {
                     response.put("result", new JSONObject().put("count",
                             onDocumentEvent(() -> DirectAccess.insertFactoryDevice(track, name))));
                 }
+                case "device.set_parameters" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    int device = params == null ? -1 : params.optInt("device", -1);
+                    JSONObject values = params == null ? null : params.optJSONObject("params");
+                    String unit = params == null ? null : params.optString("unit", null);
+                    if (track < 0 || device < 0 || values == null || values.isEmpty()) {
+                        throw new IllegalArgumentException(
+                                "track, device index, and a non-empty params object are required");
+                    }
+                    response.put("result", onDocumentEvent(() ->
+                            DirectAccess.setDeviceParameters(track, device, values, unit)));
+                }
+                case "device.get_parameters" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    int device = params == null ? -1 : params.optInt("device", -1);
+                    JSONArray names = params == null ? null : params.optJSONArray("names");
+                    String unit = params == null ? null : params.optString("unit", null);
+                    if (track < 0 || device < 0 || names == null || names.length() == 0) {
+                        throw new IllegalArgumentException(
+                                "track, device index, and a non-empty names array are required");
+                    }
+                    response.put("result", onDocumentEvent(() ->
+                            DirectAccess.getDeviceParameters(track, device, names, unit)));
+                }
+                case "device.rename" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    int device = params == null ? -1 : params.optInt("device", -1);
+                    String name = params == null ? "" : params.optString("name", "");
+                    if (track < 0 || device < 0 || name.isBlank()) {
+                        throw new IllegalArgumentException(
+                                "track, device index, and a name are required");
+                    }
+                    response.put("result", onDocumentEvent(() ->
+                            DirectAccess.renameDevice(track, device, name)));
+                }
+                case "device.set_expanded" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    int device = params == null ? -1 : params.optInt("device", -1);
+                    if (track < 0 || device < 0 || params == null || !params.has("on")) {
+                        throw new IllegalArgumentException(
+                                "track, device index, and expanded state are required");
+                    }
+                    boolean on = params.getBoolean("on");
+                    response.put("result", onDocumentEvent(() ->
+                            DirectAccess.setDeviceExpanded(track, device, on)));
+                }
+                case "device.delete" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    int device = params == null ? -1 : params.optInt("device", -1);
+                    if (track < 0 || device < 0) {
+                        throw new IllegalArgumentException("track and device index are required");
+                    }
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.deleteTrackDevice(track, device))));
+                }
+                case "device.list_parameters" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    int device = params == null ? -1 : params.optInt("device", -1);
+                    if (track < 0 || device < 0) {
+                        throw new IllegalArgumentException("track and device index are required");
+                    }
+                    response.put("result", onDocumentEvent(() ->
+                            DirectAccess.listDeviceParameters(track, device), 20));
+                }
                 case "track.snapshot" -> {
                     JSONObject params = request.optJSONObject("params");
                     int index = params == null ? -1 : params.optInt("index", -1);

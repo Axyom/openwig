@@ -11,6 +11,13 @@ with `track.create`. Main-track `track.snapshot`, `track.rename`,
 their exact catalog names, such as `FM-4`.
 `device.snapshot` returns each device's index, optional display name, and
 enabled state; `device.set_enabled` toggles that state.
+`device.rename`, `device.set_expanded`, and `device.delete` edit the track's
+device chain. `device.list_parameters` lists preset paths and types for a
+loaded native device. `device.get_parameters` reads numeric, boolean, and
+enum index values; `device.set_parameters` writes them. Numeric double values default to a
+normalized 0..1 scale. Pass a Bitwig `Unit` name to read or write in that
+unit instead (for example `PERCENTAGE_OF_RANGE` uses 0..100). Enum parameters
+use integer indexes, regardless of the unit argument.
 `track.create` also appends `audio` and `hybrid` tracks (`type` parameter).
 `track.set_color` sets RGB(A) in 0..1 and `track.snapshot` reads the color
 back as a hex string; Bitwig snaps track colors to its palette, so the readback
@@ -36,7 +43,9 @@ The patch is locked to the Windows Bitwig Studio 6.1.5 build whose original
 `d56248d003101ead1381c8a4fd3e256d933773beccbeb3366c9abe744de41a49`.
 It modifies only `BitwigStudioMain.main` to call our bootstrap and adds four
 classes. The direct adapter makes JVM calls to the exact-build Bitwig
-document API, with no runtime reflection. Clip insertion starts and closes a
+document API. Parameter path discovery uses reflection on the exact-build
+native model's read-only child and identifier methods; parameter reads and
+writes use Bitwig's document API. Clip insertion starts and closes a
 Bitwig undo transaction around the arranger timeline edit. It does not contain
 Superpowers code.
 
@@ -77,6 +86,13 @@ Audio and hybrid track creation, track color with hex readback (palette
 snapping observed), send amounts with readback against a new effect track,
 and monitor mode changes (accepted without readback; the API has no getter)
 were verified live on 2026-10-17 with invalid-input rejection checks.
+FM-4 parameter discovery, numeric read/write (`OUTPUT` at normalized 0.35,
+equivalent to 35 `PERCENTAGE_OF_RANGE`), and boolean read/write
+(`OP1_ENABLE`) passed on a disposable track. An out-of-range normalized value
+was rejected without changing the parameter. Device rename, expansion, and
+deletion also passed. Run `tests/live_java_parameters.py` to repeat the
+parameter check. A newly inserted device may expose only a few paths while
+it loads; callers should wait until the desired path appears.
 Solo and arm are not exposed by the document API used here; they need the
 obfuscated layer and are still missing.
 
@@ -98,8 +114,11 @@ with JavaSong(tempo=128, bars=4) as song:
 ```
 
 `JavaSong` currently appends instrument tracks, native factory devices, and
-MIDI arranger clips. It does not yet expose device parameters, automation,
-launcher clips, or rendering. `JavaSong.clear()` clears the active project of
+MIDI arranger clips. A `JavaTrack` can call `list_parameters(0)`,
+`parameters(0, OUTPUT=0.35)`, and `get_parameters(0, ["OUTPUT"])` after its
+native device has loaded. Boolean values and enum integer indexes are also
+supported; enum writes have not yet been verified live.
+Automation, launcher clips, and rendering are still missing. `JavaSong.clear()` clears the active project of
 main/effect tracks and master devices. Use it on a disposable project while
 the bridge is experimental. `JavaSong.clear_main_tracks()` and
 `JavaSong.clear_effect_tracks()` expose the individual clear operations.
@@ -124,7 +143,7 @@ patch; the installer rejects an unknown original.
 
 ## Next step
 
-Port device parameters, automation, remaining track properties, and rendering
+Port automation, remaining track properties, launcher clips, and rendering
 controls. Then run the existing Python song examples against
 the patched application. The main Song API still targets the controller on
 port 7777 until those operations pass live tests.

@@ -1,5 +1,9 @@
 import com.bitwig.extension.api.Color;
 import com.bitwig.extension.api.project.Factory;
+import com.bitwig.extension.api.project.parameter.BooleanParameter;
+import com.bitwig.extension.api.project.parameter.DoubleParameter;
+import com.bitwig.extension.api.project.parameter.EnumParameter;
+import com.bitwig.extension.api.project.parameter.Unit;
 import com.bitwig.extension.api.project.timeline.ClipTimeline;
 import com.bitwig.extension.api.project.timeline.Clip;
 import com.bitwig.extension.api.project.timeline.EventTimeline;
@@ -10,7 +14,6 @@ import com.bitwig.extension.api.project.mixer.Mixer;
 import com.bitwig.extension.api.project.mixer.DeviceChain;
 import com.bitwig.extension.api.project.mixer.NativeDevice;
 import com.bitwig.extension.api.project.mixer.Device;
-import com.bitwig.extension.api.project.parameter.Unit;
 import com.bitwig.extension.api.project.track.MonitorMode;
 import com.bitwig.flt.document.api.document.ApiProject;
 import com.bitwig.flt.document.api.document.ApiObject;
@@ -234,6 +237,296 @@ public final class OpenwigDocument {
             return devices;
         } finally {
             project.dispose();
+        }
+    }
+
+    private static NativeDevice nativeDevice(ApiProject project, int trackIndex, int deviceIndex) {
+        java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
+        if (deviceIndex < 0 || deviceIndex >= members.size()) {
+            throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+        }
+        Device device = (Device) members.get(deviceIndex);
+        if (!(device instanceof NativeDevice target)) {
+            throw new IllegalArgumentException("device has no named parameters");
+        }
+        return target;
+    }
+
+    private static Unit unitByName(String name) {
+        if (name == null || name.isBlank()) return Unit.PERCENTAGE_OF_RANGE;
+        return Unit.valueOf(name);
+    }
+
+    private static double fromClientValue(double value, String unitName) {
+        if (!Double.isFinite(value)) throw new IllegalArgumentException("parameter value must be finite");
+        if (unitName == null || unitName.isBlank()) {
+            if (value < 0 || value > 1) {
+                throw new IllegalArgumentException("normalized parameter value must be between 0 and 1");
+            }
+            return value * 100;
+        }
+        return value;
+    }
+
+    private static double toClientValue(double value, String unitName) {
+        return unitName == null || unitName.isBlank() ? value / 100 : value;
+    }
+
+    public static JSONObject setDeviceParameters(int trackIndex, int deviceIndex,
+                                                 JSONObject params, String unitName) {
+        ApiProject project = project();
+        try {
+            NativeDevice device = nativeDevice(project, trackIndex, deviceIndex);
+            Unit unit = unitByName(unitName);
+            java.util.Map<String, String> kinds = parameterKinds(trackIndex, deviceIndex);
+            for (String name : params.keySet()) {
+                Object value = params.get(name);
+                String kind = kinds.get(name);
+                if ("boolean".equals(kind) && value instanceof Boolean) continue;
+                if ("double".equals(kind) && value instanceof Number number) {
+                    fromClientValue(number.doubleValue(), unitName);
+                    continue;
+                }
+                if ("enum".equals(kind) && value instanceof Number number
+                        && Double.isFinite(number.doubleValue())
+                        && number.doubleValue() == Math.rint(number.doubleValue())
+                        && number.doubleValue() >= Integer.MIN_VALUE
+                        && number.doubleValue() <= Integer.MAX_VALUE) continue;
+                throw new IllegalArgumentException("invalid value or unknown parameter: " + name);
+            }
+            JSONObject out = new JSONObject();
+            for (String name : params.keySet()) {
+                Object value = params.get(name);
+                String kind = kinds.get(name);
+                if ("boolean".equals(kind)) {
+                    boolean flag = (Boolean) value;
+                    BooleanParameter p = device.getBooleanParameter(name);
+                    if (p == null) throw new IllegalArgumentException("no boolean parameter: " + name);
+                    p.setValue(flag);
+                    out.put(name, p.getValue());
+                } else if ("double".equals(kind)) {
+                    Number number = (Number) value;
+                    DoubleParameter p = device.getDoubleParameter(name);
+                    if (p == null) throw new IllegalArgumentException("no double parameter: " + name);
+                    p.setValue(fromClientValue(number.doubleValue(), unitName), unit);
+                    out.put(name, toClientValue(p.getValue(unit), unitName));
+                } else if ("enum".equals(kind)) {
+                    int index = ((Number) value).intValue();
+                    EnumParameter p = device.getEnumParameter(name);
+                    if (p == null) throw new IllegalArgumentException("no enum parameter: " + name);
+                    p.setValue(index);
+                    out.put(name, p.getValue());
+                }
+            }
+            return out;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static JSONObject getDeviceParameters(int trackIndex, int deviceIndex,
+                                                 JSONArray names, String unitName) {
+        ApiProject project = project();
+        try {
+            NativeDevice device = nativeDevice(project, trackIndex, deviceIndex);
+            Unit unit = unitByName(unitName);
+            java.util.Map<String, String> kinds = parameterKinds(trackIndex, deviceIndex);
+            JSONObject out = new JSONObject();
+            for (int i = 0; i < names.length(); i++) {
+                String name = names.getString(i);
+                String kind = kinds.get(name);
+                if ("double".equals(kind)) {
+                    DoubleParameter p = device.getDoubleParameter(name);
+                    if (p == null) throw new IllegalArgumentException("no double parameter: " + name);
+                    out.put(name, toClientValue(p.getValue(unit), unitName));
+                } else if ("boolean".equals(kind)) {
+                    BooleanParameter p = device.getBooleanParameter(name);
+                    if (p == null) throw new IllegalArgumentException("no boolean parameter: " + name);
+                    out.put(name, p.getValue());
+                } else if ("enum".equals(kind)) {
+                    EnumParameter p = device.getEnumParameter(name);
+                    if (p == null) throw new IllegalArgumentException("no enum parameter: " + name);
+                    out.put(name, p.getValue());
+                } else {
+                    throw new IllegalArgumentException("unknown device parameter: " + name);
+                }
+            }
+            return out;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static JSONObject renameDevice(int trackIndex, int deviceIndex, String name) {
+        ApiProject project = project();
+        try {
+            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
+            if (deviceIndex < 0 || deviceIndex >= members.size()) {
+                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+            }
+            Device device = (Device) members.get(deviceIndex);
+            device.setDisplayName(name);
+            return new JSONObject().put("index", deviceIndex)
+                    .put("display_name", device.getDisplayName());
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static JSONObject setDeviceExpanded(int trackIndex, int deviceIndex, boolean expanded) {
+        ApiProject project = project();
+        try {
+            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
+            if (deviceIndex < 0 || deviceIndex >= members.size()) {
+                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+            }
+            Device device = (Device) members.get(deviceIndex);
+            device.setIsExpanded(expanded);
+            return new JSONObject().put("index", deviceIndex).put("expanded", expanded);
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int deleteTrackDevice(int trackIndex, int deviceIndex) {
+        ApiProject project = project();
+        try {
+            Track targetTrack = track(project, trackIndex);
+            DeviceChain chain = targetTrack.deviceChain();
+            java.util.List<?> members = chain.getDevices();
+            if (deviceIndex < 0 || deviceIndex >= members.size()) {
+                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+            }
+            Object device = members.get(deviceIndex);
+            DirectAccess.runInUndo(targetTrack.clipTimeline(),
+                    () -> DirectAccess.removeDevice(chain, device));
+            return chain.getDevices().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    /** Walk the device's CONTENTS children using bFO.hMI(), a read-only model getter. */
+    public static JSONArray listDeviceParameters(int trackIndex, int deviceIndex) {
+        ApiProject project = project();
+        try {
+            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
+            if (deviceIndex < 0 || deviceIndex >= members.size()) {
+                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+            }
+            Object target = ((ApiObject) members.get(deviceIndex)).getTarget();
+            // tjt.bhG() is a pure getter for the native device's CONTENTS root.
+            Object contents;
+            try {
+                contents = target.getClass().getMethod("bhG").invoke(target);
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException("native device contents unavailable", error);
+            }
+            Class<?> decimal = classForName("Ob");
+            Class<?> bool = classForName("KOL");
+            Class<?> indexed = classForName("mqD");
+            java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+            java.util.List<Object> found = new java.util.ArrayList<>();
+            walkAtoms(contents, 0, seen, found, decimal, bool, indexed);
+            java.lang.reflect.Method pathOf = identifierPathMethod(target.getClass());
+            JSONArray out = new JSONArray();
+            for (Object atom : found) {
+                JSONObject item = new JSONObject().put("kind", atomKind(atom, decimal, bool, indexed));
+                if (pathOf != null) {
+                    try {
+                        String path = (String) pathOf.invoke(target, atom);
+                        if (path != null && path.startsWith("CONTENTS/")) {
+                            item.put("path", path.substring("CONTENTS/".length()));
+                        } else {
+                            continue;
+                        }
+                    } catch (Throwable ignored) {
+                        continue;
+                    }
+                } else {
+                    break;
+                }
+                out.put(item);
+            }
+            return out;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static java.util.Map<String, String> parameterKinds(int trackIndex, int deviceIndex) {
+        JSONArray available = listDeviceParameters(trackIndex, deviceIndex);
+        java.util.Map<String, String> kinds = new java.util.HashMap<>();
+        for (int i = 0; i < available.length(); i++) {
+            JSONObject item = available.getJSONObject(i);
+            kinds.put(item.getString("path"), item.getString("kind"));
+        }
+        return kinds;
+    }
+
+    private static Class<?> classForName(String name) {
+        try {
+            return Class.forName(name);
+        } catch (ClassNotFoundException missing) {
+            return null;
+        }
+    }
+
+    private static String atomKind(Object atom, Class<?> decimal, Class<?> bool, Class<?> indexed) {
+        if (decimal != null && decimal.isInstance(atom)) return "double";
+        if (bool != null && bool.isInstance(atom)) return "boolean";
+        if (indexed != null && indexed.isInstance(atom)) return "enum";
+        return "unknown";
+    }
+
+    private static java.lang.reflect.Method identifierPathMethod(Class<?> owner) {
+        // Exact 6.1.5 signature: IYM(BIp) renders a preset identifier path.
+        Class<?> component = classForName("com.bitwig.flt.document.core.iface.BIp");
+        if (component == null) return null;
+        try {
+            // The public implementation can be inherited from an interface.
+            return owner.getMethod("IYM", component);
+        } catch (NoSuchMethodException ignored) {
+            // Fall back to non-public superclass implementations.
+        }
+        for (Class<?> c = owner; c != null; c = c.getSuperclass()) {
+            try {
+                java.lang.reflect.Method method = c.getDeclaredMethod("IYM", component);
+                if (method.getReturnType() != String.class) continue;
+                method.setAccessible(true);
+                return method;
+            } catch (NoSuchMethodException ignored) {
+                // Look on the superclass.
+            }
+        }
+        return null;
+    }
+
+    private static void walkAtoms(Object node, int depth,
+                                  java.util.Map<Object, Boolean> seen,
+                                  java.util.List<Object> found,
+                                  Class<?> decimal, Class<?> bool, Class<?> indexed) {
+        if (node == null || depth > 20 || seen.size() >= 5000 || seen.containsKey(node)) {
+            return;
+        }
+        seen.put(node, Boolean.TRUE);
+        if ((decimal != null && decimal.isInstance(node))
+                || (bool != null && bool.isInstance(node))
+                || (indexed != null && indexed.isInstance(node))) {
+            found.add(node);
+            return;
+        }
+        try {
+            Object value = node.getClass().getMethod("hMI").invoke(node);
+            if (value instanceof java.util.List<?> children) {
+                for (Object child : children) {
+                    walkAtoms(child, depth + 1, seen, found, decimal, bool, indexed);
+                }
+            }
+        } catch (NoSuchMethodException ignored) {
+            // Leaf model node.
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("device component walk failed", error);
         }
     }
 

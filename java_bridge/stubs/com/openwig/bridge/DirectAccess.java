@@ -115,6 +115,32 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static JSONObject setDeviceParameters(int trackIndex, int deviceIndex,
+                                                 JSONObject params, String unit) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONObject getDeviceParameters(int trackIndex, int deviceIndex,
+                                                 JSONArray names, String unit) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONObject renameDevice(int trackIndex, int deviceIndex, String name) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONArray listDeviceParameters(int trackIndex, int deviceIndex) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONObject setDeviceExpanded(int trackIndex, int deviceIndex, boolean on) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int deleteTrackDevice(int trackIndex, int deviceIndex) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static JSONObject setDeviceEnabled(int trackIndex, int deviceIndex, boolean on) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
