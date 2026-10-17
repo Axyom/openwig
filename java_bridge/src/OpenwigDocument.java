@@ -6,6 +6,8 @@ import com.bitwig.extension.api.project.timeline.InstrumentNote;
 import com.bitwig.extension.api.project.timeline.NoteClip;
 import com.bitwig.extension.api.project.track.Track;
 import com.bitwig.extension.api.project.mixer.Mixer;
+import com.bitwig.extension.api.project.mixer.DeviceChain;
+import com.bitwig.extension.api.project.mixer.NativeDevice;
 import com.bitwig.extension.api.project.parameter.Unit;
 import com.bitwig.flt.document.api.document.ApiProject;
 import com.bitwig.flt.document.core.master.oZU;
@@ -32,6 +34,38 @@ public final class OpenwigDocument {
         ApiProject project = project();
         try {
             return track(project, trackIndex).clipTimeline().getEvents().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int deviceCount(int trackIndex) {
+        ApiProject project = project();
+        try {
+            return track(project, trackIndex).deviceChain().getDevices().size();
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static int insertFactoryDevice(int trackIndex, String name) {
+        ApiProject project = project();
+        String stage = "resolve device";
+        try {
+            java.util.UUID id = DirectAccess.factoryDeviceId(name + ".bwdevice");
+            if (id == null) {
+                throw new IllegalArgumentException("unknown Bitwig factory device: " + name);
+            }
+            stage = "create device";
+            NativeDevice device = project.getFactory().createNativeDevice(id);
+            stage = "insert device";
+            Track targetTrack = track(project, trackIndex);
+            DeviceChain chain = targetTrack.deviceChain();
+            DirectAccess.runInUndo(targetTrack.clipTimeline(), () -> chain.addDevice(device));
+            stage = "count devices";
+            return chain.getDevices().size();
+        } catch (Throwable failure) {
+            throw new IllegalStateException("device stage " + stage, failure);
         } finally {
             project.dispose();
         }

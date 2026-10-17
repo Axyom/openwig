@@ -99,6 +99,23 @@ public final class Bootstrap {
                 }
                 case "track.count" -> response.put("result",
                         new JSONObject().put("count", onDocumentEvent(DirectAccess::mainTrackCount)));
+                case "device.count" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.deviceCount(track))));
+                }
+                case "device.insert_factory" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    String name = params == null ? "" : params.optString("name", "");
+                    if (track < 0 || name.isBlank() || name.contains("/") ||
+                            name.contains("\\") || name.contains(".")) {
+                        throw new IllegalArgumentException("track and factory device name are required");
+                    }
+                    response.put("result", new JSONObject().put("count",
+                            onDocumentEvent(() -> DirectAccess.insertFactoryDevice(track, name))));
+                }
                 case "track.snapshot" -> {
                     JSONObject params = request.optJSONObject("params");
                     int index = params == null ? -1 : params.optInt("index", -1);

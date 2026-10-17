@@ -44,7 +44,7 @@ class JavaSong:
     def tempo(self, bpm: float) -> float:
         return self.b.request("transport.set_tempo", {"bpm": float(bpm)})["bpm"]
 
-    def track(self, name: str) -> JavaTrack:
+    def track(self, name: str, device: str | None = None) -> JavaTrack:
         if not name or not name.strip():
             raise ValueError("track name is required")
         index = self.b.request("track.count")["count"]
@@ -56,7 +56,10 @@ class JavaSong:
         created = self.b.request("track.snapshot", {"index": index})
         if created["name"] != name:
             raise BridgeError("new track did not have the requested name")
-        return JavaTrack(self, index, name)
+        track = JavaTrack(self, index, name)
+        if device is not None:
+            track.add_device(device)
+        return track
 
 
 class JavaTrack:
@@ -69,6 +72,18 @@ class JavaTrack:
 
     def snapshot(self) -> dict:
         return self.s.b.request("track.snapshot", {"index": self.idx})
+
+    def add_device(self, name: str) -> JavaTrack:
+        """Append a built-in Bitwig factory device by its exact catalog name."""
+        if not name or not name.strip():
+            raise ValueError("factory device name is required")
+        before = self.s.b.request("device.count", {"track": self.idx})["count"]
+        after = self.s.b.request("device.insert_factory", {
+            "track": self.idx, "name": name,
+        })["count"]
+        if after != before + 1:
+            raise BridgeError("device count did not increase after insertion")
+        return self
 
     def rename(self, name: str) -> JavaTrack:
         self.s.b.request("track.rename", {"index": self.idx, "name": name})

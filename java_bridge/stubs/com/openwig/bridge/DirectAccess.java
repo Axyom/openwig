@@ -51,6 +51,18 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static java.util.UUID factoryDeviceId(String fileName) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int deviceCount(int trackIndex) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static int insertFactoryDevice(int trackIndex, String name) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static int noteCount(int trackIndex, int clipIndex) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }

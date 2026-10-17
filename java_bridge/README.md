@@ -7,6 +7,8 @@ Song API**. The current Java endpoint supports `ping`, `host.version`,
 `transport.set_tempo`, `track.count`, and appending a named instrument track
 with `track.create`. Main-track `track.snapshot`, `track.rename`,
 `track.set_volume`, `track.set_pan`, and `track.set_mute` are also available.
+`device.count` and `device.insert_factory` append native factory devices by
+their exact catalog names, such as `FM-4`.
 It also supports `clip.count`, `clip.note_count`, and
 `clip.create_arranger_with_notes` for a selected main-track index. It reports
 `song_edit: false` because feature parity has
@@ -44,6 +46,9 @@ Song API parity test. The original Program Files installation was not patched.
 Track rename, volume, pan, and mute were verified with readback on another
 disposable track. Volume and pan use the controller-compatible normalized
 `0..1` scale; pan `0.5` is center.
+FM-4 insertion was verified on an isolated instrument track with device count
+changing from zero to one. Bitwig requires an undo transaction around this
+edit; the bridge uses the owning track timeline's transaction token.
 
 For the clip call, send an explicit zero-based main-track index and beat-based
 start and duration. Notes are `[channel, key, start, duration, velocity]`,
@@ -57,13 +62,14 @@ in the patched Bitwig copy, then run:
 from openwig import JavaSong, Note
 
 with JavaSong(tempo=128, bars=4) as song:
-    song.track("Java Probe").volume(0.7).pan(0).clip([
+    song.track("Java Probe", device="FM-4").volume(0.7).pan(0).clip([
         Note(60, 0, dur=1), Note(64, 1, dur=1),
     ])
 ```
 
-`JavaSong` currently appends instrument tracks and MIDI arranger clips. It
-does not yet expose devices, automation, launcher clips, project clearing,
+`JavaSong` currently appends instrument tracks, native factory devices, and
+MIDI arranger clips. It does not yet expose device parameters, automation,
+launcher clips, project clearing,
 or rendering.
 
 ## Install and restore
@@ -86,7 +92,7 @@ patch; the installer rejects an unknown original.
 
 ## Next step
 
-Port devices, automation, track properties, project clearing, and rendering
+Port device parameters, automation, remaining track properties, project clearing, and rendering
 controls. Then run the existing Python song examples against
 the patched application. The main Song API still targets the controller on
 port 7777 until those operations pass live tests.

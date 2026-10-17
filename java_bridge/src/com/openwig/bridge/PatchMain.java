@@ -312,6 +312,38 @@ public final class PatchMain {
         noteCount.visitMaxs(0, 0);
         noteCount.visitEnd();
 
+        MethodVisitor deviceId = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "factoryDeviceId", "(Ljava/lang/String;)Ljava/util/UUID;", null, null);
+        deviceId.visitCode();
+        deviceId.visitVarInsn(Opcodes.ALOAD, 0);
+        deviceId.visitMethodInsn(Opcodes.INVOKESTATIC,
+                "com/bitwig/flt/packaging/core/MD", "IYM",
+                "(Ljava/lang/String;)Ljava/util/UUID;", false);
+        deviceId.visitInsn(Opcodes.ARETURN);
+        deviceId.visitMaxs(0, 0);
+        deviceId.visitEnd();
+
+        MethodVisitor deviceCount = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "deviceCount", "(I)I", null, null);
+        deviceCount.visitCode();
+        deviceCount.visitVarInsn(Opcodes.ILOAD, 0);
+        deviceCount.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "deviceCount",
+                "(I)I", false);
+        deviceCount.visitInsn(Opcodes.IRETURN);
+        deviceCount.visitMaxs(0, 0);
+        deviceCount.visitEnd();
+
+        MethodVisitor insertDevice = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "insertFactoryDevice", "(ILjava/lang/String;)I", null, null);
+        insertDevice.visitCode();
+        insertDevice.visitVarInsn(Opcodes.ILOAD, 0);
+        insertDevice.visitVarInsn(Opcodes.ALOAD, 1);
+        insertDevice.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "insertFactoryDevice",
+                "(ILjava/lang/String;)I", false);
+        insertDevice.visitInsn(Opcodes.IRETURN);
+        insertDevice.visitMaxs(0, 0);
+        insertDevice.visitEnd();
+
         MethodVisitor undo = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "runInUndo", "(Ljava/lang/Object;Ljava/lang/Runnable;)V", null, null);
         undo.visitCode();
@@ -398,6 +430,8 @@ public final class PatchMain {
         method.visitInsn(Opcodes.ATHROW);
         method.visitMaxs(0, 0);
         method.visitEnd();
+
+
         writer.visitEnd();
         return writer.toByteArray();
     }
