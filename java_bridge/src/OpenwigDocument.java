@@ -1,6 +1,10 @@
 import com.bitwig.extension.api.Color;
 import com.bitwig.extension.api.project.Factory;
 import com.bitwig.extension.api.project.ProjectMetadata;
+import com.bitwig.extension.api.project.Transport;
+import com.bitwig.extension.api.project.timeline.TimeSignature;
+import com.bitwig.dawproject.DawProject;
+import com.bitwig.dawproject.MetaData;
 import com.bitwig.extension.api.project.parameter.BooleanParameter;
 import com.bitwig.extension.api.project.parameter.DoubleParameter;
 import com.bitwig.extension.api.project.parameter.EnumParameter;
@@ -782,6 +786,19 @@ public final class OpenwigDocument {
         ApiProject project = project();
         try {
             JSONObject out = new JSONObject();
+            Transport transport = project.getTransport();
+            JSONObject transportInfo = new JSONObject()
+                    .put("tempo", transport.getTempo().getValue(Unit.BPM))
+                    .put("groove_enabled", transport.getEnableGroove().getValue())
+                    .put("shuffle", transport.getShuffleAmount()
+                            .getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0);
+            TimeSignature signature = transport.getTimeSignature();
+            if (signature != null) {
+                transportInfo.put("time_signature", new JSONObject()
+                        .put("numerator", signature.getNumerator())
+                        .put("denominator", signature.getDenominator()));
+            }
+            out.put("transport", transportInfo);
             JSONObject metadata = new JSONObject();
             for (ProjectMetadata key : ProjectMetadata.values()) {
                 String value = project.getMetadataText(key);
@@ -835,10 +852,16 @@ public final class OpenwigDocument {
         }
         Track view = item instanceof Track direct ? direct : item.asTrack();
         out.put("track_type", trackTypeName(view));
+        out.put("is_active", view.isActive());
         Mixer mixer = view.mixer();
         out.put("volume", mixer.getVolume().getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0)
                 .put("pan", (mixer.getPan().getValue(Unit.PERCENTAGE_OF_RANGE) + 100.0) / 200.0)
                 .put("mute", mixer.getMute().getValue());
+        try {
+            out.put("crossfade", mixer.getCrossfadeMode().getValue());
+        } catch (RuntimeException unreadable) {
+            // Crossfade mode is not readable on every channel kind.
+        }
         JSONArray sends = new JSONArray();
         for (int i = 0; i < mixer.getSendCount(); i++) {
             Send send = mixer.getSend(i);
@@ -912,6 +935,116 @@ public final class OpenwigDocument {
             out.put("content", "other");
         }
         return out;
+    }
+
+    /** Export the open project as a .dawproject archive at the given path. */
+    public static JSONObject exportDawProject(String path, boolean embedMedia) {
+        ApiProject project = project();
+        try {
+            java.util.Map<java.io.File, String> media = new java.util.HashMap<>();
+            com.bitwig.dawproject.Project exported = project.exportDawProject(media);
+            MetaData metaData = new MetaData();
+            metaData.title = project.getMetadataText(ProjectMetadata.TITLE);
+            metaData.artist = project.getMetadataText(ProjectMetadata.ARTIST);
+            metaData.album = project.getMetadataText(ProjectMetadata.ALBUM);
+            metaData.originalArtist = project.getMetadataText(ProjectMetadata.ORIGINAL_ARTIST);
+            metaData.songwriter = project.getMetadataText(ProjectMetadata.WRITER);
+            metaData.producer = project.getMetadataText(ProjectMetadata.PRODUCER);
+            metaData.year = project.getMetadataText(ProjectMetadata.YEAR);
+            metaData.genre = project.getMetadataText(ProjectMetadata.GENRE);
+            metaData.copyright = project.getMetadataText(ProjectMetadata.COPYRIGHT);
+            metaData.comment = project.getMetadataText(ProjectMetadata.COMMENT);
+            java.io.File target = new java.io.File(path);
+            try {
+                DawProject.save(exported, metaData,
+                        embedMedia ? media : new java.util.HashMap<>(), target);
+            } catch (java.io.IOException failure) {
+                throw new IllegalStateException("dawproject export failed", failure);
+            }
+            return new JSONObject().put("path", target.getAbsolutePath())
+                    .put("bytes", target.length())
+                    .put("embedded_files", embedMedia ? media.size() : 0);
+        } finally {
+            project.dispose();
+        }
+    }
+
+    /** List the arranger automation lanes that exist on one track. */
+    public static JSONArray automationEnumerate(int trackIndex) {
+        ApiProject project = project();
+        try {
+            JSONArray lanes = new JSONArray();
+            Track view = track(project, trackIndex);
+            addLane(lanes, "volume", view.mixer().getVolume(), -1);
+            addLane(lanes, "pan", view.mixer().getPan(), -1);
+            for (int i = 0; i < view.mixer().getSendCount(); i++) {
+                addLane(lanes, "send" + i, view.mixer().getSend(i).getAmount(), -1);
+            }
+            java.util.List<?> devices = view.deviceChain().getDevices();
+            for (int d = 0; d < devices.size(); d++) {
+                if (!(devices.get(d) instanceof NativeDevice nativeDevice)) {
+                    continue;
+                }
+                Object target = ((ApiObject) devices.get(d)).getTarget();
+                Class<?> decimal = classForName("Ob");
+                if (decimal == null || target == null) {
+                    continue;
+                }
+                java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+                java.util.List<Object> found = new java.util.ArrayList<>();
+                Object contents;
+                try {
+                    contents = target.getClass().getMethod("bhG").invoke(target);
+                } catch (ReflectiveOperationException missing) {
+                    continue;
+                }
+                walkAtoms(contents, 0, seen, found, decimal, null, null);
+                java.lang.reflect.Method pathOf = identifierPathMethod(target.getClass());
+                if (pathOf == null) {
+                    continue;
+                }
+                for (Object atom : found) {
+                    String name;
+                    try {
+                        name = (String) pathOf.invoke(target, atom);
+                    } catch (Throwable unreadable) {
+                        continue;
+                    }
+                    if (name == null || !name.startsWith("CONTENTS/")) {
+                        continue;
+                    }
+                    DoubleParameter parameter = nativeDevice.getDoubleParameter(
+                            name.substring("CONTENTS/".length()));
+                    if (parameter != null) {
+                        addLane(lanes, name.substring("CONTENTS/".length()), parameter, d);
+                    }
+                }
+            }
+            return lanes;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static void addLane(JSONArray lanes, String name, DoubleParameter parameter,
+                                int deviceIndex) {
+        try {
+            Olb timeline = automationTimeline(parameter);
+            if (timeline == null) {
+                return;
+            }
+            int points = timeline.IYM().size();
+            if (points <= 0) {
+                return;
+            }
+            JSONObject lane = new JSONObject().put("param", name).put("points", points);
+            if (deviceIndex >= 0) {
+                lane.put("device", deviceIndex);
+            }
+            lanes.put(lane);
+        } catch (RuntimeException unreadable) {
+            // This parameter exposes no readable lane on the exact build.
+        }
     }
 
     private static MonitorMode monitorMode(String name) {

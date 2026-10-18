@@ -130,10 +130,28 @@ its time-varying automation; Bitwig can retain one constant fallback point.
 `project.dump` passed a live check on a released 7-group, ~90-track project
 ("Axyom - The Substance EXPERIMENT"): the full nested group tree, 664 clips,
 776 notes, 10 cue markers, and the master chain (9 native + 2 VST3 devices)
-all read back. The dump was written to `scratch/substance-dump.json` during
+all read back. The dump also reports transport tempo, groove state, shuffle,
+and the current time signature, plus per-track `is_active` and crossfade
+mode. The dump was written to `scratch/substance-dump.json` during
 that check. Known read gaps after that check: many devices report an empty
 `display_name`, plugin parameters and device-chain nesting are not read,
-and automation lanes are not enumerated.
+and child tracks inside groups are not index-addressable.
+
+`automation.enumerate` lists the arranger lanes that exist on one
+top-level track (or the master with track -1): mixer volume/pan/sends and
+every native double parameter, with point counts. Live check: the released
+project's master reported one lane (device 6 `AMPLITUDE`, 13 points).
+
+`project.export_dawproject` writes the open project as a Bitwig
+`.dawproject` archive (the open XML exchange format) using Bitwig's own
+exporter. Python: `JavaSong.export_dawproject(path, embed_media=False)`
+(relative paths resolve against the caller's directory). The structure-only
+export of the released project was 139 KB and contains what `dump` cannot
+read: device identifiers, names, and roles (including plugins), routing
+destinations, automation points, warp markers (5697), launcher clip slots,
+scenes, and time signature. `embed_media=True` also embeds referenced
+sample files. The project is not modified, and `ApiProject` additionally
+exposes `importDawProject` for a future write path.
 
 For the clip call, send an explicit zero-based main-track index and beat-based
 start and duration. Notes are `[channel, key, start, duration, velocity]`,

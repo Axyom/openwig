@@ -485,6 +485,28 @@ public final class PatchMain {
         dumpProject.visitMaxs(0, 0);
         dumpProject.visitEnd();
 
+        MethodVisitor exportDaw = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "exportDawProject", "(Ljava/lang/String;Z)Lorg/json/JSONObject;", null, null);
+        exportDaw.visitCode();
+        exportDaw.visitVarInsn(Opcodes.ALOAD, 0);
+        exportDaw.visitVarInsn(Opcodes.ILOAD, 1);
+        exportDaw.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "exportDawProject",
+                "(Ljava/lang/String;Z)Lorg/json/JSONObject;", false);
+        exportDaw.visitInsn(Opcodes.ARETURN);
+        exportDaw.visitMaxs(0, 0);
+        exportDaw.visitEnd();
+
+        MethodVisitor automationEnumerate = writer.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "automationEnumerate", "(I)Lorg/json/JSONArray;", null, null);
+        automationEnumerate.visitCode();
+        automationEnumerate.visitVarInsn(Opcodes.ILOAD, 0);
+        automationEnumerate.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument",
+                "automationEnumerate", "(I)Lorg/json/JSONArray;", false);
+        automationEnumerate.visitInsn(Opcodes.ARETURN);
+        automationEnumerate.visitMaxs(0, 0);
+        automationEnumerate.visitEnd();
+
         MethodVisitor updateTrack = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "updateTrack", "(ILjava/lang/String;Lorg/json/JSONObject;)Lorg/json/JSONObject;",
                 null, null);

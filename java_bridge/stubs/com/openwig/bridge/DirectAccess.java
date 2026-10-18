@@ -165,6 +165,14 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static JSONObject exportDawProject(String path, boolean embedMedia) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONArray automationEnumerate(int trackIndex) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static int noteCount(int trackIndex, int clipIndex) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }

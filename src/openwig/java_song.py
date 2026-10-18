@@ -130,6 +130,21 @@ class JavaSong:
         """
         return self.b.request("project.dump", timeout=125)
 
+    def export_dawproject(self, path, *, embed_media: bool = False) -> dict:
+        """Export the open project to a Bitwig ``.dawproject`` archive.
+
+        The DAWproject format is Bitwig's open XML exchange format and covers
+        more than ``dump`` (plugin parameters, modulators, routing, note
+        expressions, launcher clips). Media files are referenced, not
+        embedded, unless ``embed_media`` is true. Returns the written path,
+        size, and embedded-file count. The project itself is not modified.
+        """
+        from pathlib import Path
+        return self.b.request("project.export_dawproject",
+                              {"path": str(Path(path).resolve()),
+                               "embed_media": bool(embed_media)},
+                              timeout=310)
+
     def clear_effect_tracks(self) -> int:
         return self.b.request("project.clear_effect_tracks", timeout=65)["deleted"]
 

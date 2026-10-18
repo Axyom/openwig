@@ -30,6 +30,8 @@ class FakeJavaBridge:
             return {"active": True}
         if method == "project.dump":
             return {"metadata": {}, "cue_markers": [], "main_tracks": []}
+        if method == "project.export_dawproject":
+            return {"path": params["path"], "bytes": 1, "embedded_files": 0}
         raise AssertionError(f"unexpected request: {method}")
 
 
@@ -50,6 +52,18 @@ def test_dump_is_the_only_call_it_makes(bridge):
     bridge.calls.clear()
     song.dump()
     assert [method for method, _ in bridge.calls] == ["project.dump"]
+
+
+def test_export_dawproject_sends_path_and_embed_flag(bridge):
+    song = JavaSong(bridge=bridge)
+    result = song.export_dawproject("out.dawproject", embed_media=True)
+    method, params = bridge.calls[-1]
+    assert method == "project.export_dawproject"
+    assert params["embed_media"] is True
+    # Relative paths resolve against the caller's cwd before crossing the wire.
+    from pathlib import Path
+    assert params["path"] == str(Path("out.dawproject").resolve())
+    assert result["path"] == "out.dawproject"
 
 
 def test_refuses_wrong_host_version(bridge):

@@ -13,5 +13,8 @@ public class ApiProject {
     public TrackGroup getTrackGroup() { throw new UnsupportedOperationException(); }
     public CueMarkers getCueMarkers() { throw new UnsupportedOperationException(); }
     public String getMetadataText(ProjectMetadata key) { throw new UnsupportedOperationException(); }
+    public com.bitwig.dawproject.Project exportDawProject(java.util.Map map) {
+        throw new UnsupportedOperationException();
+    }
     public void dispose() {}
 }

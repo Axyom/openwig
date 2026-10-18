@@ -172,6 +172,22 @@ public final class Bootstrap {
                         onDocumentEvent(DirectAccess::clearProject, 120));
                 case "project.dump" -> response.put("result",
                         onDocumentEvent(DirectAccess::dumpProject, 120));
+                case "project.export_dawproject" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    String path = params == null ? "" : params.optString("path", "");
+                    boolean embed = params != null && params.optBoolean("embed_media", false);
+                    if (path.isBlank()) {
+                        throw new IllegalArgumentException("path is required");
+                    }
+                    response.put("result", onDocumentEvent(
+                            () -> DirectAccess.exportDawProject(path, embed), 300));
+                }
+                case "automation.enumerate" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    int track = params == null ? -1 : params.optInt("track", -1);
+                    response.put("result", onDocumentEvent(
+                            () -> DirectAccess.automationEnumerate(track), 120));
+                }
                 case "device.count" -> {
                     JSONObject params = request.optJSONObject("params");
                     int track = params == null ? -1 : params.optInt("track", -1);
