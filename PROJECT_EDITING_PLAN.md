@@ -150,8 +150,10 @@ Mutation/playback and reopened/playback gates both passed; reopened reader audit
 has zero differences. The reopened recording measured 440.023 Hz and source-tone
 amplitude 0.00266. A second save from collected relative media succeeded.
 The raw loopback's total RMS also includes unrelated tones; pitch testing needs
-isolation. Implementation is ready to commit/push; CI status will be recorded
-at the next checkpoint.
+isolation. Committed and pushed as **`4f78e38`** on `codex/java-bridge-615`.
+GitHub CI run `39176057597` was queued at this checkpoint:
+https://github.com/Axyom/openwig/actions/runs/39176057597 .
+The working tree was clean after the implementation commit.
 
 Current scratch project: `scratch/editing-clip-gate-5/saved/project.bwproject`,
 stopped. Last observed scratch launcher PID 66136; re-identify before any process
