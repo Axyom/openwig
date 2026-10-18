@@ -499,3 +499,43 @@ Manual gate: `tests/live_java_content.py --disposable --project <open fixture>
 --output <fresh scratch directory>`. Reopen its saved project and run `--verify`
 with the same output directory. Includes independent/cross-track copies,
 MIDI/audio splits, five expression types, invalid requests, and native persistence.
+
+## Editing events inside audio clips
+
+`track.import_audio_event(clip, file, start=0, duration=None, source_offset=0,
+gain_db=0)` adds RAW audio to an existing audio clip. Local event start/duration
+are beats; source offset is seconds. Default duration maps the source remainder
+through the native tempo map at `clip.start + event.start - clip.play_start_offset`
+(the first arranger occurrence). Events can extend outside the container; resize
+the clip explicitly to expose that content. Overlaps are rejected.
+
+`track.update_audio_event(clip, index, **changes)` edits `start`, `duration`,
+`source_offset`, `gain_db`, `muted`, `reverse`, `fade_in`, `fade_out`. Event times
+and fades are beats, source offset is seconds, gain is decibels. A gain write
+replaces the existing gain-expression curve with a constant. Source offset and
+reverse currently require RAW audio. Set offsets while forward, then reverse
+in a separate call. The native reverse operation preserves the selected source
+window, adjusts playback endpoints and mirrors native expression state.
+
+Both methods return `{"event": sorted_index, "data": event_snapshot}`.
+Moves can change indexes. `track.delete_audio_event(clip, index)` removes exactly
+one event and returns deleted index/remaining count. It leaves the clip container
+and other events in place; importing into the emptied lane is supported.
+These operations unlink shared content before mutation and run in native undo
+transactions. Invalid ranges/fades/offsets and overlaps are rejected before edits.
+Warp writes, warped-event offsets/reverse, audio pitch and general audio
+expression curves remain pending.
+
+Manual gate: `tests/live_java_audio_events.py --disposable --project <open fixture>
+--output <fresh scratch directory> --render [--tempo 150]`. Reopen its saved file
+and run with `--verify --render` and the same output. Authored 440/880 Hz source
+proves reverse audibly at 120/150 BPM; the reopened 150 BPM fixture retains all
+reader-visible state and reversed 880/440 Hz output. System loopback includes
+other applications, so recordings require a quiet output. Document commits
+precede engine updates; the gate gives sample processing one second to settle.
+
+Copied clips now invoke native insertion finalization after attachment and
+make-unique. This fixes inconsistent first playback that metadata-only copy
+checks missed. The source's explicit fade-in time/gain/curve are restored after
+the callback initializes automatic defaults. The existing native content gate
+checks copied fades and full MIDI/audio persistence as a regression.

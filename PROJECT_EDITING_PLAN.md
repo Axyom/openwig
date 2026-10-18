@@ -92,8 +92,9 @@ Do not equate native snapshot preservation with arbitrary field editing.
    - Verify clips crossing edit boundaries, nested tracks, effect/master
      automation, markers, invalid input, and save/reopen persistence.
 2. **Audio creation and editing — pending.**
-   - Implemented: local RAW sample import, source offsets, container fades, gain.
-   - Pending: audio-event edits, pitch/reverse,
+   - Implemented: local RAW sample import, source offsets, container/event fades,
+     event import/move/resize/gain/mute/reverse/exact deletion and empty-lane reuse.
+   - Pending: warped-event offsets/reverse, pitch,
      stretch/warp settings and markers, event replacement/deletion.
    - Use authored synthetic audio fixtures. Verify timing and audible output,
      media collection, and save/reopen; never use track counts as sole proof.
@@ -126,6 +127,54 @@ Do not equate native snapshot preservation with arbitrary field editing.
 
 ## Current checkpoint: start here
 
+Latest increment: public `JavaTrack.import_audio_event`, `update_audio_event`,
+and `delete_audio_event`, plus an important copied-audio playback correction.
+Edits cover local start/duration, source offset in seconds, gain in decibels,
+mute, event fades, RAW reverse, and exact event deletion. Imports support multiple
+nonoverlapping events in an existing audio clip, including an emptied lane.
+Edits make content independent before mutation, preserve other clips and the
+container, maintain event sorting, and reject invalid/overlapping requests
+before touching content. Gain writes intentionally replace the gain curve with
+a constant. Offsets/reverse currently require RAW; set offsets while forward,
+then reverse separately. Warp/pitch and warped-event reverse remain pending.
+
+Manual gate: `tests/live_java_audio_events.py --disposable --project <open>
+--output <fresh scratch directory> --render [--tempo 150]`. It authors a source
+with 440 Hz in the first second and 880 Hz in the second. Native reverse produced
+880 then 440, forward produced 440 then 880. Verified at 120 and 150 BPM. The final
+150 BPM fixture reopened with **zero differences**, with audible reversed order
+880/440 Hz. Evidence: `scratch/editing-audio-final-gate-150/`, persistence and
+forward/reverse/reopened-reverse JSON+WAV reports. The test includes nested
+tracks, source-copy independence, atomic rejected edits, source EOF rejection,
+exact deletion and deleting/re-importing the last event. Gain/fades/mute/offset
+readbacks are asserted separately. Optional recording waits one second for
+engine updates; it is system loopback, so unrelated audio can invalidate it.
+
+**Copied audio correction:** first-playback testing at 150 BPM exposed that
+`b8237d7`'s copies could read/save correctly yet play inconsistently. Native
+`xh3.IYM(XCv,dP)` insertion finalization was missing after attach/make-unique.
+It is now invoked with the destination timeline and editor context. Because
+that callback initializes automatic fade-in defaults, the source's explicit
+fade-in time/gain/curve are restored afterward. Fresh 150 BPM copied playback
+now passes. Copy/split/MIDI/fade regression gate and save/reopen also pass:
+`scratch/editing-content-finalization-gate-2/persistence.json`, zero differences.
+This is why metadata-only checks cannot establish complete playback parity.
+
+161 unit tests passed; exact-build build, Java protocol/JAR smoke, controller
+syntax and whitespace checks passed. Prior `b8237d7` and `2d14f7a` CI are green.
+This increment is ready for its implementation commit/push; record the commit
+and CI checkpoint once pushed. No live tool sessions remain running.
+
+Current scratch project:
+`scratch/editing-audio-final-gate-150/saved/project.bwproject`, stopped.
+Last observed scratch launcher PID 41644; always re-identify before process work.
+All owner originals and the saved musical variation are preserved.
+Next: native warp/pitch and audio processing settings/expressions, including
+isolated audible proof; then plugins/nested routing, launcher, Grid and JSON
+reconstruction. The full goal remains active and incomplete.
+
+### Previous native content increment
+
 Latest increment: native `JavaTrack.copy_clip`, `split_clip`, and
 `replace_notes`. Live gate `tests/live_java_content.py` covered nested tracks,
 same-track and cross-track independent copies, MIDI/audio splits, native
@@ -146,10 +195,10 @@ offset, and clears interior audio fades; no duplicate undo wrapper is used.
 146 unit tests passed, exact-build build and Java protocol/JAR smoke passed,
 controller syntax and whitespace checks passed. Prior commits `4f78e38` and
 `24aab45` both have green CI. This increment is committed/pushed as **`b8237d7`**
-on `codex/java-bridge-615`; CI was newly triggered and needs rechecking.
+on `codex/java-bridge-615`; its CI and the `2d14f7a` handoff CI are green.
 The implementation working tree is clean. No in-flight live sessions remain.
 
-Current scratch project: `scratch/editing-content-gate/saved/project.bwproject`,
+Previous scratch project: `scratch/editing-content-gate/saved/project.bwproject`,
 stopped. Last observed scratch launcher PID 61864; always re-identify before
 process actions. The previous clip fixture and owner deliverable are preserved.
 Next: audio-event offset/gain/mute/reverse/warp operations, isolated pitch proof,

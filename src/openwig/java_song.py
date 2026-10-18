@@ -522,6 +522,62 @@ class JavaTrack:
         follows the source remainder and the project's tempo map. Uses RAW audio.
         Overlaps are rejected. Requires an audio-capable track.
         """
+        params = self._audio_source_params(file, start, duration, source_offset, gain_db)
+        if name is not None:
+            if not isinstance(name, str):
+                raise ValueError("name must be a string")
+            params["name"] = name
+        return self.s.b.request("clip.import_audio", self._track_params(**params), timeout=125)
+
+    def import_audio_event(self, clip: int, file, *, start: float = 0,
+                           duration: float | None = None, source_offset: float = 0,
+                           gain_db: float = 0) -> dict:
+        """Add RAW audio to an existing audio clip; returns event index and data.
+
+        Start/duration are local content beats, source_offset is seconds.
+        Default duration follows source remainder at the first arranger position
+        (clip start + local start - clip play offset). Overlaps are rejected;
+        the container is not automatically extended. Content becomes independent.
+        """
+        self._clip_index(clip)
+        params = self._audio_source_params(file, start, duration, source_offset, gain_db)
+        return self.s.b.request("audio_event.import", self._track_params(clip=clip, **params), timeout=125)
+
+    def update_audio_event(self, clip: int, index: int, **changes) -> dict:
+        """Edit an audio event; returns its sorted index and updated data.
+
+        Fields: start/duration/fade_in/fade_out (local beats), source_offset
+        (seconds), gain_db, muted, reverse. Source offset/reverse currently
+        require RAW mode. Set offsets while forward, then reverse separately.
+        Moves reject overlaps and can change event indexes. Other clips retain
+        their content. Container duration is unchanged.
+        """
+        self._clip_index(clip)
+        self._clip_index(index)
+        allowed = {"start", "duration", "fade_in", "fade_out", "source_offset", "gain_db", "muted", "reverse"}
+        if not changes or changes.keys() - allowed:
+            raise ValueError("provide supported audio event changes")
+        for key, value in changes.items():
+            if key in {"muted", "reverse"}:
+                if type(value) is not bool:
+                    raise ValueError(f"{key} must be boolean")
+            else:
+                number = self._clip_number(value, key)
+                if key == "duration" and number <= 0:
+                    raise ValueError("duration must be positive")
+                if key in {"start", "source_offset", "fade_in", "fade_out"} and number < 0:
+                    raise ValueError(f"{key} must be nonnegative")
+        if "source_offset" in changes and changes.get("reverse"):
+            raise ValueError("set source offset while forward, then reverse separately")
+        return self.s.b.request("audio_event.update", self._track_params(clip=clip, event=index, changes=changes), timeout=125)
+
+    def delete_audio_event(self, clip: int, index: int) -> dict:
+        """Remove exactly one event; keep other events and the clip container."""
+        return self.s.b.request("audio_event.delete", self._track_params(
+            clip=self._clip_index(clip), event=self._clip_index(index)), timeout=125)
+
+    @classmethod
+    def _audio_source_params(cls, file, start, duration, source_offset, gain_db):
         from pathlib import Path
         source = Path(file).resolve()
         if not source.is_file():
@@ -533,16 +589,12 @@ class JavaTrack:
         for key in ("start", "source_offset", "gain_db", "duration"):
             if key not in params:
                 continue
-            number = self._clip_number(params[key], key)
+            number = cls._clip_number(params[key], key)
             if key in {"start", "source_offset"} and number < 0:
                 raise ValueError(f"{key} must be nonnegative")
             if key == "duration" and number <= 0:
                 raise ValueError("duration must be positive")
-        if name is not None:
-            if not isinstance(name, str):
-                raise ValueError("name must be a string")
-            params["name"] = name
-        return self.s.b.request("clip.import_audio", self._track_params(**params), timeout=125)
+        return params
 
     def read(self) -> dict:
         """Read this track subtree using the same builder as ``dump()``."""

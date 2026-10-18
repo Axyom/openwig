@@ -2306,7 +2306,7 @@ public final class OpenwigDocument {
             case "document.select" -> selectDocument(p.optString("path", ""));
             case "project.save_copy" -> saveNativeProjectCopy(p.optString("path", ""));
             case "project.duplicate_range" -> editRange(p, "duplicate");
-            case "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio" -> editClip(method, p);
+            case "audio_event.import", "audio_event.update", "audio_event.delete", "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio" -> editClip(method, p);
             case "project.insert_time" -> editRange(p, "insert");
             case "project.delete_range" -> editRange(p, "delete");
             case "project.import_dawproject" -> importDawProject(p.optString("path", ""));
@@ -2634,31 +2634,14 @@ public final class OpenwigDocument {
             Track track = resolveTrack(project, params);
             ClipTimeline timeline = track.clipTimeline();
             if (method.equals("clip.import_audio")) {
-                java.io.File file = new java.io.File(params.getString("file")).getAbsoluteFile();
-                if (!file.isFile()) throw new IllegalArgumentException("audio file does not exist: " + file);
                 double start = finiteField(params, "start", 0);
-                double sourceOffset = finiteField(params, "source_offset", 0);
-                double gain = finiteField(params, "gain_db", 0);
-                if (params.has("transpose")) throw new IllegalArgumentException("audio transpose is not yet playback-verified");
-                if (start < 0 || sourceOffset < 0) throw new IllegalArgumentException("negative audio position");
-                Factory factory = project.getFactory();
-                com.bitwig.extension.api.project.file.SampleReference sample = factory.createSampleReferenceForLocalFile(file);
-                double seconds = sample.getDurationInSeconds() - sourceOffset;
-                if (sample.getSampleRate() <= 0 || sample.getChannelCount() <= 0 || seconds <= 0)
-                    throw new IllegalArgumentException("audio source has no usable frames at this offset");
-                Object nativeTransport = modelGet(project.getTarget(), "THS");
-                double naturalDuration = modelDoubleArgument(nativeTransport, "AOA",
-                        modelDoubleArgument(nativeTransport, "xeZ", start) + seconds) - start;
-                double duration = finiteField(params, "duration", naturalDuration);
+                com.bitwig.extension.api.project.timeline.AudioNote event = stageAudioEvent(project, params, start);
+                double duration = event.getDuration();
                 noClipOverlap(timeline, null, start, duration);
-                AudioClip clip = factory.createAudioClip(false);
+                AudioClip clip = project.getFactory().createAudioClip(false);
                 clip.setTime(start);
                 clip.setDuration(duration);
-                clip.setTitle(params.optString("name", file.getName()));
-                com.bitwig.extension.api.project.timeline.AudioNote event = factory.createAudioNote(0, duration, sample);
-                event.setWarpMode(com.bitwig.extension.api.project.timeline.WarpMode.RAW);
-                invokeModelSetter(((ApiObject) event).getTarget(), "UJq", double.class, sourceOffset);
-                event.getGain().setValue(gain, Unit.DECIBEL);
+                clip.setTitle(params.optString("name", new java.io.File(params.getString("file")).getName()));
                 clip.getContent().getEventTimeline().addEvent(event);
                 DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> timeline.addEvent(clip));
                 int index = -1;
@@ -2671,6 +2654,7 @@ public final class OpenwigDocument {
             java.util.List<?> members = timeline.getEvents();
             if (index < 0 || index >= members.size()) throw new IllegalArgumentException("clip index out of range");
             Clip clip = (Clip) members.get(index);
+            if (method.startsWith("audio_event.")) return editAudioEvent(project, clip, params, method);
             if (method.equals("clip.replace_notes")) {
                 if (!(clip instanceof NoteClip)) throw new IllegalArgumentException("MIDI replacement requires a note clip");
                 JSONArray notes = params.getJSONArray("notes");
@@ -2706,11 +2690,27 @@ public final class OpenwigDocument {
                     Clip cloned = (Clip) wrapper.getConstructor(classForName(clip instanceof AudioClip ? "ukL" : "ME2"))
                             .newInstance(raw);
                     cloned.setTime(start);
+                    Object selection = modelGet(modelGet(modelGet(project.getTarget(), "qVp"), "TcG"), "tY1");
+                    Object context = modelGet(selection, "gn_");
+                    java.lang.reflect.Method inserted = raw.getClass().getMethod("IYM", classForName("XCv"), classForName("dP"));
+                    Object originalRaw = ((ApiObject) clip).getTarget();
+                    double fadeTime = clip instanceof AudioClip ? ((AudioClip) clip).getFadeInTime() : 0;
+                    double fadeGain = clip instanceof AudioClip ? ((Number) modelGet(originalRaw, "tDS")).doubleValue() : 1;
+                    Object fadeCurve = clip instanceof AudioClip ? modelGet(originalRaw, "wtf") : null;
                     DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
                         output.addEvent(cloned);
                         // Native clone references can share content. Unlink using
                         // Bitwig's own make-unique operation after attaching it.
                         modelGet(raw, "knw");
+                        try { inserted.invoke(raw, ((ApiObject) output).getTarget(), context); }
+                        catch (ReflectiveOperationException failure) { throw new IllegalStateException("native copy insertion finalization failed", failure); }
+                        if (cloned instanceof AudioClip) {
+                            // Insertion initializes automatic fade-in defaults;
+                            // retain the source's explicit time, gain and curve.
+                            ((AudioClip) cloned).setFadeInTime(fadeTime);
+                            invokeModelSetter(raw, "HT3", double.class, fadeGain);
+                            invokeModelSetter(raw, "KF3", classForName("xEd"), fadeCurve);
+                        }
                     });
                     return clipLocation(output, raw);
                 } catch (ReflectiveOperationException failure) {
@@ -2808,6 +2808,125 @@ public final class OpenwigDocument {
                 return new JSONObject().put("clip", i).put("data", readClip(clip));
         }
         throw new IllegalStateException("clip is not attached to requested timeline");
+    }
+
+    private static JSONObject editAudioEvent(ApiProject project, Clip clip, JSONObject params, String method) {
+        if (!(clip instanceof AudioClip)) throw new IllegalArgumentException("audio event requires an audio clip");
+        if (method.equals("audio_event.import")) {
+            double start = finiteField(params, "start", 0);
+            double globalStart = clip.getTime() + start - clip.getPlayStartOffset();
+            if (start < 0 || globalStart < 0) throw new IllegalArgumentException("invalid audio event position");
+            com.bitwig.extension.api.project.timeline.AudioNote staged = stageAudioEvent(project, params, globalStart);
+            staged.setTime(start);
+            EventTimeline current = ((AudioClip) clip).getContent().getEventTimeline();
+            for (Object member : current.getEvents()) {
+                com.bitwig.extension.api.project.timeline.AudioNote other = (com.bitwig.extension.api.project.timeline.AudioNote) member;
+                if (start < other.getTime() + other.getDuration() - 1e-6 && start + staged.getDuration() > other.getTime() + 1e-6)
+                    throw new IllegalArgumentException("audio event import overlaps existing material");
+            }
+            final JSONObject[] result = new JSONObject[1];
+            DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                modelGet(((ApiObject) clip).getTarget(), "knw");
+                EventTimeline timeline = ((AudioClip) clip).getContent().getEventTimeline();
+                timeline.addEvent(staged);
+                result[0] = audioEventLocation(timeline, ((ApiObject) staged).getTarget());
+            });
+            return result[0];
+        }
+        int index = params.getInt("event");
+        EventTimeline content = ((AudioClip) clip).getContent().getEventTimeline();
+        java.util.List<?> events = content.getEvents();
+        if (index < 0 || index >= events.size()) throw new IllegalArgumentException("audio event index out of range");
+        com.bitwig.extension.api.project.timeline.AudioNote existing = (com.bitwig.extension.api.project.timeline.AudioNote) events.get(index);
+        JSONObject changes = method.equals("audio_event.delete") ? new JSONObject() : params.getJSONObject("changes");
+        java.util.Set<String> allowed = java.util.Set.of("start", "duration", "source_offset", "gain_db", "muted", "reverse", "fade_in", "fade_out");
+        for (String key : changes.keySet()) if (!allowed.contains(key)) throw new IllegalArgumentException("unknown audio event field: " + key);
+        for (String key : new String[]{"muted", "reverse"})
+            if (changes.has(key) && !(changes.get(key) instanceof Boolean)) throw new IllegalArgumentException(key + " must be boolean");
+        double start = finiteField(changes, "start", existing.getTime());
+        double duration = finiteField(changes, "duration", existing.getDuration());
+        double fadeIn = finiteField(changes, "fade_in", ((Number) modelGet(((ApiObject) existing).getTarget(), "dM_")).doubleValue());
+        double fadeOut = finiteField(changes, "fade_out", ((Number) modelGet(((ApiObject) existing).getTarget(), "KF3")).doubleValue());
+        double offset = finiteField(changes, "source_offset", 0), gain = finiteField(changes, "gain_db", 0);
+        if (start < 0 || duration <= 0 || !Double.isFinite(start + duration) || fadeIn < 0 || fadeOut < 0 || fadeIn > duration || fadeOut > duration)
+            throw new IllegalArgumentException("invalid audio event range/fades");
+        if (changes.has("source_offset") && (offset < 0 || offset >= existing.getAudioFileDurationInSeconds()))
+            throw new IllegalArgumentException("source offset outside audio file");
+        boolean reversed = (Boolean) modelGet(modelGet(((ApiObject) existing).getTarget(), "jsk"), "wtf");
+        if ((changes.has("source_offset") || changes.has("reverse")) && !existing.getWarpMode().name().equals("RAW"))
+            throw new IllegalArgumentException("source offset/reverse currently require RAW audio");
+        if (changes.has("source_offset") && (reversed || changes.optBoolean("reverse", false)))
+            throw new IllegalArgumentException("set source offset while forward, then reverse in a separate edit");
+        if (changes.has("start") || changes.has("duration")) for (Object member : events) {
+            com.bitwig.extension.api.project.timeline.AudioNote other = (com.bitwig.extension.api.project.timeline.AudioNote) member;
+            if (((ApiObject) other).getTarget() != ((ApiObject) existing).getTarget()
+                    && start < other.getTime() + other.getDuration() - 1e-6 && start + duration > other.getTime() + 1e-6)
+                throw new IllegalArgumentException("audio event edit overlaps existing material");
+        }
+        final JSONObject[] result = new JSONObject[1];
+        DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+            modelGet(((ApiObject) clip).getTarget(), "knw");
+            EventTimeline timeline = ((AudioClip) clip).getContent().getEventTimeline();
+            com.bitwig.extension.api.project.timeline.AudioNote event = (com.bitwig.extension.api.project.timeline.AudioNote) timeline.getEvents().get(index);
+            Object raw = ((ApiObject) event).getTarget();
+            boolean reposition = changes.has("start") || changes.has("duration");
+            try {
+                if (method.equals("audio_event.delete") || reposition) {
+                    // API audio content wraps the polyphonic bank; its events
+                    // actually belong to the (channel=0,key=0) native lane.
+                    Object bank = ((ApiObject) timeline).getTarget();
+                    Object lane = bank.getClass().getMethod("Qcu", int.class, int.class, boolean.class)
+                            .invoke(bank, 0, 0, false);
+                    lane.getClass().getMethod("IYM", classForName("No"), boolean.class).invoke(lane, raw, false);
+                }
+                if (method.equals("audio_event.delete")) {
+                    result[0] = new JSONObject().put("deleted", index).put("count", timeline.getEvents().size());
+                    return;
+                }
+                if (reposition) { event.setTime(start); event.setDuration(duration); timeline.addEvent(event); }
+                if (changes.has("source_offset")) invokeModelSetter(raw, "UJq", double.class, offset);
+                if (changes.has("gain_db")) event.getGain().setValue(gain, Unit.DECIBEL);
+                if (changes.has("muted")) event.setIsMuted(changes.getBoolean("muted"));
+                if (changes.has("fade_in")) event.setFadeInTime(fadeIn);
+                if (changes.has("fade_out")) event.setFadeOutTime(fadeOut);
+                if (changes.has("reverse") && changes.getBoolean("reverse") != reversed) {
+                    Object selection = modelGet(modelGet(modelGet(project.getTarget(), "qVp"), "TcG"), "tY1");
+                    raw.getClass().getMethod("IYM", classForName("fKr")).invoke(raw, modelGet(selection, "gn_"));
+                }
+                result[0] = audioEventLocation(timeline, raw);
+            } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native audio event edit failed", failure); }
+        });
+        return result[0];
+    }
+
+    private static JSONObject audioEventLocation(EventTimeline timeline, Object raw) {
+        java.util.List<?> events = timeline.getEvents();
+        for (int i = 0; i < events.size(); i++) if (((ApiObject) events.get(i)).getTarget() == raw)
+            return new JSONObject().put("event", i).put("data", readAudioEvent(
+                    (com.bitwig.extension.api.project.timeline.AudioNote) events.get(i)));
+        throw new IllegalStateException("audio event is not attached to requested timeline");
+    }
+
+    private static com.bitwig.extension.api.project.timeline.AudioNote stageAudioEvent(ApiProject project, JSONObject params, double globalStart) {
+        java.io.File file = new java.io.File(params.getString("file")).getAbsoluteFile();
+        if (!file.isFile()) throw new IllegalArgumentException("audio file does not exist: " + file);
+        double offset = finiteField(params, "source_offset", 0), gain = finiteField(params, "gain_db", 0);
+        if (params.has("transpose")) throw new IllegalArgumentException("audio transpose is not yet playback-verified");
+        if (!Double.isFinite(globalStart) || globalStart < 0 || offset < 0) throw new IllegalArgumentException("negative audio position");
+        Factory factory = project.getFactory();
+        com.bitwig.extension.api.project.file.SampleReference sample = factory.createSampleReferenceForLocalFile(file);
+        double seconds = sample.getDurationInSeconds() - offset;
+        if (sample.getSampleRate() <= 0 || sample.getChannelCount() <= 0 || seconds <= 0)
+            throw new IllegalArgumentException("audio source has no usable frames at this offset");
+        Object transport = modelGet(project.getTarget(), "THS");
+        double natural = modelDoubleArgument(transport, "AOA", modelDoubleArgument(transport, "xeZ", globalStart) + seconds) - globalStart;
+        double duration = finiteField(params, "duration", natural);
+        if (duration <= 0 || !Double.isFinite(globalStart + duration)) throw new IllegalArgumentException("invalid audio duration");
+        com.bitwig.extension.api.project.timeline.AudioNote event = factory.createAudioNote(0, duration, sample);
+        event.setWarpMode(com.bitwig.extension.api.project.timeline.WarpMode.RAW);
+        invokeModelSetter(((ApiObject) event).getTarget(), "UJq", double.class, offset);
+        event.getGain().setValue(gain, Unit.DECIBEL);
+        return event;
     }
 
     private static InstrumentNote stageInstrumentNote(Factory factory, JSONObject data) {

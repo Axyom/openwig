@@ -188,3 +188,27 @@ shape application must offset caller points past that anchor and validate times.
   them. Readback verifies gain domain conversion, pressure/timbre percentages,
   semitone transpose, channel/velocities/chance, and persistence. This does not
   establish audible audio-clip transpose support.
+
+### RAW audio-event edits and copied playback (6.1.5)
+
+- Audio content API target `rLG` is a polyphonic bank, not an `XCv` lane.
+  `rLG.Qcu(0,0,false)` returns the `pAR` lane that owns exposed audio events.
+  Detach/delete exactly one event via that lane's `IYM(No,false)` inside undo;
+  then update time/duration and re-add through the API when moving. Removing the
+  last event keeps an importable empty lane. Never clear a time range to delete
+  an individual possibly-overlapping event.
+- `KoO.IYM(fKr)` is native reverse: superclass `Tc` mirrors expression timelines,
+  then RAW source start/stop endpoints are swapped using `IT3`, `IYM(dP)`,
+  `UJq(double)`, `Nwn(double)`, followed by `JTi()`. It does not own a transaction;
+  wrap the edit. Context is selected editor `Lsv.gn_()`. Verified audible source
+  order at 120/150 BPM and through native persistence. Direct reverse-flag writes
+  would omit these endpoint/expression changes.
+- `AudioNote.setIsMuted`, `setFadeInTime`, `setFadeOutTime`, and
+  `getGain().setValue(value,DECIBEL)` support event edits. Fades and event times
+  are beats; RAW source offsets use `KoO.UJq(double)` seconds.
+- **Copy correction:** after attachment/make-unique, invoke raw
+  `xh3.IYM(XCv,dP)` insertion finalization. Without it, first copied-audio playback
+  could be inconsistent despite correct JSON/save checks. For audio it initializes
+  automatic fade-in defaults. Restore source fade-in time, native `tDS()` gain
+  via `HT3(double)`, and `wtf()` curve via `KF3(xEd)` after finalization.
+  Live copied fade/content persistence and forward/reverse audio tests pass.
