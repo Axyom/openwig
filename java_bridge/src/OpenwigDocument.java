@@ -124,23 +124,25 @@ public final class OpenwigDocument {
         try {
             TrackOrTrackGroup item = resolve(project, path);
             Track track = view(item);
+            if (method.equals("clip.read")) {
+                java.util.List<?> clips = track.clipTimeline().getEvents();
+                if (index < 0 || index >= clips.size()) throw new IllegalArgumentException("clip index out of range: " + index);
+                return readClip((Clip) clips.get(index));
+            }
+            java.util.IdentityHashMap<Object, JSONObject> owners = deviceOwners(project);
+            java.util.IdentityHashMap<Object, JSONObject> atomOwners = atomOwnerIndex(project);
             if (method.equals("track.read")) {
                 int trackIndex;
                 if (path.equals("master")) trackIndex = -1;
                 else if (path.startsWith("fx/"))
                     trackIndex = -indexIn(project.getTrackGroup().effectTracks(), item) - 2;
                 else trackIndex = indexIn(project.getTrackGroup().mainTracks(), item);
-                return readTrackOrGroup(item, trackIndex, path, sceneCount(), routingContext(project));
-            }
-            if (method.equals("clip.read")) {
-                java.util.List<?> clips = track.clipTimeline().getEvents();
-                if (index < 0 || index >= clips.size()) throw new IllegalArgumentException("clip index out of range: " + index);
-                return readClip((Clip) clips.get(index));
+                return readTrackOrGroup(item, trackIndex, path, sceneCount(), routingContext(project), owners, atomOwners);
             }
             java.util.List<?> devices = track.deviceChain().getDevices();
             if (index < 0 || index >= devices.size()) throw new IllegalArgumentException("device index out of range: " + index);
             Device device = (Device) devices.get(index);
-            JSONObject result = readDevice(device, index, routingContext(project));
+            JSONObject result = readDevice(device, index, path, routingContext(project), owners, atomOwners);
             return result;
         } finally { project.dispose(); }
     }
@@ -360,23 +362,109 @@ public final class OpenwigDocument {
     public static JSONArray deviceSnapshot(int trackIndex) {
         ApiProject project = project();
         try {
-            return deviceSnapshotList(track(project, trackIndex), routingContext(project));
+            return deviceSnapshotList(track(project, trackIndex), null, routingContext(project),
+                    deviceOwners(project), atomOwnerIndex(project));
         } finally {
             project.dispose();
         }
     }
 
-    private static JSONArray deviceSnapshotList(Track view, java.util.IdentityHashMap<Object, JSONObject> context) {
+    // Top-level device targets -> {"path", "device"} so modulator mappings can
+    // resolve target ownership without any graph walk. Nested chain devices
+    // are indexed by readNestedChain as they are read.
+    private static java.util.IdentityHashMap<Object, JSONObject> deviceOwners(ApiProject project) {
+        java.util.IdentityHashMap<Object, JSONObject> owners = new java.util.IdentityHashMap<>();
+        for (Object item : project.getTrackGroup().mainTracks())
+            indexDevices((TrackOrTrackGroup) item, ((TrackOrTrackGroup) item).getTitle(), owners);
+        for (Object item : project.getTrackGroup().effectTracks())
+            indexDevices((TrackOrTrackGroup) item, "fx/" + ((TrackOrTrackGroup) item).getTitle(), owners);
+        indexDevices(project.getTrackGroup().masterTrack(), "master", owners);
+        return owners;
+    }
+
+    private static void indexDevices(TrackOrTrackGroup item, String path,
+                                     java.util.IdentityHashMap<Object, JSONObject> owners) {
+        if (item == null || owners == null) return;
+        if (item instanceof TrackGroup group) {
+            for (Object member : group.mainTracks())
+                indexDevices((TrackOrTrackGroup) member,
+                        path + "/" + ((TrackOrTrackGroup) member).getTitle(), owners);
+        }
+        try {
+            java.util.List<?> members = view(item).deviceChain().getDevices();
+            for (int i = 0; i < members.size(); i++) {
+                Object target = ((ApiObject) members.get(i)).getTarget();
+                if (target != null && !owners.containsKey(target))
+                    owners.put(target, new JSONObject().put("path", path).put("device", i));
+            }
+        } catch (RuntimeException unreadable) {
+            // Channel kinds without a readable device chain stay unindexed.
+        }
+    }
+
+    // Pre-index top-level native device parameter atoms -> {"path", "device", "parameter"}
+    // so cross-device modulator bindings resolve by m1C identity.
+    private static java.util.IdentityHashMap<Object, JSONObject> atomOwnerIndex(ApiProject project) {
+        java.util.IdentityHashMap<Object, JSONObject> atomOwners = new java.util.IdentityHashMap<>();
+        Class<?> decimal = classForName("Ob");
+        Class<?> bool = classForName("KOL");
+        Class<?> indexed = classForName("mqD");
+        for (Object item : project.getTrackGroup().mainTracks())
+            indexAtomOwners((TrackOrTrackGroup) item, ((TrackOrTrackGroup) item).getTitle(),
+                    decimal, bool, indexed, atomOwners);
+        for (Object item : project.getTrackGroup().effectTracks())
+            indexAtomOwners((TrackOrTrackGroup) item, "fx/" + ((TrackOrTrackGroup) item).getTitle(),
+                    decimal, bool, indexed, atomOwners);
+        indexAtomOwners(project.getTrackGroup().masterTrack(), "master",
+                decimal, bool, indexed, atomOwners);
+        return atomOwners;
+    }
+
+    private static void indexAtomOwners(TrackOrTrackGroup item, String path,
+                                        Class<?> decimal, Class<?> bool, Class<?> indexed,
+                                        java.util.IdentityHashMap<Object, JSONObject> atomOwners) {
+        if (item == null || atomOwners == null) return;
+        if (item instanceof TrackGroup group) {
+            for (Object member : group.mainTracks())
+                indexAtomOwners((TrackOrTrackGroup) member,
+                        path + "/" + ((TrackOrTrackGroup) member).getTitle(),
+                        decimal, bool, indexed, atomOwners);
+        }
+        try {
+            java.util.List<?> members = view(item).deviceChain().getDevices();
+            for (int i = 0; i < members.size(); i++) {
+                if (!(members.get(i) instanceof NativeDevice)) continue;
+                Object target = ((ApiObject) members.get(i)).getTarget();
+                if (target == null) continue;
+                for (java.util.Map.Entry<Object, String> entry :
+                        deviceAtomPaths(target, decimal, bool, indexed).entrySet()) {
+                    if (!atomOwners.containsKey(entry.getKey()))
+                        atomOwners.put(entry.getKey(), new JSONObject()
+                                .put("path", path).put("device", i).put("parameter", entry.getValue()));
+                }
+            }
+        } catch (RuntimeException unreadable) {
+            // Channel kinds without a readable device chain stay unindexed.
+        }
+    }
+
+    private static JSONArray deviceSnapshotList(Track view, String path,
+                                                java.util.IdentityHashMap<Object, JSONObject> context,
+                                                java.util.IdentityHashMap<Object, JSONObject> owners,
+                                                java.util.IdentityHashMap<Object, JSONObject> atomOwners) {
         JSONArray devices = new JSONArray();
         java.util.List<?> members = view.deviceChain().getDevices();
         for (int i = 0; i < members.size(); i++) {
             Device device = (Device) members.get(i);
-            devices.put(readDevice(device, i, context));
+            devices.put(readDevice(device, i, path, context, owners, atomOwners));
         }
         return devices;
     }
 
-    private static JSONObject readDevice(Device device, int i, java.util.IdentityHashMap<Object, JSONObject> context) {
+    private static JSONObject readDevice(Device device, int i, String path,
+                                         java.util.IdentityHashMap<Object, JSONObject> context,
+                                         java.util.IdentityHashMap<Object, JSONObject> owners,
+                                         java.util.IdentityHashMap<Object, JSONObject> atomOwners) {
         String kind = "unknown";
         if (device instanceof NativeDevice) {
             kind = "native";
@@ -402,6 +490,7 @@ public final class OpenwigDocument {
                 .put("kind", kind)
                 .put("enabled", device.getEnabled().getValue())
                 .put("active", device.getActive());
+        if (path != null) result.put("path", path);
         context.put(target, result);
         result.put("reading", true);
         // Pure stored-model getters, cross-checked against ApiDawProjectExporter.
@@ -458,33 +547,203 @@ public final class OpenwigDocument {
             JSONArray chains = new JSONArray();
             JSONArray sidechains = new JSONArray();
             java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
-            boolean complete = readNestedComponents(target, modelGet(target, "bhG"), chains, sidechains, seen, context, 0);
+            boolean complete = readNestedComponents(target, modelGet(target, "bhG"), chains, sidechains, seen,
+                    context, path, owners, atomOwners, 0);
             result.put("chains", chains).put("chains_complete", complete).put("sidechains", sidechains)
                     .put("sidechain", sidechains.length() == 0 ? JSONObject.NULL :
                             sidechains.getJSONObject(0).get("source"));
         }
-        // Gated metadata inventory only. These getters return stored fields;
-        // no engine interface, graph query, grid creation, or mapping callback.
-        JSONArray modulators = new JSONArray();
-        Object modulatorBank = modelGet(target, "YGC");
-        if (modulatorBank != null) {
-            for (Object modulator : (java.util.List<?>) modelGet(modulatorBank, "Klm")) {
-                modulators.put(new JSONObject()
-                        .put("index", modulators.length())
-                        .put("id", jsonModelValue(modelGet(modulator, "UNI")))
-                        .put("device_name", modelGet(modulator, "HT3"))
-                        .put("display_name", modelGet(modulator, "ruM"))
-                        .put("preset", modelGet(modulator, "SVb")));
-            }
-        }
-        result.put("modulators", modulators).put("modulators_status", "inventory_only");
+        // Stored model getters only (exact 6.1.5 signatures); no engine
+        // interface, graph query, grid creation, or mapping callback.
+        result.put("modulators", readModulators(target, path, i, owners, context, atomOwners))
+                .put("modulators_status", "native");
         result.remove("reading");
         return result;
     }
 
+    // Modulator reads live entirely on stored model state: gDz entries from the
+    // device's YGC bank, the nJS definition via dsw(), value atoms through the
+    // same walk as native device parameters, and modulation bindings as Hx3
+    // component lists of AvA entries (target QFL, amount CzJ.Qcu).
+    private static JSONArray readModulators(Object target, String path, int deviceIndex,
+                                            java.util.IdentityHashMap<Object, JSONObject> owners,
+                                            java.util.IdentityHashMap<Object, JSONObject> context,
+                                            java.util.IdentityHashMap<Object, JSONObject> atomOwners) {
+        JSONArray modulators = new JSONArray();
+        Object bankList = modelGet(modelGet(target, "YGC"), "Klm");
+        if (!(bankList instanceof java.util.List<?> entries)) return modulators;
+        Class<?> decimal = classForName("Ob");
+        Class<?> bool = classForName("KOL");
+        Class<?> indexed = classForName("mqD");
+        // Self-device atom index: m1C identity -> CONTENTS-relative parameter
+        // path, so bindings inside the owning device resolve exactly.
+        java.util.IdentityHashMap<Object, String> atomPaths = deviceAtomPaths(target, decimal, bool, indexed);
+        for (Object modulator : entries) {
+            JSONObject item = new JSONObject()
+                    .put("index", modulators.length())
+                    .put("id", jsonModelValue(modelGet(modulator, "UNI")))
+                    .put("device_name", modelGet(modulator, "HT3"))
+                    .put("display_name", modelGet(modulator, "ruM"))
+                    .put("preset", modelGet(modulator, "SVb"));
+            try {
+                Object contents = modelGet(modulator, "dsw");
+                item.put("parameters", readModulatorParameters(modulator, contents, decimal, bool, indexed));
+                item.put("bindings", readModulatorBindings(contents, target, path, deviceIndex,
+                        owners, context, atomPaths, atomOwners));
+            } catch (RuntimeException unreadable) {
+                item.put("read_error", unreadable.getClass().getSimpleName());
+            }
+            modulators.put(item);
+        }
+        return modulators;
+    }
+
+    private static java.util.IdentityHashMap<Object, String> deviceAtomPaths(Object target,
+            Class<?> decimal, Class<?> bool, Class<?> indexed) {
+        java.util.IdentityHashMap<Object, String> atomPaths = new java.util.IdentityHashMap<>();
+        Object contents = modelGetOrNull(target, "bhG");
+        if (contents == null) return atomPaths;
+        java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+        java.util.List<Object> found = new java.util.ArrayList<>();
+        walkAtoms(contents, 0, seen, found, decimal, bool, indexed);
+        for (Object atom : found) {
+            String fullPath = automationIdentifier(target, atom);
+            if (fullPath != null && fullPath.startsWith("CONTENTS/"))
+                atomPaths.put(atom, fullPath.substring("CONTENTS/".length()));
+        }
+        return atomPaths;
+    }
+
+    private static JSONArray readModulatorParameters(Object modulator, Object contents,
+                                                     Class<?> decimal, Class<?> bool, Class<?> indexed) {
+        JSONArray parameters = new JSONArray();
+        if (contents == null) return parameters;
+        java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+        java.util.List<Object> found = new java.util.ArrayList<>();
+        walkAtoms(contents, 0, seen, found, decimal, bool, indexed);
+        for (Object atom : found) {
+            String fullPath = automationIdentifier(modulator, atom);
+            if (fullPath == null) fullPath = automationIdentifier(contents, atom);
+            if (fullPath == null || !fullPath.startsWith("CONTENTS/")) continue;
+            JSONObject parameter = new JSONObject()
+                    .put("path", fullPath.substring("CONTENTS/".length()))
+                    .put("kind", atomKind(atom, decimal, bool, indexed));
+            // Rem.wtf()/HDw.wtf() are the stored current values; dZZ.Qcu() is
+            // the enum index. Values are model-native, not normalized.
+            Object value = modelGetOrNull(atom, "wtf");
+            if (value == null) value = modelGetOrNull(atom, "Qcu");
+            if (value == null) value = modelGetOrNull(atom, "KF3");
+            parameter.put("value", jsonModelValue(value));
+            String unit = automationUnit(modelGetOrNull(atom, "ViH"));
+            if (unit != null) parameter.put("unit", unit);
+            parameters.put(parameter);
+        }
+        return parameters;
+    }
+
+    // Hx3 components hold the stored modulation bindings of a modulator: each
+    // AvA entry references a parameter (QFL -> m1C) with CzJ.Qcu() as the
+    // model-native amount. Targets resolve by atom identity inside the owning
+    // device or global top-level index when possible, otherwise via QFL's
+    // stored 6.1.5 owner/path fields (dY3.hMI/TEI, Ovr.U3o) and track (QFL.xTe).
+    private static JSONArray readModulatorBindings(Object contents, Object self, String path, int deviceIndex,
+                                                   java.util.IdentityHashMap<Object, JSONObject> owners,
+                                                   java.util.IdentityHashMap<Object, JSONObject> context,
+                                                   java.util.IdentityHashMap<Object, String> atomPaths,
+                                                   java.util.IdentityHashMap<Object, JSONObject> atomOwners) {
+        JSONArray bindings = new JSONArray();
+        Object children = contents == null ? null : modelGet(contents, "hMI");
+        if (!(children instanceof java.util.List<?> components)) return bindings;
+        for (Object component : components) {
+            if (component == null || !"Hx3".equals(component.getClass().getSimpleName())) continue;
+            Object entries = modelGetOrNull(component, "gTC");
+            if (!(entries instanceof java.util.List<?> list)) continue;
+            String key = (String) modelGetOrNull(component, "az_");
+            for (Object entry : list) {
+                if (entry == null) continue;
+                if (bindings.length() >= 512) {
+                    bindings.put(new JSONObject().put("truncated", true));
+                    return bindings;
+                }
+                Object reference = modelGetOrNull(entry, "kxC");
+                Object parameter = reference == null ? null : modelGetOrNull(reference, "XYl");
+                Object amount = modelGetOrNull(entry, "Qcu");
+                JSONObject binding = new JSONObject().put("component", key == null ? "" : key);
+                String parameterPath = parameter == null ? null : atomPaths.get(parameter);
+                if (parameterPath != null) {
+                    binding.put("target_parameter", parameterPath);
+                    binding.put("target_owner", new JSONObject().put("path", path).put("device", deviceIndex));
+                } else if (parameter != null && atomOwners != null && atomOwners.containsKey(parameter)) {
+                    JSONObject entryOwner = atomOwners.get(parameter);
+                    binding.put("target_parameter", entryOwner.optString("parameter"));
+                    binding.put("target_owner", new JSONObject()
+                            .put("path", entryOwner.optString("path"))
+                            .put("device", entryOwner.getInt("device")));
+                } else {
+                    Object storedPath = reference == null ? null : modelGetOrNull(reference, "TEI");
+                    if (storedPath instanceof String text && !text.isEmpty()) {
+                        binding.put("target_parameter",
+                                text.startsWith("CONTENTS/") ? text.substring("CONTENTS/".length()) : text);
+                    } else {
+                        Object name = reference == null ? null : modelGetOrNull(reference, "heQ");
+                        if (name == null && parameter != null) name = modelGetOrNull(parameter, "NMa");
+                        if (name == null && parameter != null) name = modelGetOrNull(parameter, "IW");
+                        if (name == null && parameter != null) name = modelGetOrNull(parameter, "aH_");
+                        if (name != null && !name.toString().isEmpty()) binding.put("target", name.toString());
+                    }
+                    if (parameter != null && !binding.has("target_parameter"))
+                        binding.put("target_model", parameter.getClass().getSimpleName());
+                    JSONObject located = null;
+                    if (reference != null) {
+                        Object ownerDevice = modelGetOrNull(reference, "hMI");
+                        if (ownerDevice == null) ownerDevice = modelGetOrNull(reference, "Lg");
+                        located = locateBindingOwner(ownerDevice, self, path, deviceIndex, owners);
+                        if (located == null && parameter != null) {
+                            located = locateBindingOwner(parameter, self, path, deviceIndex, owners);
+                            if (located == null) {
+                                located = locateBindingOwner(modelGetOrNull(parameter, "U3o"),
+                                        self, path, deviceIndex, owners);
+                            }
+                        }
+                        if (located == null) {
+                            // QFL.xTe() is the stored track (roo) of the reference.
+                            JSONObject track = context == null ? null
+                                    : context.get(modelGetOrNull(reference, "xTe"));
+                            if (track != null) located = new JSONObject().put("path", track.optString("path"));
+                        }
+                    }
+                    if (located != null) binding.put("target_owner", located);
+                    else if (parameter != null)
+                        binding.put("target_owner", new JSONObject().put("resolved", false));
+                }
+                if (amount instanceof Number number) binding.put("amount", number.doubleValue());
+                bindings.put(binding);
+            }
+        }
+        return bindings;
+    }
+
+    private static JSONObject locateBindingOwner(Object start, Object self, String path, int deviceIndex,
+                                                 java.util.IdentityHashMap<Object, JSONObject> owners) {
+        Object cursor = start;
+        for (int depth = 0; cursor != null && depth < 24; depth++) {
+            if (cursor == self) {
+                return new JSONObject().put("path", path).put("device", deviceIndex);
+            }
+            if (owners != null) {
+                JSONObject matched = owners.get(cursor);
+                if (matched != null) return matched;
+            }
+            cursor = modelGetOrNull(cursor, "L_");
+        }
+        return null;
+    }
+
     private static boolean readNestedComponents(Object owner, Object node, JSONArray out, JSONArray sidechains,
             java.util.IdentityHashMap<Object, Boolean> seen,
-            java.util.IdentityHashMap<Object, JSONObject> context, int depth) {
+            java.util.IdentityHashMap<Object, JSONObject> context, String path,
+            java.util.IdentityHashMap<Object, JSONObject> owners,
+            java.util.IdentityHashMap<Object, JSONObject> atomOwners, int depth) {
         if (node == null || seen.containsKey(node)) return true;
         if (depth > 32 || seen.size() >= 20000) return false;
         seen.put(node, true);
@@ -495,13 +754,15 @@ public final class OpenwigDocument {
             return true;
         }
         if (automationInstance("com.bitwig.flt.document.core.master.device.YLB", node)) {
-            out.put(readNestedChain(owner, node, "chain", out.length(), context));
+            out.put(readNestedChain(owner, node, "chain", out.length(), path, context, owners, atomOwners, out.length()));
             return true;
         }
         if (automationInstance("com.bitwig.flt.document.core.master.device.AYz", node)) {
             int index = 0;
-            for (Object chain : (java.util.List<?>) modelGet(node, "NFl"))
-                out.put(readNestedChain(owner, chain, "layer", index++, context));
+            for (Object chain : (java.util.List<?>) modelGet(node, "NFl")) {
+                out.put(readNestedChain(owner, chain, "layer", index, path, context, owners, atomOwners, out.length()));
+                index++;
+            }
             return true;
         }
         if (automationInstance("Jnx", node)) {
@@ -510,7 +771,7 @@ public final class OpenwigDocument {
                 Object chain = modelGet(pad, "n3R");
                 JSONObject item = chain == null ? new JSONObject().put("kind", "drum_pad")
                         .put("index", index).put("has_chain", false).put("devices", new JSONArray())
-                        : readNestedChain(owner, chain, "drum_pad", index, context);
+                        : readNestedChain(owner, chain, "drum_pad", index, path, context, owners, atomOwners, out.length());
                 item.put("key", modelGet(pad, "KF3"));
                 out.put(item);
                 index++;
@@ -527,7 +788,7 @@ public final class OpenwigDocument {
             Object children = childrenOf.invoke(node);
             if (children instanceof java.util.List<?> members)
                 for (Object child : members)
-                    complete &= readNestedComponents(owner, child, out, sidechains, seen, context, depth + 1);
+                    complete &= readNestedComponents(owner, child, out, sidechains, seen, context, path, owners, atomOwners, depth + 1);
         } catch (NoSuchMethodException leaf) {
             // No stored component children.
         } catch (ReflectiveOperationException failure) {
@@ -537,7 +798,9 @@ public final class OpenwigDocument {
     }
 
     private static JSONObject readNestedChain(Object owner, Object chain, String kind, int index,
-            java.util.IdentityHashMap<Object, JSONObject> context) {
+            String path, java.util.IdentityHashMap<Object, JSONObject> context,
+            java.util.IdentityHashMap<Object, JSONObject> owners,
+            java.util.IdentityHashMap<Object, JSONObject> atomOwners, int chainPosition) {
         Object stored = modelGet(chain, "nY");
         JSONArray devices = new JSONArray();
         if (stored != null) {
@@ -548,8 +811,14 @@ public final class OpenwigDocument {
                 constructor.setAccessible(true);
                 DeviceChain api = (DeviceChain) constructor.newInstance(stored);
                 java.util.List<?> members = api.getDevices();
-                for (int i = 0; i < members.size(); i++)
-                    devices.put(readDevice((Device) members.get(i), i, context));
+                for (int i = 0; i < members.size(); i++) {
+                    Device member = (Device) members.get(i);
+                    Object memberTarget = ((ApiObject) member).getTarget();
+                    if (owners != null && memberTarget != null)
+                        owners.put(memberTarget, new JSONObject().put("path", path)
+                                .put("chain", chainPosition).put("device", i));
+                    devices.put(readDevice(member, i, path, context, owners, atomOwners));
+                }
             } catch (ReflectiveOperationException failure) {
                 throw new IllegalStateException("stored nested chain wrapper", failure);
             }
@@ -595,6 +864,20 @@ public final class OpenwigDocument {
         JSONObject known = context.get(source);
         return known != null ? known : new JSONObject().put("model_class", source.getClass().getName())
                 .put("label", modelGet(source, "IxG")).put("resolved", false);
+    }
+
+    // Optional-getter variant: absent methods read as null instead of failing
+    // the surrounding read (used where the exact build may legitimately lack
+    // a getter on a subclass).
+    private static Object modelGetOrNull(Object target, String method) {
+        if (target == null) return null;
+        try {
+            java.lang.reflect.Method getter = target.getClass().getMethod(method);
+            getter.setAccessible(true);
+            return getter.invoke(target);
+        } catch (ReflectiveOperationException absent) {
+            return null;
+        }
     }
 
     private static Object modelGet(Object target, String method) {
@@ -1117,6 +1400,8 @@ public final class OpenwigDocument {
             }
             out.put("cue_markers", markers);
             java.util.IdentityHashMap<Object, JSONObject> context = routingContext(project);
+            java.util.IdentityHashMap<Object, JSONObject> owners = deviceOwners(project);
+            java.util.IdentityHashMap<Object, JSONObject> atomOwners = atomOwnerIndex(project);
             int scenesCount = sceneCount();
             JSONArray scenes = new JSONArray();
             for (int i = 0; i < scenesCount; i++) {
@@ -1129,23 +1414,26 @@ public final class OpenwigDocument {
             JSONArray main = new JSONArray();
             java.util.List<?> tops = project.getTrackGroup().mainTracks();
             for (int i = 0; i < tops.size(); i++) {
-                main.put(readTrackOrGroup((TrackOrTrackGroup) tops.get(i), i, ((TrackOrTrackGroup) tops.get(i)).getTitle(), scenesCount, context));
+                main.put(readTrackOrGroup((TrackOrTrackGroup) tops.get(i), i, ((TrackOrTrackGroup) tops.get(i)).getTitle(), scenesCount, context, owners, atomOwners));
             }
             out.put("main_tracks", main);
             JSONArray effects = new JSONArray();
             java.util.List<?> fx = project.getTrackGroup().effectTracks();
             for (int i = 0; i < fx.size(); i++) {
-                effects.put(readTrackOrGroup((TrackOrTrackGroup) fx.get(i), -i - 2, "fx/" + ((TrackOrTrackGroup) fx.get(i)).getTitle(), scenesCount, context));
+                effects.put(readTrackOrGroup((TrackOrTrackGroup) fx.get(i), -i - 2, "fx/" + ((TrackOrTrackGroup) fx.get(i)).getTitle(), scenesCount, context, owners, atomOwners));
             }
             out.put("effect_tracks", effects);
-            out.put("master", readTrackOrGroup(project.getTrackGroup().masterTrack(), -1, "master", scenesCount, context));
+            out.put("master", readTrackOrGroup(project.getTrackGroup().masterTrack(), -1, "master", scenesCount, context, owners, atomOwners));
             return out;
         } finally {
             project.dispose();
         }
     }
 
-    private static JSONObject readTrackOrGroup(TrackOrTrackGroup item, int index, String path, int scenesCount, java.util.IdentityHashMap<Object, JSONObject> context) {
+    private static JSONObject readTrackOrGroup(TrackOrTrackGroup item, int index, String path, int scenesCount,
+                                               java.util.IdentityHashMap<Object, JSONObject> context,
+                                               java.util.IdentityHashMap<Object, JSONObject> owners,
+                                               java.util.IdentityHashMap<Object, JSONObject> atomOwners) {
         Color color = item.getColor();
         JSONObject out = new JSONObject()
                 .put("index", index)
@@ -1157,7 +1445,7 @@ public final class OpenwigDocument {
             JSONArray children = new JSONArray();
             java.util.List<?> members = group.mainTracks();
             for (int i = 0; i < members.size(); i++) {
-                children.put(readTrackOrGroup((TrackOrTrackGroup) members.get(i), i, path + "/" + ((TrackOrTrackGroup) members.get(i)).getTitle(), scenesCount, context));
+                children.put(readTrackOrGroup((TrackOrTrackGroup) members.get(i), i, path + "/" + ((TrackOrTrackGroup) members.get(i)).getTitle(), scenesCount, context, owners, atomOwners));
             }
             out.put("children", children);
         }
@@ -1191,7 +1479,7 @@ public final class OpenwigDocument {
             sends.put(entry);
         }
         out.put("sends", sends);
-        out.put("devices", deviceSnapshotList(view, context));
+        out.put("devices", deviceSnapshotList(view, path, context, owners, atomOwners));
         com.bitwig.extension.api.project.routing.Destination destination = view.destinationSelector().getDestination();
         Track destinationTrack = destination == null ? null : destination.getTrack();
         out.put("destination", destination == null ? JSONObject.NULL : destinationTrack == null ?

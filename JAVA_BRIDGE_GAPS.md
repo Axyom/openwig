@@ -80,12 +80,20 @@ compare equivalent structures through the parity harness.
    the complete raw inventory; full point arrays are in the per-track dump.
    The legacy index form retains its previous mixer/native-double
    enumeration behavior.
-10. **Modulator inventory:** the gated scratch-copy live check returned 766
-    stored inventory entries across 528 devices, with device/display names,
-    preset, index, and nullable ID. Repeated full dumps retained the same engine
-    process (PID 31856), without a crash or hang. Before/after exports were
-    unchanged, and structure/value checks passed. Only stored inventory is
-    verified; parameters, mappings, and Grid internals remain unresolved.
+10. **Modulators (inventory, parameters, and bindings):** the gated scratch-copy
+    live check returned 766 modulators across 528 recursive devices with zero
+    `read_error` and `modulators_status: "native"`. All 766 modulators exposed
+    stored parameters (1491 total: 790 `double`, 587 `boolean`, 114 `enum`),
+    and 254 modulators exposed 450 modulation bindings (259 `SOURCE`, 168
+    `MATH`, 19 `LFO`, 1 `VELOCITY`, 1 `EG`, 1 `KEYTRACK`, 1 `RANDOM`). All
+    450/450 bindings resolved a non-empty `target_parameter` and 450/450
+    resolved to an exact `{"path", "device"}` `target_owner` via atom identity,
+    migrated `dY3.TEI()`/`dY3.hMI()`, `Ovr.U3o()`, and bounded `kX1.L_()`
+    parent traversal (`dY3.Lg()` is a legacy field and returns null on 6.1.5
+    documents). Repeated full dumps were identical and retained the same engine
+    process (PID 45088) without a crash or hang, targeted `track.read` and
+    `device.read` calls matched the dump, and before/after `.dawproject` XML
+    entries and structure/value checks passed.
 
 Value-level XML comparisons passed for 105 first-match track paths, 373 device
 identities, 2821 clips, 2360 notes, all 2898 audio events and 5697 warp markers,
@@ -100,9 +108,13 @@ The remaining gaps below prevent a claim of complete native schema parity.
 
 ## Remaining parity gates
 
-1. **Modulator depth — partial.** Stored inventory passed the gated live check.
-   Modulator parameters/mappings and Poly Grid internals have no verified
-   native reader claim. Any further investigation retains the scratch-only,
+1. **Grid internals and non-`m1C` binding targets — boundary.** Modulator
+   inventory, stored parameters (`Ob`/`KOL`/`mqD`), and `Hx3`/`AvA` modulation
+   bindings are verified live. Poly Grid / FX Grid patches are read only as
+   stored value atoms (module/cable graph topology is not read), and modulation
+   targets backed by plugin `GAN` descriptors rather than `m1C` atoms resolve
+   to track-level ownership (`QFL.xTe()`) if `dY3.hMI()` does not reference an
+   indexed `Wcl` device. Any further investigation retains the scratch-only,
    read-only getter constraint and ends on a crash, hang, or engine restart.
 2. **Plugin parameter caches — partial.** Fifteen top-level VST3 caches remained
    unavailable in the final settled check. No engine calls or guessed values

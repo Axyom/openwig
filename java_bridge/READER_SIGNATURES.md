@@ -60,10 +60,23 @@ storage. Live claims and remaining coverage are recorded in README and
   `QsC.IYM()` filter, and `dZ.jPB` end position. The reader implements the same
   read callbacks and type conversions, retaining native targets beyond export
   coverage. Absolute `PROJECT/...` paths do not establish device ownership.
-- **Modulator inventory:** `Wcl.YGC():JDY`, then `JDY.Klm():List` exposes
-  stored `gDz` entries. Names/presets use the inherited identity getters above;
-  `UNI():UUID` is nullable. The verified boundary is metadata inventory;
-  mappings, parameters and Grid internals are not read through engine methods.
+- **Modulators:** `Wcl.YGC():JDY`, then `JDY.Klm():List` exposes stored `gDz`
+  entries. Names/presets use the inherited identity getters above; `UNI():UUID`
+  is nullable. `EHY.dsw():nJS` returns the modulator `CONTENTS` component.
+  Stored modulator parameters are `Ob`/`KOL`/`mqD` atoms walked through
+  `hMI():List`, addressed by `fvT.IYM(deb)` (`CONTENTS/...`), with values read
+  via `Rem.wtf():double`, `HDw.wtf():boolean`, `dZZ.Qcu():int`, and units from
+  `m1C.ViH():fG`. Modulation bindings live on `Hx3` child components of `nJS`
+  (`AwX.gTC():List` of `AvA`, component key `az_():String`); `CzJ.kxC():QFL`
+  holds the target reference, `kX1.XYl():m1C` the target parameter, and
+  `CzJ.Qcu():double` the model-native amount. Target paths resolve by `m1C`
+  identity against owning/top-level device atom maps or migrated
+  `dY3.TEI():String`; target owners resolve via `dY3.hMI():kX1`,
+  `Ovr.U3o():Wcl`, and bounded `kX1.L_():kX1` parent traversal to the enclosing
+  top-level device, with `QFL.xTe():roo` as track fallback (`dY3.Lg()` and
+  `dY3.heQ()` are legacy serialization fields migrated to `hMI()`/`TEI()` at
+  load time). Grid devices/modulators are read only as stored value atoms,
+  never through engine or grid graph methods.
 
 No observers, engine graph search, launcher writes, project saves, controller
 changes, catalog capture, or recreation/import are part of these readers.

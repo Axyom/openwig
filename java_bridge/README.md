@@ -180,13 +180,26 @@ returns targets, units, and integer point counts for this full raw inventory;
 the per-track dump contains the point arrays. Its legacy index form
 retains mixer/native-double enumeration behavior.
 
-The gated read-only modulator inventory passed in the scratch copy: 766 entries
-across 528 devices, with name, display name, preset, index, and nullable ID.
-The engine process remained unchanged across repeated full dumps, no crash or
-hang occurred, and before/after exports and structure/value checks passed.
-This verifies stored inventory only; modulator parameters, mappings, and Grid
-internals remain unresolved. Plugin parameter caches can still be unavailable
-on any read, as described above.
+The gated read-only modulator reader passed in the scratch copy: 766 modulators
+across 528 recursive devices (zero `read_error`), with `modulators_status` set
+to `"native"`. Beyond name, display name, preset, index, and nullable ID, the
+reader returned 1491 stored modulator parameters across all 766 modulators (790
+`double`, 587 `boolean`, 114 `enum`; units: 717 `linear`, 57 `seconds`, 16
+`hertz`, and 701 unitless boolean/enum) and 450 modulation bindings across 254
+modulators (component keys: 259 `SOURCE`, 168 `MATH`, 19 `LFO`, and 1 each of
+`VELOCITY`, `EG`, `KEYTRACK`, `RANDOM`). All 450 bindings resolved both a
+non-empty `target_parameter` path and an exact `{"path", "device"}`
+`target_owner` (including self-device atoms, modulator-to-modulator targets,
+and nested container targets via `dY3.hMI()`/`dY3.TEI()` and `kX1.L_()` parent
+traversal; legacy `dY3.Lg()` returns null on migrated 6.1.5 documents). The
+engine process (PID 45088) remained unchanged across repeated full dumps, both
+dumps were identical, targeted `track.read` and `device.read` calls matched the
+dump, and before/after `.dawproject` archive entries and structure/value checks
+passed. Grid devices and modulators are read only as stored value atoms (no
+module/cable graph topology), and plugin parameter targets backed by `GAN`
+descriptors rather than `m1C` atoms remain at track-level ownership (`QFL.xTe()`)
+when not bound to a top-level `Wcl` owner. Plugin parameter caches can still be
+unavailable on any read, as described above.
 
 The live synthetic fixture capture (`tests/live_java_reader_fixture.py --capture`)
 passed on a disposable scratch project. It retained only three newly authored

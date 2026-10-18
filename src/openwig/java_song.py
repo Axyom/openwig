@@ -124,10 +124,10 @@ class JavaSong:
         """Read the whole open project.
 
         Includes the full track tree, scenes/slots, mixer and routing state,
-        nested devices, resident parameter values, arranger automation, note
-        expressions and audio events/warps. Unavailable plugin caches and the
-        inventory-only modulator boundary are explicit. One document event;
-        nothing in the project is modified.
+        nested devices, resident parameter values, modulator parameters and
+        bindings, arranger automation, note expressions and audio events/warps.
+        Unavailable plugin caches and the stored-atom Grid boundary are
+        explicit. One document event; nothing in the project is modified.
         """
         return self.b.request("project.dump", timeout=125)
 
