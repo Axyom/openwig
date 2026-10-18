@@ -12,6 +12,9 @@ render to `.wav`.
 
 Free and open source (GPL-3.0). Windows (fully supported) and Linux (experimental). Early alpha.
 
+Current development goal and agent handoff:
+[`PROJECT_EDITING_PLAN.md`](PROJECT_EDITING_PLAN.md).
+
 **[Documentation →](https://axyom.github.io/openwig/)**
 
 ![openwig demo](docs/assets/video_demo.gif)

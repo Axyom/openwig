@@ -2,6 +2,20 @@
 
 This file provides guidance to coding agents working in this repository.
 
+## Active goal: full project editing
+
+Before working on project-editing functionality, read
+[`PROJECT_EDITING_PLAN.md`](PROJECT_EDITING_PLAN.md). It is the authoritative
+progress and handoff document for the owner's active goal: complete programmatic
+Bitwig project editing. Start at **Current checkpoint: start here** for verified
+progress, known issues, live-test setup, and the next concrete actions.
+
+Update that document as each capability lands and before handing work to another
+agent: record evidence, commit/CI status, remaining gaps, uncommitted work, and
+the exact project currently open. Its owner-authorized editing scope supersedes
+older reader-only exclusions; all original-project and exact-build safeguards
+still apply. Do not mark the overall goal complete while documented gaps remain.
+
 ## What this is
 
 openwig (PyPI `openwig`, GitHub `Axyom/openwig`, public): a Python SDK that builds Bitwig Studio songs (tracks, devices, MIDI clips, automation, master chain) and renders them to `.wav`. It goes beyond Bitwig's official Controller API by reaching into Bitwig's private, obfuscated internals. Targets Bitwig 6.0.6 on Windows (Linux experimental), Python 3.11+.
