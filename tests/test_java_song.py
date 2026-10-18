@@ -63,7 +63,7 @@ def test_export_dawproject_sends_path_and_embed_flag(bridge):
     # Relative paths resolve against the caller's cwd before crossing the wire.
     from pathlib import Path
     assert params["path"] == str(Path("out.dawproject").resolve())
-    assert result["path"] == "out.dawproject"
+    assert result["path"] == params["path"]
 
 
 def test_refuses_wrong_host_version(bridge):
