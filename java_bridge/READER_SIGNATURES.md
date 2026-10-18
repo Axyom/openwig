@@ -139,3 +139,12 @@ clip/automation timelines, moves cue markers when the root is selected, and
 copies the range with `HRW.IYM(..., false, true, fKr)`. The native command owns
 its undo transaction; do not nest it in a second synthetic transaction.
 Live probe: clips 0/8 -> 0/4/12, marker 8 -> 12, automation moved and copied.
+
+
+Empty-time insertion uses `pZb.Gcr(List<zJD>, start, end, Lsv)`; delete-and-pull
+uses `pZb.AOA(List<zJD>, start, end, Lsv)`. Both are native transaction-owning
+commands using the same root/editor selections as Duplicate and Push. Live gate:
+`tests/live_java_ranges.py` verified nested crossing clips, later clips,
+effect/master automation and cue markers in both directions. Automation creation
+through the public API prepends a `GUX` beat-zero anchor for a nonzero first point;
+shape application must offset caller points past that anchor and validate times.

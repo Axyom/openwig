@@ -411,3 +411,24 @@ clips at 0 and 8 became 0, 4 and 12; the marker and later automation moved from
 project, moved the vocal entrance 336 to 400 and END 792 to 856, and retained
 107 existing tracks before adding the new synth. Use a project copy for
 arrangement experiments.
+
+
+`JavaSong.insert_time(start, beats)` inserts empty arranger time;
+`delete_range(start, end)` deletes and pulls later material left. All times are
+beats. The exact-build native commands own their undo transactions and include
+nested clips, effect/master automation, and cue markers. Transport loop bounds
+are unchanged and should be adjusted explicitly if needed. The manual gate
+`tests/live_java_ranges.py --disposable --project <open-disposable.bwproject>`
+clears its explicitly selected project and verifies a crossing clip (2..8), later
+clip (12..16), effect/master automation and marker: inserting 4 beats at beat 4
+produces clips 2..4, 8..12, 16..20; deleting 4..8 pulls them to 2..4, 4..8, 12..16.
+Native splitting leaves adjacent fragments after the inverse operation.
+
+Arranger automation may start after beat zero. Bitwig's implicit initial anchor
+is preserved; caller-supplied points are matched by time before applying their
+normalized values, curvature and interpolation. The same live gate verifies
+nonzero-start automation at 8/16 beats, including a hold and curved segment.
+
+The range/automation synthetic fixture also passed native save/reopen with zero
+clip/automation/marker differences. Hold segments canonicalize curvature to zero
+immediately, matching Bitwig serialization; linear curvature is retained.

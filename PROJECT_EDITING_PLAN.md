@@ -67,7 +67,7 @@ and unrelated NerDaw work remain separate.
   The saved variation reopened with 108 tracks, its notes and automation intact;
   a final preview was recorded from the reopened file, with no clipped samples.
 
-Latest pushed commits:
+Baseline implementation commits (use `git log` for subsequent increments):
 
 - `634d28f`: portable native project writing, archive tests, live roundtrip.
 - `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
@@ -81,10 +81,11 @@ Do not equate native snapshot preservation with arbitrary field editing.
 
 1. **Arranger and existing clips — in progress.**
    - Done: duplicate range with push.
-   - Next: empty-time insertion and delete-with-pull using native range commands.
-   - Then: move/resize/trim/mute/name/color/loop/fade existing clips; clip
+   - Done: `insert_time(start, beats)` and `delete_range(start, end)`, including
+     nested crossing clips, effect/master automation, cue markers, and persistence.
+   - Done: nonzero-start automation anchor handling; hold curvature canonicalization.
+   - Next: move/resize/trim/mute/name/color/loop/fade existing clips; clip
      copy/split/delete; replace/edit MIDI content and expressions.
-   - Fix automation requests whose first point is after beat zero (see below).
    - Verify clips crossing edit boundaries, nested tracks, effect/master
      automation, markers, invalid input, and save/reopen persistence.
 2. **Audio creation and editing — pending.**
@@ -121,26 +122,41 @@ Do not equate native snapshot preservation with arbitrary field editing.
 
 ## Current checkpoint: start here
 
-No implementation changes have been made since `7eb8492` at the time this
-handoff was created; this document and its README link are the current changes.
-The initial audit and exact-build signature inspection have started.
+Latest completed increment: native empty-time insertion, delete-and-pull, and
+nonzero-start automation. Public Python methods, RPCs, contract tests and the
+manual `tests/live_java_ranges.py` gate are implemented. The gate verified a
+crossing 2..8 clip split around an inserted 4..8 gap; later 12..16 material moved
+to 16..20; deleting the gap pulled it back. Nested track, effect/master automation,
+and cue markers were checked in both directions. A saved synthetic fixture
+reopened with **zero differences** in clips, shaped automation, and cue markers.
+107 unit tests, Java build/protocol smoke and controller syntax checks passed.
+Native transport loop bounds remain unchanged by these commands and are
+documented as requiring explicit adjustment.
 
-The running scratch Bitwig instance was last left with the saved musical
-variation open and stopped at beat 304. **Do not use that as a disposable target.**
-Switch the isolated installation to `scratch/probe-project/probe.bwproject`
-before mutation tests. The variation is a user deliverable under
-`scratch/music-variations/substance-v1/project/` and must be preserved.
+Persistence initially found that native save/load clears curvature on hold
+segments. The writer now canonicalizes hold curvature to zero immediately;
+linear curvature (-0.2 in the gate) persists. This was retested live and through
+save/reopen. Evidence: `scratch/editing-range-gate-2/persistence.json`.
+
+The running scratch Bitwig instance is currently on the **synthetic disposable**
+`scratch/editing-range-gate-2/project.bwproject`, stopped. Last observed launcher
+PID: 63008 (recheck before any process operation; never rely on a stale PID).
+No owner project is open in that scratch instance. The saved musical variation
+under `scratch/music-variations/substance-v1/project/` remains a user deliverable;
+do not clear or overwrite it. Use `scratch/probe-project/probe.bwproject` or the
+synthetic range fixture for the next mutation tests.
 
 Immediate next actions:
 
-1. Expose empty-time insertion and delete-with-pull by reusing the verified
-   root arranger selection in `OpenwigDocument.duplicateRange`.
-2. Build/install in the scratch copy; test on the probe with clips crossing
-   the insertion boundary, automation, and cue markers. Then add Python methods,
-   contract tests, a reusable manual live harness, and signature/scope docs.
-3. Implement generic clip edits and sample import through the public project
-   interfaces inspected below, with native undo and whole-request validation.
-4. Update this checkpoint and progress list with exact evidence and commits.
+1. Implement generic clip move/resize/trim/mute/name/color/loop/fade edits with
+   whole-request validation, a safe overlap policy and native undo. Verify sorting,
+   boundary handling and persistence before exposing public methods.
+2. Implement synthetic local-audio import and audio-event edits through the
+   interfaces below. Establish clip/event/source time units explicitly; add
+   authored audio fixtures, readback and playback/save/reopen evidence.
+3. Continue the remaining phases in order, shrinking actual capability gaps.
+4. Update this checkpoint with evidence, commit/CI status, current open project,
+   in-flight work, and the next action on every checkpoint.
 
 ## Exact-build research already available
 
@@ -148,9 +164,9 @@ Range operations, decompiled in `scratch/decomp/variation/`:
 
 - `pZb.mjf().wtf(List<zJD>, start, end, Lsv)`: Duplicate and Push (already used).
 - `pZb.mjf().Gcr(List<zJD>, start, end, Lsv)`: insert empty arranger time,
-  length `end - start`. **Inspected, not yet live-tested or exposed.**
+  length `end - start`. **Live-tested, exposed as `insert_time`.**
 - `pZb.mjf().AOA(List<zJD>, start, end, Lsv)`: delete range and pull later
-  content left. **Inspected, not yet live-tested or exposed.**
+  content left. **Live-tested, exposed as `delete_range`.**
 - Root selection: `oZU.Qjx().bV_()`; editor selection:
   `oZU.qVp().TcG().tY1()`. The native commands own their transactions.
 - Native insert traverses clip/automation timelines using
@@ -172,17 +188,19 @@ New interface sources under `scratch/decomp/editing/`:
   fades, file/rate/channels/duration. More event properties are inherited.
 - `ApiClip.setTime` ultimately uses native event setters; attached timeline
   sorting and overlap behavior must be tested before exposing clip moves.
-- `ApiAudioClip` is not a class in this build. Locate the actual implementation
-  rather than assuming its name.
+- `ApiAudioClip` is not a class in this build. The actual implementation is
+  `ApiAudioNoteClipEvent`; its content wrapper is `ApiAudioNoteClipContentTimeline`.
+  These and `ApiAudioNoteEvent`, `ApiEnduringEvent`, `NoteExpression` are now
+  decompiled under `scratch/decomp/editing/`. Audio event gain/pan/transpose/formant
+  use `NoteExpression.setValue(value, Unit)` or `setEvents(AutomationEvents, Unit)`.
 
 ## Known issues and comparison pitfalls
 
-- **Automation with a nonzero first point:** Bitwig inserts an implicit
-  beat-zero point. `OpenwigDocument.automation(... shape=true)` currently
-  requires exact requested/native point counts and rejects this case after
-  already writing the lane. The variation worked around it by supplying an
-  explicit zero point. Fix the implicit-anchor handling and test nonzero-start
-  requests without losing before-range state or shape correspondence.
+- **Resolved: nonzero-start automation.** Bitwig inserts an implicit beat-zero
+  anchor. The writer now preserves it, offsets caller points, and validates their
+  times before shaping. The live and save/reopen gates passed. Hold curvature
+  is explicitly zero, matching native persistence; linear curvature is retained.
+  Keep this regression in future gates.
 - **Startup race:** TCP handshake can arrive before the Bitwig event queue is
   initialized. `document.list` can briefly fail with `dpz.GKQ() == null`.
   The manual probes retry reads until the requested file is present. Harden
@@ -195,6 +213,8 @@ New interface sources under `scratch/decomp/editing/`:
   in comparisons. Compare stored automation plus values at a controlled playback
   state, or explicitly report the dynamic fields.
 - Native beat precision can differ by less than 1e-6; use documented tolerance.
+- Read/write repository text explicitly as UTF-8. Windows Python defaults to
+  cp1252 and can fail or corrupt Markdown containing typographic punctuation.
 - Duplicate track names exist (e.g. Atmos/Pad, Transitions/Phase Plant). Path
   selection is first-match; a complete editing API needs unambiguous addressing.
 - Standard DAWproject import is lossy for generic native devices, automation

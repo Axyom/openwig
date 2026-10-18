@@ -1046,20 +1046,32 @@ public final class OpenwigDocument {
             if (write && params.optBoolean("shape", false)) {
                 JSONArray points = params.getJSONArray("points");
                 Olb timeline = automationTimeline(parameter);
-                if (timeline == null || timeline.IYM().size() != points.length()) {
+                if (timeline == null) throw new IllegalStateException("automation lane missing after document commit");
+                // Bitwig adds a beat-zero anchor when the requested lane starts
+                // later. Preserve it, and shape only the points the caller sent.
+                int offset = timeline.IYM().size() == points.length() + 1
+                        && points.getJSONArray(0).getDouble(0) > 0
+                        && ((GUX) timeline.IYM().get(0)).tS() == 0 ? 1 : 0;
+                if (timeline.IYM().size() != points.length() + offset)
                     throw new IllegalStateException("automation point count mismatch after document commit");
+                for (int i = 0; i < points.length(); i++) {
+                    if (Math.abs(((GUX) timeline.IYM().get(i + offset)).tS()
+                            - points.getJSONArray(i).getDouble(0)) > 1e-6)
+                        throw new IllegalStateException("automation point time mismatch after document commit");
                 }
                 DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
                     aB range = ((Ob) ((ApiObject) parameter).getTarget()).ViH();
                     for (int i = 0; i < points.length(); i++) {
                         JSONArray input = points.getJSONArray(i);
-                        GUX point = (GUX) timeline.IYM().get(i);
+                        GUX point = (GUX) timeline.IYM().get(i + offset);
                         String unit = params.optString("unit", "");
                         if (!params.getString("param").equals("tempo") && unit.isBlank()) {
                             point.IYM(range.jPB(input.getDouble(1)));
                         }
-                        point.IYM(input.optString(3, "linear").equals("hold") ? HWV.IYM : HWV.jPB);
-                        point.jPB(input.optDouble(2, 0));
+                        boolean hold = input.optString(3, "linear").equals("hold");
+                        point.IYM(hold ? HWV.IYM : HWV.jPB);
+                        // Native serialization discards curvature on hold segments.
+                        point.jPB(hold ? 0 : input.optDouble(2, 0));
                     }
                 });
             } else if (write && params.optBoolean("clear", false)) {
@@ -2293,7 +2305,9 @@ public final class OpenwigDocument {
             case "document.list" -> listDocuments();
             case "document.select" -> selectDocument(p.optString("path", ""));
             case "project.save_copy" -> saveNativeProjectCopy(p.optString("path", ""));
-            case "project.duplicate_range" -> duplicateRange(p);
+            case "project.duplicate_range" -> editRange(p, "duplicate");
+            case "project.insert_time" -> editRange(p, "insert");
+            case "project.delete_range" -> editRange(p, "delete");
             case "project.import_dawproject" -> importDawProject(p.optString("path", ""));
             case "project.set_metadata" -> setProjectMetadata(p);
             case "cue_marker.create" -> createCueMarker(p);
@@ -2587,7 +2601,7 @@ public final class OpenwigDocument {
         }
     }
 
-    private static JSONObject duplicateRange(JSONObject params) {
+    private static JSONObject editRange(JSONObject params, String operation) {
         double start = params.getDouble("start");
         double end = params.getDouble("end");
         if (!Double.isFinite(start) || !Double.isFinite(end) || start < 0 || end <= start)
@@ -2598,14 +2612,21 @@ public final class OpenwigDocument {
             Object root = modelGet(raw, "Qjx");
             Object selection = modelGet(modelGet(modelGet(raw, "qVp"), "TcG"), "tY1");
             Object editor = classForName("pZb").getMethod("mjf").invoke(null);
-            // The native Duplicate-and-Push command owns its undo transaction,
-            // splits crossing clips and carries automation and cue markers.
-            editor.getClass().getMethod("wtf", java.util.List.class, double.class,
+            // These native commands own their undo transactions and handle
+            // crossing clips, automation and cue markers across the root tree.
+            String method = switch (operation) {
+                case "duplicate" -> "wtf";
+                case "insert" -> "Gcr";
+                case "delete" -> "AOA";
+                default -> throw new IllegalArgumentException("unknown range operation");
+            };
+            editor.getClass().getMethod(method, java.util.List.class, double.class,
                     double.class, classForName("Lsv")).invoke(editor,
                     java.util.List.of(modelGet(root, "bV_")), start, end, selection);
-            return new JSONObject().put("start", start).put("end", end).put("inserted_beats", end - start);
+            return new JSONObject().put("start", start).put("end", end)
+                    .put(operation.equals("delete") ? "deleted_beats" : "inserted_beats", end - start);
         } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("native arranger duplication failed", failure);
+            throw new IllegalStateException("native arranger " + operation + " failed", failure);
         } finally { project.dispose(); }
     }
 

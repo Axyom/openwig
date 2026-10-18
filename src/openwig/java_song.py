@@ -145,17 +145,36 @@ class JavaSong:
                                "embed_media": bool(embed_media)},
                               timeout=310)
 
-    def duplicate_range(self, start: float, end: float) -> dict:
-        """Repeat an arranger range, pushing later clips/automation/markers.
-
-        Times are beats. Bitwig's native Duplicate-and-Push operation owns the
-        undo transaction and splits clips crossing the range boundaries.
-        """
+    def _edit_range(self, method: str, start: float, end: float) -> dict:
         import math
         start, end = float(start), float(end)
         if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
             raise ValueError("a finite positive arranger range is required")
-        return self.b.request("project.duplicate_range", {"start": start, "end": end}, timeout=125)
+        return self.b.request(method, {"start": start, "end": end}, timeout=125)
+
+    def duplicate_range(self, start: float, end: float) -> dict:
+        """Repeat a beat range, pushing later clips, automation and markers.
+
+        Bitwig's native command owns its undo transaction and splits clips
+        crossing the range boundaries. Transport loop bounds are unchanged.
+        """
+        return self._edit_range("project.duplicate_range", start, end)
+
+    def insert_time(self, start: float, beats: float) -> dict:
+        """Insert empty arranger time across all tracks; times are beats.
+
+        Splits crossing clips and shifts later clips, automation and markers.
+        Transport loop bounds are unchanged; set them explicitly if needed.
+        """
+        return self._edit_range("project.insert_time", start, float(start) + float(beats))
+
+    def delete_range(self, start: float, end: float) -> dict:
+        """Delete a beat range across all tracks and pull later material left.
+
+        Splits crossing clips; includes effect/master automation and markers.
+        Transport loop bounds are unchanged. Use a disposable project or copy.
+        """
+        return self._edit_range("project.delete_range", start, end)
 
     def project_info(self) -> dict:
         """Return the selected project's native path, directory and name."""
@@ -470,6 +489,7 @@ class JavaTrack:
         Points are (beat, value[, curvature, 'linear'|'hold']). Numeric values
         default to 0..1, including pan (0.5 is center). Use an explicit Bitwig
         Unit for native parameters when needed. At least two points are required.
+        Hold segments have zero curvature, matching native save/load behavior.
         """
         self.s.b.request("automation.write", self._track_params(
             device=int(device_index), param=param,

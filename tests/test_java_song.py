@@ -30,7 +30,7 @@ class FakeJavaBridge:
             return {"active": True}
         if method == "project.dump":
             return {"metadata": {}, "cue_markers": [], "main_tracks": []}
-        if method in {"document.info", "document.select", "project.save_copy", "project.duplicate_range"}:
+        if method in {"document.info", "document.select", "project.save_copy", "project.duplicate_range", "project.insert_time", "project.delete_range"}:
             return params
         if method == "document.list":
             return {"documents": []}
@@ -213,3 +213,21 @@ def test_duplicate_arranger_range(bridge):
         with pytest.raises(ValueError):
             song.duplicate_range(start, end)
     assert len(bridge.calls) == 1
+
+
+def test_empty_time_insertion_and_delete_range(bridge):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    song.insert_time(8, 4)
+    song.delete_range(8, 12)
+    assert bridge.calls == [
+        ("project.insert_time", {"start": 8.0, "end": 12.0}),
+        ("project.delete_range", {"start": 8.0, "end": 12.0}),
+    ]
+    for start, length in [(-1, 4), (0, 0), (4, -2), (0, float("nan")), (0, float("inf")), (1e308, 1e308)]:
+        with pytest.raises(ValueError):
+            song.insert_time(start, length)
+    for start, end in [(4, 4), (8, 4), (-1, 0), (0, float("inf"))]:
+        with pytest.raises(ValueError):
+            song.delete_range(start, end)
+    assert len(bridge.calls) == 2
