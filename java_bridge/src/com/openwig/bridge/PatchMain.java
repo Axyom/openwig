@@ -699,6 +699,17 @@ public final class PatchMain {
         transport.visitInsn(Opcodes.ARETURN);
         transport.visitMaxs(0, 0);
         transport.visitEnd();
+
+        MethodVisitor execute = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "execute", "(Ljava/lang/String;Lorg/json/JSONObject;)Lorg/json/JSONObject;", null, null);
+        execute.visitCode();
+        execute.visitVarInsn(Opcodes.ALOAD, 0);
+        execute.visitVarInsn(Opcodes.ALOAD, 1);
+        execute.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "execute",
+                "(Ljava/lang/String;Lorg/json/JSONObject;)Lorg/json/JSONObject;", false);
+        execute.visitInsn(Opcodes.ARETURN);
+        execute.visitMaxs(0, 0);
+        execute.visitEnd();
         writer.visitEnd();
         return writer.toByteArray();
     }
@@ -712,22 +723,33 @@ public final class PatchMain {
         method.visitCode();
         method.visitVarInsn(Opcodes.ALOAD, 0);
         method.visitTypeInsn(Opcodes.CHECKCAST,
-                "com/bitwig/flt/document/api/document/ApiClipEventTimeline");
+                "com/bitwig/flt/document/api/document/ApiObject");
         method.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
-                "com/bitwig/flt/document/api/document/ApiClipEventTimeline", "getTarget",
+                "com/bitwig/flt/document/api/document/ApiObject", "getTarget",
                 "()Ljava/lang/Object;", false);
-        method.visitTypeInsn(Opcodes.CHECKCAST, "iGQ");
+        method.visitTypeInsn(Opcodes.CHECKCAST, "com/bitwig/ramona/core/cq");
         method.visitVarInsn(Opcodes.ASTORE, 2);
         method.visitVarInsn(Opcodes.ALOAD, 2);
         method.visitLdcInsn("Insert Clip");
+        method.visitVarInsn(Opcodes.ALOAD, 2);
+        method.visitTypeInsn(Opcodes.INSTANCEOF, "AzF");
+        Label noLock = new Label();
+        Label callUndo = new Label();
+        method.visitJumpInsn(Opcodes.IFEQ, noLock);
         method.visitInsn(Opcodes.ICONST_1);
         method.visitTypeInsn(Opcodes.ANEWARRAY, "com/bitwig/ramona/core/TWT");
         method.visitInsn(Opcodes.DUP);
         method.visitInsn(Opcodes.ICONST_0);
         method.visitVarInsn(Opcodes.ALOAD, 2);
-        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "iGQ", "Ihe",
+        method.visitTypeInsn(Opcodes.CHECKCAST, "AzF");
+        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "AzF", "Ihe",
                 "()Lcom/bitwig/ramona/core/TWT;", false);
         method.visitInsn(Opcodes.AASTORE);
+        method.visitJumpInsn(Opcodes.GOTO, callUndo);
+        method.visitLabel(noLock);
+        method.visitInsn(Opcodes.ICONST_0);
+        method.visitTypeInsn(Opcodes.ANEWARRAY, "com/bitwig/ramona/core/TWT");
+        method.visitLabel(callUndo);
         method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "com/bitwig/ramona/core/cq",
                 "IYM", "(Ljava/lang/String;[Lcom/bitwig/ramona/core/TWT;)Z", false);
         Label started = new Label();

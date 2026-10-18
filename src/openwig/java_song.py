@@ -145,6 +145,54 @@ class JavaSong:
                                "embed_media": bool(embed_media)},
                               timeout=310)
 
+    def import_dawproject(self, path) -> dict:
+        """Append a ``.dawproject`` archive into the open project.
+
+        Verified for synthetic groups, notes and metadata; media/plugin state
+        restoration is unverified. Existing scenes and markers remain.
+        """
+        from pathlib import Path
+        return self.b.request("project.import_dawproject",
+                              {"path": str(Path(path).resolve())},
+                              timeout=310)
+
+    def set_metadata(self, **fields) -> dict:
+        """Set project metadata fields (title, artist, album, writer, producer, year, genre, copyright, comment)."""
+        if not fields:
+            raise ValueError("at least one metadata field is required")
+        return self.b.request("project.set_metadata", dict(fields))
+
+    def add_cue_marker(self, beat: float, name: str,
+                       color: tuple[float, float, float] | str | None = None) -> dict:
+        """Add an arrangement cue marker at ``beat``."""
+        if not name or not name.strip():
+            raise ValueError("cue marker name is required")
+        params: dict = {"beat": float(beat), "name": name}
+        if isinstance(color, str):
+            params["color"] = color
+        elif color is not None:
+            r, g, b = color[:3]
+            a = color[3] if len(color) > 3 else 1.0
+            params.update({"r": float(r), "g": float(g), "b": float(b), "a": float(a)})
+        return self.b.request("cue_marker.create", params)
+
+    def update_scene(self, index: int, *, name: str | None = None,
+                     comment: str | None = None,
+                     color: tuple[float, float, float] | str | None = None) -> dict:
+        """Update a launcher scene's title, comment, or color."""
+        params: dict = {"index": int(index)}
+        if name is not None:
+            params["name"] = str(name)
+        if comment is not None:
+            params["comment"] = str(comment)
+        if isinstance(color, str):
+            params["color"] = color
+        elif color is not None:
+            r, g, b = color[:3]
+            a = color[3] if len(color) > 3 else 1.0
+            params.update({"r": float(r), "g": float(g), "b": float(b), "a": float(a)})
+        return self.b.request("scene.update", params)
+
     def clear_effect_tracks(self) -> int:
         return self.b.request("project.clear_effect_tracks", timeout=65)["deleted"]
 
@@ -166,12 +214,36 @@ class JavaSong:
             raise BridgeError("master device count did not increase after insertion")
         return self
 
+    def group_track(self, name: str, *, parent: str | JavaTrack | None = None) -> JavaTrack:
+        """Append a group track at root or inside ``parent`` group."""
+        if not name or not name.strip():
+            raise ValueError("group track name is required")
+        parent_path = parent._read_path() if isinstance(parent, JavaTrack) else parent
+        params: dict = {"name": name}
+        if parent_path:
+            params["parent"] = str(parent_path)
+        result = self.b.request("track.create_group", params)
+        top_index = result["index"] if not parent_path else None
+        return JavaTrack(self, top_index, name, path=result.get("path", name))
+
     def track(self, name: str, device: str | None = None,
-              kind: str = "instrument") -> JavaTrack:
-        if kind not in ("instrument", "audio", "hybrid"):
-            raise ValueError("track kind must be instrument, audio, or hybrid")
+              kind: str = "instrument", *,
+              parent: str | JavaTrack | None = None) -> JavaTrack:
+        if kind not in ("instrument", "audio", "hybrid", "group"):
+            raise ValueError("track kind must be instrument, audio, hybrid, or group")
+        if kind == "group":
+            return self.group_track(name, parent=parent)
         if not name or not name.strip():
             raise ValueError("track name is required")
+        parent_path = parent._read_path() if isinstance(parent, JavaTrack) else parent
+        if parent_path:
+            result = self.b.request("track.create", {
+                "type": kind, "index": -1, "name": name, "parent": str(parent_path),
+            })
+            track = JavaTrack(self, None, name, path=result.get("path", f"{parent_path}/{name}"))
+            if device is not None:
+                track.add_device(device)
+            return track
         index = self.b.request("track.count")["count"]
         result = self.b.request("track.create", {
             "type": kind, "index": -1, "name": name,
@@ -186,14 +258,14 @@ class JavaSong:
             track.add_device(device)
         return track
 
-    def audio_track(self, name: str) -> JavaTrack:
-        return self.track(name, kind="audio")
+    def audio_track(self, name: str, *, parent: str | JavaTrack | None = None) -> JavaTrack:
+        return self.track(name, kind="audio", parent=parent)
 
     def track_at(self, path: str) -> JavaTrack:
         """Select an existing track by title path, ``master``, or ``fx/Name``.
 
         Duplicate siblings resolve to the first. Path handles expose the
-        polling readers; existing editing methods still require index handles.
+        polling readers and path-capable track mutations.
         """
         if not isinstance(path, str) or not path or any(not part for part in path.split("/")):
             raise ValueError("a nonempty track path is required")
@@ -201,7 +273,7 @@ class JavaSong:
 
 
 class JavaTrack:
-    """Index-based editing handle or path-based polling reader."""
+    """Index-based editing handle or path-based polling/editing handle."""
 
     def __init__(self, song: JavaSong, index: int | None, name: str,
                  *, path: str | None = None):
@@ -225,6 +297,16 @@ class JavaTrack:
             return "fx/" + self.name
         return self.snapshot()["name"]
 
+    def _target_params(self, **extra) -> dict:
+        if self._index is not None:
+            return {"index": self._index, **extra}
+        return {"path": self._read_path(), **extra}
+
+    def _track_params(self, **extra) -> dict:
+        if self._index is not None:
+            return {"track": self._index, **extra}
+        return {"path": self._read_path(), **extra}
+
     def read(self) -> dict:
         """Read this track subtree using the same builder as ``dump()``."""
         return self.s.b.request("track.read", {"path": self._read_path()}, timeout=125)
@@ -242,7 +324,7 @@ class JavaTrack:
         return self.s.b.request("automation.enumerate", {"path": self._read_path()}, timeout=125)
 
     def snapshot(self) -> dict:
-        if self.path is not None:
+        if self._index is None:
             return self.read()
         return self.s.b.request("track.snapshot", {"index": self.idx})
 
@@ -250,41 +332,31 @@ class JavaTrack:
         """Append a built-in Bitwig factory device by its exact catalog name."""
         if not name or not name.strip():
             raise ValueError("factory device name is required")
-        before = self.s.b.request("device.count", {"track": self.idx})["count"]
-        after = self.s.b.request("device.insert_factory", {
-            "track": self.idx, "name": name,
-        })["count"]
+        before = self.s.b.request("device.count", self._track_params())["count"]
+        after = self.s.b.request("device.insert_factory", self._track_params(name=name))["count"]
         if after != before + 1:
             raise BridgeError("device count did not increase after insertion")
         return self
 
     def devices(self) -> list[dict]:
         """Read device indexes, optional display names, and enabled states."""
-        return self.s.b.request("device.snapshot", {"track": self.idx})
+        return self.s.b.request("device.snapshot", self._track_params())
 
     def enable_device(self, index: int, on: bool = True) -> JavaTrack:
-        self.s.b.request("device.set_enabled", {
-            "track": self.idx, "index": int(index), "on": bool(on),
-        })
+        self.s.b.request("device.set_enabled", self._track_params(index=int(index), on=bool(on)))
         return self
 
     def rename_device(self, index: int, name: str) -> JavaTrack:
-        self.s.b.request("device.rename", {
-            "track": self.idx, "device": int(index), "name": name,
-        })
+        self.s.b.request("device.rename", self._track_params(device=int(index), name=name))
         return self
 
     def expand_device(self, index: int, on: bool = True) -> JavaTrack:
-        self.s.b.request("device.set_expanded", {
-            "track": self.idx, "device": int(index), "on": bool(on),
-        })
+        self.s.b.request("device.set_expanded", self._track_params(device=int(index), on=bool(on)))
         return self
 
     def delete_device(self, index: int) -> JavaTrack:
-        before = self.s.b.request("device.count", {"track": self.idx})["count"]
-        after = self.s.b.request("device.delete", {
-            "track": self.idx, "device": int(index),
-        })["count"]
+        before = self.s.b.request("device.count", self._track_params())["count"]
+        after = self.s.b.request("device.delete", self._track_params(device=int(index)))["count"]
         if after != before - 1:
             raise BridgeError("device count did not decrease after deletion")
         return self
@@ -297,10 +369,9 @@ class JavaTrack:
         """
         if not values:
             raise ValueError("at least one parameter value is required")
-        self.s.b.request("device.set_parameters", {
-            "track": self.idx, "device": int(device_index),
-            "params": values, "unit": unit,
-        })
+        self.s.b.request("device.set_parameters", self._track_params(
+            device=int(device_index), params=values, unit=unit,
+        ))
         return self
 
     def get_parameters(self, device_index: int, names, unit: str | None = None) -> dict:
@@ -309,20 +380,25 @@ class JavaTrack:
         Numbers default to normalized 0..1 values. An explicit Bitwig Unit
         (for example ``DECIBEL``) reads numbers in that unit instead.
         """
-        return self.s.b.request("device.get_parameters", {
-            "track": self.idx, "device": int(device_index),
-            "names": [str(n) for n in names], "unit": unit,
-        })
+        return self.s.b.request("device.get_parameters", self._track_params(
+            device=int(device_index), names=[str(n) for n in names], unit=unit,
+        ))
 
     def list_parameters(self, device_index: int = 0) -> list[dict]:
         """List available parameter paths and kinds for a loaded native device."""
-        return self.s.b.request("device.list_parameters", {
-            "track": self.idx, "device": int(device_index),
-        })
+        return self.s.b.request("device.list_parameters", self._track_params(
+            device=int(device_index),
+        ))
 
     def rename(self, name: str) -> JavaTrack:
-        self.s.b.request("track.rename", {"index": self.idx, "name": name})
+        result = self.s.b.request("track.rename", self._target_params(name=name))
         self.name = name
+        if self.path is not None:
+            if self._index is not None:
+                self.path = "master" if self._index == -1 else (
+                    "fx/" + name if self._index < -1 else name)
+            elif isinstance(result, dict) and isinstance(result.get("path"), str):
+                self.path = result["path"]
         return self
 
     def automate(self, param: str, points, device_index: int = 0,
@@ -333,54 +409,66 @@ class JavaTrack:
         default to 0..1, including pan (0.5 is center). Use an explicit Bitwig
         Unit for native parameters when needed. At least two points are required.
         """
-        self.s.b.request("automation.write", {
-            "track": self.idx, "device": int(device_index), "param": param,
-            "unit": unit, "points": [list(point) for point in points],
-        })
+        self.s.b.request("automation.write", self._track_params(
+            device=int(device_index), param=param,
+            unit=unit, points=[list(point) for point in points],
+        ))
         return self
 
     def automation(self, param: str, device_index: int = 0) -> dict:
         """Read stored beats, normalized values, curvature, and interpolation."""
-        return self.s.b.request("automation.read", {
-            "track": self.idx, "device": int(device_index), "param": param,
-        })
+        return self.s.b.request("automation.read", self._track_params(
+            device=int(device_index), param=param,
+        ))
 
     def volume(self, value: float) -> JavaTrack:
-        self.s.b.request("track.set_volume", {"index": self.idx, "value": float(value)})
+        self.s.b.request("track.set_volume", self._target_params(value=float(value)))
         return self
 
     def pan(self, value: float) -> JavaTrack:
         """Set pan from -1 (left) through 0 (center) to +1 (right)."""
-        self.s.b.request("track.set_pan", {
-            "index": self.idx, "value": (float(value) + 1.0) / 2.0,
-        })
+        self.s.b.request("track.set_pan", self._target_params(value=(float(value) + 1.0) / 2.0))
         return self
 
     def mute(self, on: bool = True) -> JavaTrack:
-        self.s.b.request("track.set_mute", {"index": self.idx, "on": bool(on)})
+        self.s.b.request("track.set_mute", self._target_params(on=bool(on)))
+        return self
+
+    def solo(self, on: bool = True) -> JavaTrack:
+        self.s.b.request("track.set_solo", self._target_params(on=bool(on)))
+        return self
+
+    def comment(self, text: str) -> JavaTrack:
+        self.s.b.request("track.set_comment", self._target_params(comment=str(text)))
+        return self
+
+    def active(self, on: bool = True) -> JavaTrack:
+        self.s.b.request("track.set_active", self._target_params(on=bool(on)))
+        return self
+
+    def route_to(self, destination: str | JavaTrack) -> JavaTrack:
+        dest_path = destination._read_path() if isinstance(destination, JavaTrack) else str(destination)
+        self.s.b.request("track.set_destination", self._target_params(destination=dest_path))
         return self
 
     def monitor(self, mode: str = "AUTO") -> JavaTrack:
         """Set monitor mode: OFF, ON, or AUTO."""
         if mode not in ("OFF", "ON", "AUTO"):
             raise ValueError("monitor mode must be OFF, ON, or AUTO")
-        self.s.b.request("track.set_monitor", {
-            "index": self.idx, "mode": mode,
-        })
+        self.s.b.request("track.set_monitor", self._target_params(mode=mode))
         return self
 
     def color(self, r: float, g: float, b: float, a: float = 1.0) -> JavaTrack:
-        self.s.b.request("track.set_color", {
-            "index": self.idx, "r": float(r), "g": float(g),
-            "b": float(b), "a": float(a),
-        })
+        self.s.b.request("track.set_color", self._target_params(
+            r=float(r), g=float(g), b=float(b), a=float(a),
+        ))
         return self
 
     def send(self, send_index: int, value: float) -> JavaTrack:
         """Set a send amount from 0 to 1; sends exist per effect track."""
-        self.s.b.request("track.set_send", {
-            "index": self.idx, "send": int(send_index), "value": float(value),
-        })
+        self.s.b.request("track.set_send", self._target_params(
+            send=int(send_index), value=float(value),
+        ))
         return self
 
     def clip(self, notes, dur: float | None = None, start: float = 0.0) -> JavaTrack:
@@ -393,12 +481,11 @@ class JavaTrack:
             channel = note[4] if len(note) > 4 else 0
             payload.append([int(channel), int(key), float(beat),
                             float(length), float(velocity)])
-        self.s.b.request("clip.create_arranger_with_notes", {
-            "track": self.idx,
-            "start": float(start),
-            "duration": self.s.total if dur is None else float(dur),
-            "notes": payload,
-        })
+        self.s.b.request("clip.create_arranger_with_notes", self._track_params(
+            start=float(start),
+            duration=self.s.total if dur is None else float(dur),
+            notes=payload,
+        ))
         return self
 
     def clips(self, segments) -> JavaTrack:

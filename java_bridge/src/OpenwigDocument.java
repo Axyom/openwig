@@ -210,8 +210,8 @@ public final class OpenwigDocument {
             Yko group = (Yko) ((ApiObject) project.getTrackGroup()).getTarget();
             Object target = ((ApiObject) effect).getTarget();
             int before = project.getTrackGroup().effectTracks().size();
-            DirectAccess.runInUndo(effect.clipTimeline(),
-                    () -> DirectAccess.removeEffectTrack(group, target));
+            DirectAccess.runInUndo(project,
+                    () -> modifyModel(project, () -> DirectAccess.removeEffectTrack(group, target)));
             int after = project.getTrackGroup().effectTracks().size();
             if (after != before - 1) {
                 throw new IllegalStateException("effect track count did not decrease after deletion");
@@ -285,8 +285,8 @@ public final class OpenwigDocument {
                 Track master = project.getTrackGroup().masterTrack();
                 DeviceChain chain = master.deviceChain();
                 Object device = chain.getDevices().get(index);
-                DirectAccess.runInUndo(master.clipTimeline(),
-                        () -> DirectAccess.removeDevice(chain, device));
+                DirectAccess.runInUndo(project,
+                        () -> modifyModel(project, () -> DirectAccess.removeDevice(chain, device)));
                 if (chain.getDevices().size() != index) {
                     throw new IllegalStateException("master device count did not decrease");
                 }
@@ -332,12 +332,13 @@ public final class OpenwigDocument {
     public static int deleteTrack(int trackIndex) {
         ApiProject project = project();
         try {
-            Track targetTrack = track(project, trackIndex);
+            TrackOrTrackGroup targetItem = trackOrGroup(project, trackIndex);
             Object groupApi = project.getTrackGroup();
             Yko group = (Yko) ((ApiObject) groupApi).getTarget();
-            Kkl target = (Kkl) ((ApiObject) targetTrack).getTarget();
+            Kkl target = (Kkl) ((ApiObject) targetItem).getTarget();
             int before = project.getTrackGroup().mainTracks().size();
-            DirectAccess.runInUndo(targetTrack.clipTimeline(), () -> group.jPB(target));
+            DirectAccess.runInUndo(project,
+                    () -> modifyModel(project, () -> group.jPB(target)));
             int after = project.getTrackGroup().mainTracks().size();
             if (after != before - 1) {
                 throw new IllegalStateException("track count did not decrease after deletion");
@@ -934,8 +935,15 @@ public final class OpenwigDocument {
         }
     }
 
-    private static NativeDevice nativeDevice(ApiProject project, int trackIndex, int deviceIndex) {
-        java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
+    private static Track resolveTrack(ApiProject project, JSONObject params) {
+        if (params != null && !params.optString("path", "").isBlank()) {
+            return view(resolve(project, params.getString("path")));
+        }
+        return track(project, params.getInt("track"));
+    }
+
+    private static NativeDevice nativeDeviceOnTrack(Track targetTrack, int deviceIndex) {
+        java.util.List<?> members = targetTrack.deviceChain().getDevices();
         if (deviceIndex < 0 || deviceIndex >= members.size()) {
             throw new IllegalArgumentException("device index out of range: " + deviceIndex);
         }
@@ -946,13 +954,17 @@ public final class OpenwigDocument {
         return target;
     }
 
+    private static NativeDevice nativeDevice(ApiProject project, int trackIndex, int deviceIndex) {
+        return nativeDeviceOnTrack(track(project, trackIndex), deviceIndex);
+    }
+
     private static DoubleParameter automationParameter(ApiProject project, JSONObject params) {
         String name = params.getString("param");
         if (name.equals("tempo")) return project.getTransport().getTempo();
-        Track target = track(project, params.getInt("track"));
+        Track target = resolveTrack(project, params);
         if (name.equals("volume")) return target.mixer().getVolume();
         if (name.equals("pan")) return target.mixer().getPan();
-        DoubleParameter parameter = nativeDevice(project, params.getInt("track"),
+        DoubleParameter parameter = nativeDeviceOnTrack(target,
                 params.optInt("device", 0)).getDoubleParameter(name);
         if (parameter == null) throw new IllegalArgumentException("no numeric parameter: " + name);
         return parameter;
@@ -1080,149 +1092,174 @@ public final class OpenwigDocument {
         return unitName == null || unitName.isBlank() ? value / 100 : value;
     }
 
+    private static JSONObject setDeviceParametersOnTrack(Track targetTrack, int deviceIndex,
+                                                         JSONObject params, String unitName) {
+        NativeDevice device = nativeDeviceOnTrack(targetTrack, deviceIndex);
+        Unit unit = unitByName(unitName);
+        java.util.Map<String, String> kinds = parameterKinds(device);
+        for (String name : params.keySet()) {
+            Object value = params.get(name);
+            String kind = kinds.get(name);
+            if ("boolean".equals(kind) && value instanceof Boolean) continue;
+            if ("double".equals(kind) && value instanceof Number number) {
+                fromClientValue(number.doubleValue(), unitName);
+                continue;
+            }
+            if ("enum".equals(kind) && value instanceof Number number
+                    && Double.isFinite(number.doubleValue())
+                    && number.doubleValue() == Math.rint(number.doubleValue())
+                    && number.doubleValue() >= Integer.MIN_VALUE
+                    && number.doubleValue() <= Integer.MAX_VALUE) continue;
+            throw new IllegalArgumentException("invalid value or unknown parameter: " + name);
+        }
+        JSONObject out = new JSONObject();
+        for (String name : params.keySet()) {
+            Object value = params.get(name);
+            String kind = kinds.get(name);
+            if ("boolean".equals(kind)) {
+                boolean flag = (Boolean) value;
+                BooleanParameter p = device.getBooleanParameter(name);
+                if (p == null) throw new IllegalArgumentException("no boolean parameter: " + name);
+                p.setValue(flag);
+                out.put(name, p.getValue());
+            } else if ("double".equals(kind)) {
+                Number number = (Number) value;
+                DoubleParameter p = device.getDoubleParameter(name);
+                if (p == null) throw new IllegalArgumentException("no double parameter: " + name);
+                p.setValue(fromClientValue(number.doubleValue(), unitName), unit);
+                out.put(name, toClientValue(p.getValue(unit), unitName));
+            } else if ("enum".equals(kind)) {
+                int index = ((Number) value).intValue();
+                EnumParameter p = device.getEnumParameter(name);
+                if (p == null) throw new IllegalArgumentException("no enum parameter: " + name);
+                p.setValue(index);
+                out.put(name, p.getValue());
+            }
+        }
+        return out;
+    }
+
     public static JSONObject setDeviceParameters(int trackIndex, int deviceIndex,
                                                  JSONObject params, String unitName) {
         ApiProject project = project();
         try {
-            NativeDevice device = nativeDevice(project, trackIndex, deviceIndex);
-            Unit unit = unitByName(unitName);
-            java.util.Map<String, String> kinds = parameterKinds(trackIndex, deviceIndex);
-            for (String name : params.keySet()) {
-                Object value = params.get(name);
-                String kind = kinds.get(name);
-                if ("boolean".equals(kind) && value instanceof Boolean) continue;
-                if ("double".equals(kind) && value instanceof Number number) {
-                    fromClientValue(number.doubleValue(), unitName);
-                    continue;
-                }
-                if ("enum".equals(kind) && value instanceof Number number
-                        && Double.isFinite(number.doubleValue())
-                        && number.doubleValue() == Math.rint(number.doubleValue())
-                        && number.doubleValue() >= Integer.MIN_VALUE
-                        && number.doubleValue() <= Integer.MAX_VALUE) continue;
-                throw new IllegalArgumentException("invalid value or unknown parameter: " + name);
-            }
-            JSONObject out = new JSONObject();
-            for (String name : params.keySet()) {
-                Object value = params.get(name);
-                String kind = kinds.get(name);
-                if ("boolean".equals(kind)) {
-                    boolean flag = (Boolean) value;
-                    BooleanParameter p = device.getBooleanParameter(name);
-                    if (p == null) throw new IllegalArgumentException("no boolean parameter: " + name);
-                    p.setValue(flag);
-                    out.put(name, p.getValue());
-                } else if ("double".equals(kind)) {
-                    Number number = (Number) value;
-                    DoubleParameter p = device.getDoubleParameter(name);
-                    if (p == null) throw new IllegalArgumentException("no double parameter: " + name);
-                    p.setValue(fromClientValue(number.doubleValue(), unitName), unit);
-                    out.put(name, toClientValue(p.getValue(unit), unitName));
-                } else if ("enum".equals(kind)) {
-                    int index = ((Number) value).intValue();
-                    EnumParameter p = device.getEnumParameter(name);
-                    if (p == null) throw new IllegalArgumentException("no enum parameter: " + name);
-                    p.setValue(index);
-                    out.put(name, p.getValue());
-                }
-            }
-            return out;
+            return setDeviceParametersOnTrack(track(project, trackIndex), deviceIndex, params, unitName);
         } finally {
             project.dispose();
         }
+    }
+
+    private static JSONObject getDeviceParametersOnTrack(Track targetTrack, int deviceIndex,
+                                                         JSONArray names, String unitName) {
+        NativeDevice device = nativeDeviceOnTrack(targetTrack, deviceIndex);
+        Unit unit = unitByName(unitName);
+        java.util.Map<String, String> kinds = parameterKinds(device);
+        JSONObject out = new JSONObject();
+        for (int i = 0; i < names.length(); i++) {
+            String name = names.getString(i);
+            String kind = kinds.get(name);
+            if ("double".equals(kind)) {
+                DoubleParameter p = device.getDoubleParameter(name);
+                if (p == null) throw new IllegalArgumentException("no double parameter: " + name);
+                out.put(name, toClientValue(p.getValue(unit), unitName));
+            } else if ("boolean".equals(kind)) {
+                BooleanParameter p = device.getBooleanParameter(name);
+                if (p == null) throw new IllegalArgumentException("no boolean parameter: " + name);
+                out.put(name, p.getValue());
+            } else if ("enum".equals(kind)) {
+                EnumParameter p = device.getEnumParameter(name);
+                if (p == null) throw new IllegalArgumentException("no enum parameter: " + name);
+                out.put(name, p.getValue());
+            } else {
+                throw new IllegalArgumentException("unknown device parameter: " + name);
+            }
+        }
+        return out;
     }
 
     public static JSONObject getDeviceParameters(int trackIndex, int deviceIndex,
                                                  JSONArray names, String unitName) {
         ApiProject project = project();
         try {
-            NativeDevice device = nativeDevice(project, trackIndex, deviceIndex);
-            Unit unit = unitByName(unitName);
-            java.util.Map<String, String> kinds = parameterKinds(trackIndex, deviceIndex);
-            JSONObject out = new JSONObject();
-            for (int i = 0; i < names.length(); i++) {
-                String name = names.getString(i);
-                String kind = kinds.get(name);
-                if ("double".equals(kind)) {
-                    DoubleParameter p = device.getDoubleParameter(name);
-                    if (p == null) throw new IllegalArgumentException("no double parameter: " + name);
-                    out.put(name, toClientValue(p.getValue(unit), unitName));
-                } else if ("boolean".equals(kind)) {
-                    BooleanParameter p = device.getBooleanParameter(name);
-                    if (p == null) throw new IllegalArgumentException("no boolean parameter: " + name);
-                    out.put(name, p.getValue());
-                } else if ("enum".equals(kind)) {
-                    EnumParameter p = device.getEnumParameter(name);
-                    if (p == null) throw new IllegalArgumentException("no enum parameter: " + name);
-                    out.put(name, p.getValue());
-                } else {
-                    throw new IllegalArgumentException("unknown device parameter: " + name);
-                }
-            }
-            return out;
+            return getDeviceParametersOnTrack(track(project, trackIndex), deviceIndex, names, unitName);
         } finally {
             project.dispose();
         }
+    }
+
+    private static JSONObject renameDeviceOnTrack(Track targetTrack, int deviceIndex, String name) {
+        java.util.List<?> members = targetTrack.deviceChain().getDevices();
+        if (deviceIndex < 0 || deviceIndex >= members.size()) {
+            throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+        }
+        Device device = (Device) members.get(deviceIndex);
+        device.setDisplayName(name);
+        return new JSONObject().put("index", deviceIndex)
+                .put("display_name", device.getDisplayName());
     }
 
     public static JSONObject renameDevice(int trackIndex, int deviceIndex, String name) {
         ApiProject project = project();
         try {
-            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
-            if (deviceIndex < 0 || deviceIndex >= members.size()) {
-                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
-            }
-            Device device = (Device) members.get(deviceIndex);
-            device.setDisplayName(name);
-            return new JSONObject().put("index", deviceIndex)
-                    .put("display_name", device.getDisplayName());
+            return renameDeviceOnTrack(track(project, trackIndex), deviceIndex, name);
         } finally {
             project.dispose();
         }
+    }
+
+    private static JSONObject setDeviceExpandedOnTrack(Track targetTrack, int deviceIndex, boolean expanded) {
+        java.util.List<?> members = targetTrack.deviceChain().getDevices();
+        if (deviceIndex < 0 || deviceIndex >= members.size()) {
+            throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+        }
+        Device device = (Device) members.get(deviceIndex);
+        device.setIsExpanded(expanded);
+        return new JSONObject().put("index", deviceIndex).put("expanded", expanded);
     }
 
     public static JSONObject setDeviceExpanded(int trackIndex, int deviceIndex, boolean expanded) {
         ApiProject project = project();
         try {
-            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
-            if (deviceIndex < 0 || deviceIndex >= members.size()) {
-                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
-            }
-            Device device = (Device) members.get(deviceIndex);
-            device.setIsExpanded(expanded);
-            return new JSONObject().put("index", deviceIndex).put("expanded", expanded);
+            return setDeviceExpandedOnTrack(track(project, trackIndex), deviceIndex, expanded);
         } finally {
             project.dispose();
         }
     }
 
+    private static int deleteTrackDeviceOnTrack(Track targetTrack, int deviceIndex) {
+        DeviceChain chain = targetTrack.deviceChain();
+        java.util.List<?> members = chain.getDevices();
+        if (deviceIndex < 0 || deviceIndex >= members.size()) {
+            throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+        }
+        Object device = members.get(deviceIndex);
+        DirectAccess.runInUndo(targetTrack.clipTimeline(),
+                () -> DirectAccess.removeDevice(chain, device));
+        return chain.getDevices().size();
+    }
+
     public static int deleteTrackDevice(int trackIndex, int deviceIndex) {
         ApiProject project = project();
         try {
-            Track targetTrack = track(project, trackIndex);
-            DeviceChain chain = targetTrack.deviceChain();
-            java.util.List<?> members = chain.getDevices();
-            if (deviceIndex < 0 || deviceIndex >= members.size()) {
-                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
-            }
-            Object device = members.get(deviceIndex);
-            DirectAccess.runInUndo(targetTrack.clipTimeline(),
-                    () -> DirectAccess.removeDevice(chain, device));
-            return chain.getDevices().size();
+            return deleteTrackDeviceOnTrack(track(project, trackIndex), deviceIndex);
         } finally {
             project.dispose();
         }
     }
 
     /** Walk the device's CONTENTS children using bFO.hMI(), a read-only model getter. */
+    private static JSONArray listDeviceParametersOnTrack(Track targetTrack, int deviceIndex) {
+        java.util.List<?> members = targetTrack.deviceChain().getDevices();
+        if (deviceIndex < 0 || deviceIndex >= members.size()) {
+            throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+        }
+        return listDeviceParameters((Device) members.get(deviceIndex));
+    }
+
     public static JSONArray listDeviceParameters(int trackIndex, int deviceIndex) {
         ApiProject project = project();
         try {
-            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
-            if (deviceIndex < 0 || deviceIndex >= members.size()) {
-                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
-            }
-            return listDeviceParameters((Device) members.get(deviceIndex));
+            return listDeviceParametersOnTrack(track(project, trackIndex), deviceIndex);
         } finally { project.dispose(); }
     }
 
@@ -1264,8 +1301,8 @@ public final class OpenwigDocument {
         return out;
     }
 
-    private static java.util.Map<String, String> parameterKinds(int trackIndex, int deviceIndex) {
-        JSONArray available = listDeviceParameters(trackIndex, deviceIndex);
+    private static java.util.Map<String, String> parameterKinds(Device device) {
+        JSONArray available = listDeviceParameters(device);
         java.util.Map<String, String> kinds = new java.util.HashMap<>();
         for (int i = 0; i < available.length(); i++) {
             JSONObject item = available.getJSONObject(i);
@@ -1340,25 +1377,28 @@ public final class OpenwigDocument {
         }
     }
 
+    private static JSONObject setDeviceEnabledOnTrack(Track targetTrack, int deviceIndex, boolean enabled) {
+        java.util.List<?> members = targetTrack.deviceChain().getDevices();
+        if (deviceIndex < 0 || deviceIndex >= members.size()) {
+            throw new IllegalArgumentException("device index out of range: " + deviceIndex);
+        }
+        Device device = (Device) members.get(deviceIndex);
+        device.getEnabled().setValue(enabled);
+        return new JSONObject().put("index", deviceIndex)
+                .put("display_name", device.getDisplayName())
+                .put("enabled", device.getEnabled().getValue());
+    }
+
     public static JSONObject setDeviceEnabled(int trackIndex, int deviceIndex, boolean enabled) {
         ApiProject project = project();
         try {
-            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
-            if (deviceIndex < 0 || deviceIndex >= members.size()) {
-                throw new IllegalArgumentException("device index out of range: " + deviceIndex);
-            }
-            Device device = (Device) members.get(deviceIndex);
-            device.getEnabled().setValue(enabled);
-            return new JSONObject().put("index", deviceIndex)
-                    .put("display_name", device.getDisplayName())
-                    .put("enabled", device.getEnabled().getValue());
+            return setDeviceEnabledOnTrack(track(project, trackIndex), deviceIndex, enabled);
         } finally {
             project.dispose();
         }
     }
 
-    public static int insertFactoryDevice(int trackIndex, String name) {
-        ApiProject project = project();
+    private static int insertFactoryDeviceOnTrack(ApiProject project, Track targetTrack, String name) {
         String stage = "resolve device";
         try {
             java.util.UUID id = DirectAccess.factoryDeviceId(name + ".bwdevice");
@@ -1368,13 +1408,19 @@ public final class OpenwigDocument {
             stage = "create device";
             NativeDevice device = project.getFactory().createNativeDevice(id);
             stage = "insert device";
-            Track targetTrack = track(project, trackIndex);
             DeviceChain chain = targetTrack.deviceChain();
             DirectAccess.runInUndo(targetTrack.clipTimeline(), () -> chain.addDevice(device));
             stage = "count devices";
             return chain.getDevices().size();
         } catch (Throwable failure) {
             throw new IllegalStateException("device stage " + stage, failure);
+        }
+    }
+
+    public static int insertFactoryDevice(int trackIndex, String name) {
+        ApiProject project = project();
+        try {
+            return insertFactoryDeviceOnTrack(project, track(project, trackIndex), name);
         } finally {
             project.dispose();
         }
@@ -2052,47 +2098,578 @@ public final class OpenwigDocument {
         }
     }
 
+    private static void modifyModel(ApiObject owner, Runnable action) {
+        try {
+            java.lang.reflect.Method modify = ApiObject.class.getDeclaredMethod("modify", Runnable.class);
+            modify.setAccessible(true);
+            modify.invoke(owner, action);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("model modification wrapper failed", failure);
+        }
+    }
+
+    private static void invokeModelSetter(Object target, String method, Class<?> paramType, Object arg) {
+        try {
+            java.lang.reflect.Method setter = target.getClass().getMethod(method, paramType);
+            setter.setAccessible(true);
+            setter.invoke(target, arg);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("model setter " + target.getClass().getName() + "." + method, failure);
+        }
+    }
+
+    private static Color parseColor(JSONObject params) {
+        if (params == null) return null;
+        if (params.has("r") && params.has("g") && params.has("b")) {
+            double r = params.getDouble("r");
+            double g = params.getDouble("g");
+            double b = params.getDouble("b");
+            double a = params.optDouble("a", 1.0);
+            if (r < 0 || r > 1 || g < 0 || g > 1 || b < 0 || b > 1 || a < 0 || a > 1) {
+                throw new IllegalArgumentException("color components must be within 0..1");
+            }
+            return a >= 1.0 ? Color.fromRGB(r, g, b) : Color.fromRGBA(r, g, b, a);
+        }
+        String hex = params.optString("color", "");
+        if (hex != null && !hex.isBlank()) {
+            String clean = hex.startsWith("#") ? hex.substring(1) : hex;
+            if (clean.length() != 6) {
+                throw new IllegalArgumentException("hex color must be #RRGGBB");
+            }
+            int rgb = Integer.parseInt(clean, 16);
+            return Color.fromRGB(((rgb >> 16) & 0xff) / 255.0,
+                    ((rgb >> 8) & 0xff) / 255.0, (rgb & 0xff) / 255.0);
+        }
+        return null;
+    }
+
+    private static void applyTrackField(ApiProject project, TrackOrTrackGroup item,
+                                        String field, JSONObject params) {
+        Track track = view(item);
+        Object rawTrack = ((ApiObject) track).getTarget();
+        switch (field) {
+            case "name" -> {
+                String name = params == null ? "" : params.optString("name", "");
+                if (name.isBlank()) throw new IllegalArgumentException("track name is required");
+                item.setTitle(name);
+            }
+            case "volume" -> {
+                double value = params == null ? Double.NaN : params.optDouble("value", Double.NaN);
+                if (!Double.isFinite(value) || value < 0 || value > 1) {
+                    throw new IllegalArgumentException("value must be between 0 and 1");
+                }
+                track.mixer().getVolume().setValue(value * 100.0, Unit.PERCENTAGE_OF_RANGE);
+            }
+            case "pan" -> {
+                double value = params == null ? Double.NaN : params.optDouble("value", Double.NaN);
+                if (!Double.isFinite(value) || value < 0 || value > 1) {
+                    throw new IllegalArgumentException("value must be between 0 and 1");
+                }
+                track.mixer().getPan()
+                        .setValue((value * 2.0 - 1.0) * 100.0, Unit.PERCENTAGE_OF_RANGE);
+            }
+            case "mute" -> {
+                if (params == null || !params.has("on")) {
+                    throw new IllegalArgumentException("mute state is required");
+                }
+                track.mixer().getMute().setValue(params.getBoolean("on"));
+            }
+            case "solo" -> {
+                if (params == null || !params.has("on")) {
+                    throw new IllegalArgumentException("solo state is required");
+                }
+                boolean on = params.getBoolean("on");
+                Object channel = modelGet(rawTrack, "fcV");
+                modifyModel((ApiObject) track, () -> invokeModelSetter(channel, "jPB", boolean.class, on));
+            }
+            case "comment" -> {
+                String comment = params == null ? "" : params.optString("comment", "");
+                modifyModel((ApiObject) track, () -> invokeModelSetter(rawTrack, "a1y", String.class, comment));
+            }
+            case "active" -> {
+                if (params == null || !params.has("on")) {
+                    throw new IllegalArgumentException("active state is required");
+                }
+                item.setIsActive(params.getBoolean("on"));
+            }
+            case "destination" -> {
+                String destPath = params == null ? "" : params.optString("destination", "");
+                if (destPath.isBlank()) {
+                    throw new IllegalArgumentException("destination track path is required");
+                }
+                Track destTrack = view(resolve(project, destPath));
+                track.destinationSelector().setDestination(destTrack.audioDestination());
+            }
+            case "monitor" -> {
+                String mode = params == null ? "" : params.optString("mode", "");
+                track.setMonitorMode(monitorMode(mode));
+            }
+            case "color" -> {
+                Color color = parseColor(params);
+                if (color == null) throw new IllegalArgumentException("r, g, and b are required");
+                item.setColor(color);
+            }
+            case "send" -> {
+                if (params == null || !params.has("send") || !params.has("value")) {
+                    throw new IllegalArgumentException("send index and value are required");
+                }
+                int sendIndex = params.getInt("send");
+                double value = params.getDouble("value");
+                Mixer mixer = track.mixer();
+                if (sendIndex < 0 || sendIndex >= mixer.getSendCount()) {
+                    throw new IllegalArgumentException("send index out of range: " + sendIndex);
+                }
+                if (!Double.isFinite(value) || value < 0 || value > 1) {
+                    throw new IllegalArgumentException("send value must be within 0..1");
+                }
+                mixer.getSend(sendIndex).getAmount()
+                        .setValue(value * 100.0, Unit.PERCENTAGE_OF_RANGE);
+            }
+            default -> throw new IllegalArgumentException("unknown track field: " + field);
+        }
+    }
+
     public static JSONObject updateTrack(int trackIndex, String field, JSONObject params) {
         ApiProject project = project();
         try {
-            Track track = track(project, trackIndex);
-            switch (field) {
-                case "name" -> track.setTitle(params.getString("name"));
-                case "volume" -> track.mixer().getVolume()
-                        .setValue(params.getDouble("value") * 100.0, Unit.PERCENTAGE_OF_RANGE);
-                case "pan" -> track.mixer().getPan()
-                        .setValue((params.getDouble("value") * 2.0 - 1.0) * 100.0,
-                                Unit.PERCENTAGE_OF_RANGE);
-                case "mute" -> track.mixer().getMute().setValue(params.getBoolean("on"));
-                case "monitor" -> track.setMonitorMode(monitorMode(params.getString("mode")));
-                case "color" -> {
-                    double r = params.getDouble("r");
-                    double g = params.getDouble("g");
-                    double b = params.getDouble("b");
-                    double a = params.optDouble("a", 1.0);
-                    if (r < 0 || r > 1 || g < 0 || g > 1 || b < 0 || b > 1 ||
-                            a < 0 || a > 1) {
-                        throw new IllegalArgumentException("color components must be within 0..1");
+            TrackOrTrackGroup item = trackOrGroup(project, trackIndex);
+            applyTrackField(project, item, field, params);
+            return trackSnapshot(view(item), trackIndex);
+        } finally {
+            project.dispose();
+        }
+    }
+
+    public static JSONObject execute(String method, JSONObject params) {
+        JSONObject p = params == null ? new JSONObject() : params;
+        return switch (method) {
+            case "project.import_dawproject" -> importDawProject(p.optString("path", ""));
+            case "project.set_metadata" -> setProjectMetadata(p);
+            case "cue_marker.create" -> createCueMarker(p);
+            case "scene.update" -> updateScene(p);
+            case "track.create_group" -> createTrackOrGroup(new JSONObject(p.toString()).put("type", "group"));
+            case "track.create" -> createTrackOrGroup(p);
+            case "track.rename" -> updateTrackTarget("name", p);
+            case "track.set_volume" -> updateTrackTarget("volume", p);
+            case "track.set_pan" -> updateTrackTarget("pan", p);
+            case "track.set_mute" -> updateTrackTarget("mute", p);
+            case "track.set_solo" -> updateTrackTarget("solo", p);
+            case "track.set_comment" -> updateTrackTarget("comment", p);
+            case "track.set_active" -> updateTrackTarget("active", p);
+            case "track.set_destination" -> updateTrackTarget("destination", p);
+            case "track.set_monitor" -> updateTrackTarget("monitor", p);
+            case "track.set_color" -> updateTrackTarget("color", p);
+            case "track.set_send" -> updateTrackTarget("send", p);
+            case "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory",
+                 "device.set_parameters", "device.get_parameters", "device.rename",
+                 "device.set_expanded", "device.delete", "device.list_parameters" ->
+                    executeDevice(method, p);
+            case "clip.count", "clip.note_count", "clip.create_arranger_with_notes" ->
+                    executeClip(method, p);
+            default -> throw new IllegalArgumentException("unsupported document method: " + method);
+        };
+    }
+
+    private static JSONObject executeDevice(String method, JSONObject params) {
+        ApiProject project = project();
+        try {
+            Track targetTrack = resolveTrack(project, params);
+            String path = params.optString("path", null);
+            return switch (method) {
+                case "device.count" -> new JSONObject().put("count",
+                        targetTrack.deviceChain().getDevices().size());
+                case "device.snapshot" -> new JSONObject().put("devices",
+                        deviceSnapshotList(targetTrack, path, routingContext(project),
+                                deviceOwners(project), atomOwnerIndex(project)));
+                case "device.set_enabled" -> {
+                    int index = params.optInt("index", -1);
+                    if (index < 0 || !params.has("on")) {
+                        throw new IllegalArgumentException("device index and enabled state are required");
                     }
-                    track.setColor(a >= 1.0 ? Color.fromRGB(r, g, b)
-                            : Color.fromRGBA(r, g, b, a));
+                    yield setDeviceEnabledOnTrack(targetTrack, index, params.getBoolean("on"));
                 }
-                case "send" -> {
-                    int sendIndex = params.getInt("send");
-                    double value = params.getDouble("value");
-                    Mixer mixer = track.mixer();
-                    if (sendIndex < 0 || sendIndex >= mixer.getSendCount()) {
-                        throw new IllegalArgumentException("send index out of range: " + sendIndex);
+                case "device.insert_factory" -> {
+                    String name = params.optString("name", "");
+                    if (name.isBlank() || name.contains("/") || name.contains("\\") || name.contains(".")) {
+                        throw new IllegalArgumentException("factory device name is required");
                     }
-                    if (!Double.isFinite(value) || value < 0 || value > 1) {
-                        throw new IllegalArgumentException("send value must be within 0..1");
-                    }
-                    mixer.getSend(sendIndex).getAmount()
-                            .setValue(value * 100.0, Unit.PERCENTAGE_OF_RANGE);
+                    yield new JSONObject().put("count",
+                            insertFactoryDeviceOnTrack(project, targetTrack, name));
                 }
-                default -> throw new IllegalArgumentException("unknown track field: " + field);
+                case "device.set_parameters" -> {
+                    int device = params.optInt("device", -1);
+                    JSONObject values = params.optJSONObject("params");
+                    String unit = params.optString("unit", null);
+                    if (device < 0 || values == null || values.isEmpty()) {
+                        throw new IllegalArgumentException(
+                                "device index and a non-empty params object are required");
+                    }
+                    yield setDeviceParametersOnTrack(targetTrack, device, values, unit);
+                }
+                case "device.get_parameters" -> {
+                    int device = params.optInt("device", -1);
+                    JSONArray names = params.optJSONArray("names");
+                    String unit = params.optString("unit", null);
+                    if (device < 0 || names == null || names.length() == 0) {
+                        throw new IllegalArgumentException(
+                                "device index and a non-empty names array are required");
+                    }
+                    yield getDeviceParametersOnTrack(targetTrack, device, names, unit);
+                }
+                case "device.rename" -> {
+                    int device = params.optInt("device", -1);
+                    String name = params.optString("name", "");
+                    if (device < 0 || name.isBlank()) {
+                        throw new IllegalArgumentException("device index and name are required");
+                    }
+                    yield renameDeviceOnTrack(targetTrack, device, name);
+                }
+                case "device.set_expanded" -> {
+                    int device = params.optInt("device", -1);
+                    if (device < 0 || !params.has("on")) {
+                        throw new IllegalArgumentException("device index and expanded state are required");
+                    }
+                    yield setDeviceExpandedOnTrack(targetTrack, device, params.getBoolean("on"));
+                }
+                case "device.delete" -> {
+                    int device = params.optInt("device", -1);
+                    if (device < 0) {
+                        throw new IllegalArgumentException("device index is required");
+                    }
+                    yield new JSONObject().put("count", deleteTrackDeviceOnTrack(targetTrack, device));
+                }
+                case "device.list_parameters" -> {
+                    int device = params.optInt("device", -1);
+                    if (device < 0) {
+                        throw new IllegalArgumentException("device index is required");
+                    }
+                    yield new JSONObject().put("parameters",
+                            listDeviceParametersOnTrack(targetTrack, device));
+                }
+                default -> throw new IllegalArgumentException("unsupported device method: " + method);
+            };
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static JSONObject updateTrackTarget(String field, JSONObject params) {
+        ApiProject project = project();
+        try {
+            String path = params.optString("path", "");
+            int index = params.optInt("index", Integer.MIN_VALUE);
+            TrackOrTrackGroup item;
+            int resolvedIndex;
+            if (!path.isBlank()) {
+                item = resolve(project, path);
+                if (path.equals("master")) resolvedIndex = -1;
+                else if (path.startsWith("fx/")) {
+                    Integer fxIdx = indexIn(project.getTrackGroup().effectTracks(), item);
+                    resolvedIndex = fxIdx == null ? -2 : -fxIdx - 2;
+                } else {
+                    Integer mainIdx = indexIn(project.getTrackGroup().mainTracks(), item);
+                    resolvedIndex = mainIdx == null ? -1 : mainIdx;
+                }
+            } else if (index != Integer.MIN_VALUE) {
+                item = trackOrGroup(project, index);
+                resolvedIndex = index;
+            } else {
+                throw new IllegalArgumentException("track index or path is required");
             }
-            return trackSnapshot(track, trackIndex);
+            applyTrackField(project, item, field, params);
+            JSONObject snap = trackSnapshot(view(item), resolvedIndex);
+            snap.put("is_active", view(item).isActive());
+            com.bitwig.extension.api.project.routing.Destination destination =
+                    view(item).destinationSelector().getDestination();
+            Track destTrack = destination == null ? null : destination.getTrack();
+            snap.put("destination", destTrack == null ? JSONObject.NULL : destTrack.getTitle());
+            if (!path.isBlank()) {
+                // Titles may themselves contain '/', so derive the new path
+                // from the model tree rather than splitting the old title.
+                JSONObject location = field.equals("name")
+                        ? routingContext(project).get(((ApiObject) view(item)).getTarget()) : null;
+                snap.put("path", location == null ? path : location.getString("path"));
+            }
+            return snap;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static JSONObject createTrackOrGroup(JSONObject params) {
+        ApiProject project = project();
+        try {
+            String kind = params.optString("type", "instrument");
+            String name = params.optString("name", "");
+            String parentPath = params.optString("parent", "");
+            if (name.isBlank()) {
+                throw new IllegalArgumentException("track name is required");
+            }
+            Factory factory = project.getFactory();
+            TrackOrTrackGroup created = switch (kind) {
+                case "instrument" -> factory.createInstrumentTrack();
+                case "audio" -> factory.createAudioTrack();
+                case "hybrid" -> factory.createHybridTrack();
+                case "group" -> factory.createTrackGroup();
+                default -> throw new IllegalArgumentException(
+                        "track type must be instrument, audio, hybrid, or group: " + kind);
+            };
+            created.setTitle(name);
+            TrackGroup parentGroup;
+            String fullPath;
+            if (parentPath == null || parentPath.isBlank()) {
+                parentGroup = project.getTrackGroup();
+                fullPath = name;
+            } else {
+                TrackOrTrackGroup resolvedParent = resolve(project, parentPath);
+                if (!(resolvedParent instanceof TrackGroup grp)) {
+                    throw new IllegalArgumentException("parent track is not a group: " + parentPath);
+                }
+                parentGroup = grp;
+                fullPath = parentPath + "/" + name;
+            }
+            parentGroup.addMainTrack(created);
+            int siblingsCount = parentGroup.mainTracks().size();
+            return new JSONObject()
+                    .put("count", project.getTrackGroup().mainTracks().size())
+                    .put("index", siblingsCount - 1)
+                    .put("name", created.getTitle())
+                    .put("path", fullPath)
+                    .put("is_group", created instanceof TrackGroup);
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static JSONObject setProjectMetadata(JSONObject params) {
+        ApiProject project = project();
+        try {
+            JSONObject values = params.has("metadata") && params.get("metadata") instanceof JSONObject nested
+                    ? nested : params;
+            for (String key : values.keySet()) {
+                String normalized = switch (key.toUpperCase(java.util.Locale.ROOT)) {
+                    case "SONGWRITER" -> "WRITER";
+                    default -> key.toUpperCase(java.util.Locale.ROOT);
+                };
+                ProjectMetadata metaKey;
+                try {
+                    metaKey = ProjectMetadata.valueOf(normalized);
+                } catch (IllegalArgumentException unknown) {
+                    throw new IllegalArgumentException("unknown metadata key: " + key);
+                }
+                Object val = values.get(key);
+                project.setMetadataText(metaKey, val == JSONObject.NULL || val == null ? "" : val.toString());
+            }
+            JSONObject out = new JSONObject();
+            for (ProjectMetadata key : ProjectMetadata.values()) {
+                String value = project.getMetadataText(key);
+                if (value != null && !value.isBlank()) {
+                    out.put(key.name().toLowerCase(java.util.Locale.ROOT), value);
+                }
+            }
+            return out;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static JSONObject createCueMarker(JSONObject params) {
+        ApiProject project = project();
+        try {
+            double beat = params.optDouble("beat", params.optDouble("time", Double.NaN));
+            String name = params.optString("name", "");
+            if (!Double.isFinite(beat) || beat < 0) {
+                throw new IllegalArgumentException("cue marker beat must be nonnegative");
+            }
+            if (name.isBlank()) {
+                throw new IllegalArgumentException("cue marker name is required");
+            }
+            CueMarker marker = project.getFactory().createCueMarker(beat);
+            marker.setTitle(name);
+            Color color = parseColor(params);
+            if (color != null) {
+                marker.setColor(color);
+            }
+            DirectAccess.runInUndo(project.getCueMarkers(),
+                    () -> project.getCueMarkers().addEvent(marker));
+            Color actualColor = marker.getColor();
+            return new JSONObject()
+                    .put("count", project.getCueMarkers().getEvents().size())
+                    .put("time", marker.getTime())
+                    .put("name", marker.getTitle())
+                    .put("color", actualColor == null ? JSONObject.NULL : actualColor.toHex());
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static JSONObject updateScene(JSONObject params) {
+        ApiProject project = project();
+        try {
+            int index = params.optInt("index", -1);
+            if (index < 0) {
+                throw new IllegalArgumentException("scene index must be nonnegative");
+            }
+            com.bitwig.extension.api.project.Scene scene = project.getScene(index);
+            if (params.has("name")) {
+                scene.setTitle(params.optString("name", ""));
+            }
+            if (params.has("comment")) {
+                String comment = params.optString("comment", "");
+                Object rawScene = ((ApiObject) scene).getTarget();
+                modifyModel((ApiObject) scene, () -> invokeModelSetter(rawScene, "nsm", String.class, comment));
+            }
+            Color color = parseColor(params);
+            if (color != null) {
+                scene.setColor(color);
+            }
+            Color actualColor = scene.getColor();
+            Object rawScene = ((ApiObject) scene).getTarget();
+            Object comment = modelGetOrNull(rawScene, "Vc");
+            return new JSONObject()
+                    .put("index", index)
+                    .put("name", scene.getTitle())
+                    .put("comment", comment == null ? "" : comment)
+                    .put("color", actualColor == null ? JSONObject.NULL : actualColor.toHex());
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static JSONObject importDawProject(String path) {
+        if (path == null || path.isBlank()) {
+            throw new IllegalArgumentException("path is required");
+        }
+        java.io.File file = new java.io.File(path);
+        if (!file.isFile()) {
+            throw new IllegalArgumentException("dawproject file not found: " + path);
+        }
+        ApiProject project = project();
+        try {
+            com.bitwig.dawproject.Project daw;
+            MetaData meta = null;
+            try {
+                java.lang.reflect.Method loadProject = DawProject.class.getMethod("loadProject", java.io.File.class);
+                daw = (com.bitwig.dawproject.Project) loadProject.invoke(null, file);
+                try {
+                    java.lang.reflect.Method loadMeta = DawProject.class.getMethod("loadMetadata", java.io.File.class);
+                    meta = (MetaData) loadMeta.invoke(null, file);
+                } catch (Throwable ignored) {
+                    // Optional metadata.xml inside archive.
+                }
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException("dawproject load failed", failure);
+            }
+            java.lang.reflect.Method loadEmbedded;
+            try {
+                loadEmbedded = DawProject.class.getMethod("loadEmbedded", java.io.File.class, String.class);
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException("dawproject loadEmbedded lookup failed", failure);
+            }
+            java.util.function.Function<Object, Object> streamProvider = entryPath -> {
+                if (entryPath == null) return null;
+                String rel = entryPath.toString();
+                if (rel.startsWith("/")) rel = rel.substring(1);
+                try {
+                    byte[] bytes = (byte[]) loadEmbedded.invoke(null, file, rel);
+                    return bytes == null ? null : new java.io.ByteArrayInputStream(bytes);
+                } catch (Throwable absent) {
+                    java.io.File external = new java.io.File(file.getParentFile(), rel);
+                    if (external.isFile()) {
+                        try {
+                            return new java.io.FileInputStream(external);
+                        } catch (java.io.IOException ignored) {
+                            return null;
+                        }
+                    }
+                    return null;
+                }
+            };
+            try {
+                Class<?> importerClass = classForName("com.bitwig.flt.document.api.document.ApiDawProjectImporter");
+                java.lang.reflect.Constructor<?> ctor = importerClass.getConstructor(
+                        classForName("com.bitwig.flt.document.core.master.oZU"),
+                        com.bitwig.dawproject.Project.class,
+                        java.util.function.Function.class,
+                        java.io.File.class);
+                Object importer = ctor.newInstance(project.getTarget(), daw, streamProvider, file.getParentFile());
+                java.lang.reflect.Method phase1 = importerClass.getMethod("convertPhase1");
+                java.lang.reflect.Method phase2 = importerClass.getMethod("convertPhase2");
+                DirectAccess.runInUndo(project, () -> {
+                    modifyModel(project, () -> {
+                        try {
+                            phase1.invoke(importer);
+                        } catch (ReflectiveOperationException e) {
+                            throw new IllegalStateException("dawproject convertPhase1 failed", e);
+                        }
+                    });
+                    modifyModel(project, () -> {
+                        try {
+                            phase2.invoke(importer);
+                        } catch (ReflectiveOperationException e) {
+                            throw new IllegalStateException("dawproject convertPhase2 failed", e);
+                        }
+                    });
+                });
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException("dawproject importer invocation failed", failure);
+            }
+            if (meta != null) {
+                if (meta.title != null) project.setMetadataText(ProjectMetadata.TITLE, meta.title);
+                if (meta.artist != null) project.setMetadataText(ProjectMetadata.ARTIST, meta.artist);
+                if (meta.album != null) project.setMetadataText(ProjectMetadata.ALBUM, meta.album);
+                if (meta.originalArtist != null) project.setMetadataText(ProjectMetadata.ORIGINAL_ARTIST, meta.originalArtist);
+                if (meta.songwriter != null) project.setMetadataText(ProjectMetadata.WRITER, meta.songwriter);
+                if (meta.producer != null) project.setMetadataText(ProjectMetadata.PRODUCER, meta.producer);
+                if (meta.year != null) project.setMetadataText(ProjectMetadata.YEAR, meta.year);
+                if (meta.genre != null) project.setMetadataText(ProjectMetadata.GENRE, meta.genre);
+                if (meta.copyright != null) project.setMetadataText(ProjectMetadata.COPYRIGHT, meta.copyright);
+                if (meta.comment != null) project.setMetadataText(ProjectMetadata.COMMENT, meta.comment);
+            }
+            return new JSONObject()
+                    .put("path", file.getAbsolutePath())
+                    .put("main_tracks", project.getTrackGroup().mainTracks().size())
+                    .put("effect_tracks", project.getTrackGroup().effectTracks().size())
+                    .put("scenes", sceneCount());
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static JSONObject executeClip(String method, JSONObject params) {
+        ApiProject project = project();
+        try {
+            Track targetTrack = resolveTrack(project, params);
+            return switch (method) {
+                case "clip.count" -> new JSONObject().put("count",
+                        targetTrack.clipTimeline().getEvents().size());
+                case "clip.note_count" -> {
+                    int clipIndex = params.optInt("clip", -1);
+                    java.util.List<?> clips = targetTrack.clipTimeline().getEvents();
+                    if (clipIndex < 0 || clipIndex >= clips.size()) {
+                        throw new IllegalArgumentException("clip index out of range: " + clipIndex);
+                    }
+                    Clip clip = (Clip) clips.get(clipIndex);
+                    if (!(clip instanceof NoteClip noteClip)) {
+                        throw new IllegalArgumentException("clip is not a note clip");
+                    }
+                    yield new JSONObject().put("count",
+                            noteClip.getContent().getEventTimeline().getEvents().size());
+                }
+                case "clip.create_arranger_with_notes" -> {
+                    double start = params.optDouble("start", Double.NaN);
+                    double duration = params.optDouble("duration", Double.NaN);
+                    JSONArray notes = params.optJSONArray("notes");
+                    if (!Double.isFinite(start) || start < 0 ||
+                            !Double.isFinite(duration) || duration <= 0 ||
+                            notes == null || notes.length() > 4096) {
+                        throw new IllegalArgumentException("invalid arranger clip request");
+                    }
+                    yield new JSONObject().put("count",
+                            addNoteClipOnTrack(project, targetTrack, start, duration, notes));
+                }
+                default -> throw new IllegalArgumentException("unsupported clip method: " + method);
+            };
         } finally {
             project.dispose();
         }
@@ -2115,13 +2692,11 @@ public final class OpenwigDocument {
         }
     }
 
-    public static int addNoteClip(int trackIndex, double start, double duration, JSONArray notes) {
-        ApiProject project = project();
+    private static int addNoteClipOnTrack(ApiProject project, Track track,
+                                          double start, double duration, JSONArray notes) {
         String stage = "factory";
         try {
             Factory factory = project.getFactory();
-            stage = "track";
-            Track track = track(project, trackIndex);
             stage = "new clip";
             NoteClip clip = factory.createNoteClip(false);
             stage = "set start";
@@ -2158,6 +2733,13 @@ public final class OpenwigDocument {
             return timeline.getEvents().size();
         } catch (Throwable failure) {
             throw new IllegalStateException("clip stage " + stage, failure);
+        }
+    }
+
+    public static int addNoteClip(int trackIndex, double start, double duration, JSONArray notes) {
+        ApiProject project = project();
+        try {
+            return addNoteClipOnTrack(project, track(project, trackIndex), start, duration, notes);
         } finally {
             project.dispose();
         }

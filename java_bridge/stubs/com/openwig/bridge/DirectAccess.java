@@ -189,4 +189,8 @@ public final class DirectAccess {
                                   JSONArray notes) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
+
+    public static JSONObject execute(String method, JSONObject params) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
 }

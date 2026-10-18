@@ -20,6 +20,18 @@ storage. Live claims and remaining coverage are recorded in README and
   and `roo.fcV():nr` then `nr.oLP():boolean` reads the channel solo state (for
   `TrackGroup`, `view` wraps the group's master channel `roo`). `eNm.Vc():String`
   reads the scene comment.
+- **Additional write signatures:** `ApiProject` extends `ApiObject` (the
+  compile-time stub must preserve this). `ApiObject.modify(Runnable)` wraps
+  raw-model edits. Track `roo.a1y(String)` sets comments, channel
+  `nr.jPB(boolean)` sets solo, and scene `eNm.nsm(String)` sets comments.
+  `Factory.createTrackGroup()` plus `TrackGroup.addMainTrack(...)` creates
+  nested groups/tracks. `Track.audioDestination():AudioDestination` feeds
+  `DestinationSelector.setDestination(Destination)`. Cue-marker creation uses
+  `Factory.createCueMarker(double)` and timeline `addEvent` inside undo.
+  The exact-build `ApiDawProjectImporter(oZU, Project, Function, File)` has
+  `convertPhase1()` and `convertPhase2()`, matching `ApiProject.importDawProject`.
+  The bridge invokes each phase inside the modification wrapper and a project
+  undo transaction. See README for the limited synthetic live import gate.
 - **Plugin parameters and state:** `vgq.Oof():brS`; inherited `og3.bla():String`
   is vendor, `brS.qP3():File` returns the saved `.vstpreset` state file on disk
   (`plugins/<name>.vstpreset` in `.dawproject`), and `HT3():List` holds resident

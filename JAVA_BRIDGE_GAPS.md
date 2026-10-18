@@ -153,10 +153,18 @@ from verified claims.
 Composition and real-time loopback rendering already passed disposable-project
 live checks: track creation/deletion, effect/master devices, native parameters,
 MIDI arranger clips, automation write/read, transport, and audible WAV render.
-This does not establish full `Song` API migration. Native enum writes and the
-remaining write/property routes retain their existing verification limits.
+This does not establish full `Song` API migration. The additional disposable
+write check (`tests/live_java_writes.py --disposable`, 2026-10-18) passed for
+groups/nested tracks, nested native enum parameters, track solo/comments/
+activity/destination, metadata, cue markers and scene updates. Rename checks
+covered literal slashes in track titles and continued child creation through
+a renamed root-group handle. See `java_bridge/README.md` for the exact limits.
 
-Corpus collection, batch project opening, derived features, recreate, and
-DAWproject import are design phase 4. They require a separate design and are
-outside the current work. Never save over the owner's projects, and use clear
-operations only on disposable projects.
+The pending DAWproject import implementation passed a synthetic
+export/clear/import check for groups, notes, solo, comments and metadata.
+It appends into the active project; scenes/markers are not removed by clear.
+Media/plugin/device-state fidelity and arbitrary archives remain unverified.
+Corpus collection, batch project opening, derived features and recreate remain
+design phase 4 and require the owner's explicit go and a separate design.
+Never save over the owner's projects, and use clear operations only on
+disposable projects.

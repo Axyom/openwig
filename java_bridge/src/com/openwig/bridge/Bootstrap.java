@@ -200,17 +200,32 @@ public final class Bootstrap {
                 }
                 case "device.count" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     response.put("result", new JSONObject().put("count",
                             onDocumentEvent(() -> DirectAccess.deviceCount(track))));
                 }
                 case "device.snapshot" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30).getJSONArray("devices"));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     response.put("result", onDocumentEvent(() -> DirectAccess.deviceSnapshot(track)));
                 }
                 case "device.set_enabled" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     int index = params == null ? -1 : params.optInt("index", -1);
                     if (track < 0 || index < 0 || !params.has("on")) {
@@ -221,6 +236,11 @@ public final class Bootstrap {
                 }
                 case "device.insert_factory" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     String name = params == null ? "" : params.optString("name", "");
                     if (track < 0 || name.isBlank() || name.contains("/") ||
@@ -232,6 +252,11 @@ public final class Bootstrap {
                 }
                 case "device.set_parameters" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     int device = params == null ? -1 : params.optInt("device", -1);
                     JSONObject values = params == null ? null : params.optJSONObject("params");
@@ -245,6 +270,11 @@ public final class Bootstrap {
                 }
                 case "device.get_parameters" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     int device = params == null ? -1 : params.optInt("device", -1);
                     JSONArray names = params == null ? null : params.optJSONArray("names");
@@ -258,6 +288,11 @@ public final class Bootstrap {
                 }
                 case "device.rename" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     int device = params == null ? -1 : params.optInt("device", -1);
                     String name = params == null ? "" : params.optString("name", "");
@@ -270,6 +305,11 @@ public final class Bootstrap {
                 }
                 case "device.set_expanded" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     int device = params == null ? -1 : params.optInt("device", -1);
                     if (track < 0 || device < 0 || params == null || !params.has("on")) {
@@ -282,6 +322,11 @@ public final class Bootstrap {
                 }
                 case "device.delete" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     int device = params == null ? -1 : params.optInt("device", -1);
                     if (track < 0 || device < 0) {
@@ -292,6 +337,11 @@ public final class Bootstrap {
                 }
                 case "device.list_parameters" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 20).getJSONArray("parameters"));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     int device = params == null ? -1 : params.optInt("device", -1);
                     if (track < 0 || device < 0) {
@@ -308,9 +358,22 @@ public final class Bootstrap {
                     }
                     response.put("result", onDocumentEvent(() -> DirectAccess.trackSnapshot(index)));
                 }
+                case "project.import_dawproject", "project.set_metadata", "cue_marker.create",
+                     "scene.update", "track.create_group", "track.set_solo", "track.set_comment",
+                     "track.set_active", "track.set_destination" -> {
+                    JSONObject params = request.optJSONObject("params");
+                    long timeout = method.equals("project.import_dawproject") ? 300 : 30;
+                    response.put("result", onDocumentEvent(
+                            () -> DirectAccess.execute(method, params), timeout));
+                }
                 case "track.rename", "track.set_volume", "track.set_pan", "track.set_mute",
                      "track.set_monitor", "track.set_color", "track.set_send" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && params.has("path") && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int index = params == null ? -1 : params.optInt("index", -1);
                     if (index < 0 || params == null) {
                         throw new IllegalArgumentException("main track index is required");
@@ -353,6 +416,12 @@ public final class Bootstrap {
                 }
                 case "track.create" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && (params.optString("type", "").equals("group") ||
+                            !params.optString("parent", "").isBlank())) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     String type = params == null ? "instrument" : params.optString("type", "instrument");
                     int index = params == null ? -1 : params.optInt("index", -1);
                     String name = params == null ? "Openwig Track" :
@@ -371,12 +440,22 @@ public final class Bootstrap {
                 }
                 case "clip.count" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     response.put("result", new JSONObject().put("count",
                             onDocumentEvent(() -> DirectAccess.clipCount(track))));
                 }
                 case "clip.note_count" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     int clip = params == null ? -1 : params.optInt("clip", -1);
                     response.put("result", new JSONObject().put("count",
@@ -384,6 +463,11 @@ public final class Bootstrap {
                 }
                 case "clip.create_arranger_with_notes" -> {
                     JSONObject params = request.optJSONObject("params");
+                    if (params != null && !params.optString("path", "").isBlank()) {
+                        response.put("result", onDocumentEvent(
+                                () -> DirectAccess.execute(method, params), 30));
+                        break;
+                    }
                     int track = params == null ? -1 : params.optInt("track", -1);
                     double start = params == null ? Double.NaN :
                             params.optDouble("start", Double.NaN);

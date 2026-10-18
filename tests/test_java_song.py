@@ -32,6 +32,24 @@ class FakeJavaBridge:
             return {"metadata": {}, "cue_markers": [], "main_tracks": []}
         if method == "project.export_dawproject":
             return {"path": params["path"], "bytes": 1, "embedded_files": 0}
+        if method == "project.import_dawproject":
+            return {"path": params["path"], "main_tracks": 2, "effect_tracks": 1, "scenes": 4}
+        if method == "project.set_metadata":
+            return {k.lower(): str(v) for k, v in params.items()}
+        if method == "cue_marker.create":
+            return {"count": 1, "time": params["beat"], "name": params["name"], "color": params.get("color")}
+        if method == "scene.update":
+            return {"index": params["index"], "name": params.get("name", ""), "comment": params.get("comment", ""), "color": params.get("color")}
+        if method == "track.create_group":
+            path = f"{params['parent']}/{params['name']}" if params.get("parent") else params["name"]
+            return {"count": 1, "index": 0, "name": params["name"], "path": path, "is_group": True}
+        if method == "track.create" and params.get("parent"):
+            path = f"{params['parent']}/{params['name']}"
+            return {"count": 1, "index": 0, "name": params["name"], "path": path, "is_group": False}
+        if method in {"track.set_volume", "track.set_pan", "track.set_mute", "track.set_solo",
+                      "track.set_comment", "track.set_active", "track.set_destination",
+                      "track.rename", "track.set_color", "track.set_monitor", "track.set_send"}:
+            return {"path": params.get("path"), "index": params.get("index", 0), "name": params.get("name", "Track")}
         if method in {"track.read", "clip.read", "device.read"}:
             return {"path": params["path"], "method": method}
         if method == "automation.enumerate":
@@ -70,6 +88,51 @@ def test_export_dawproject_sends_path_and_embed_flag(bridge):
     assert result["path"] == params["path"]
 
 
+def test_import_dawproject_sends_resolved_path(bridge):
+    from pathlib import Path
+    song = JavaSong(bridge=bridge)
+    result = song.import_dawproject("in.dawproject")
+    method, params = bridge.calls[-1]
+    assert method == "project.import_dawproject"
+    assert params["path"] == str(Path("in.dawproject").resolve())
+    assert result["main_tracks"] == 2
+
+
+def test_metadata_cue_marker_and_scene_updates(bridge):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    meta = song.set_metadata(title="My Track", artist="Openwig")
+    marker = song.add_cue_marker(16.0, "Drop", color="#ff00aa")
+    scene = song.update_scene(0, name="Intro", comment="Warm pad", color=(0.2, 0.4, 0.8))
+    assert meta == {"title": "My Track", "artist": "Openwig"}
+    assert marker["name"] == "Drop"
+    assert scene["comment"] == "Warm pad"
+    assert bridge.calls == [
+        ("project.set_metadata", {"title": "My Track", "artist": "Openwig"}),
+        ("cue_marker.create", {"beat": 16.0, "name": "Drop", "color": "#ff00aa"}),
+        ("scene.update", {"index": 0, "name": "Intro", "comment": "Warm pad",
+                          "r": 0.2, "g": 0.4, "b": 0.8, "a": 1.0}),
+    ]
+
+
+def test_group_track_and_nested_track_mutations(bridge):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    drums = song.group_track("Drums")
+    kick = song.track("Kick", kind="instrument", parent=drums)
+    kick.solo(True).comment("808 sub").active(False).route_to(drums)
+    assert drums.path == "Drums"
+    assert kick.path == "Drums/Kick"
+    assert bridge.calls == [
+        ("track.create_group", {"name": "Drums"}),
+        ("track.create", {"type": "instrument", "index": -1, "name": "Kick", "parent": "Drums"}),
+        ("track.set_solo", {"path": "Drums/Kick", "on": True}),
+        ("track.set_comment", {"path": "Drums/Kick", "comment": "808 sub"}),
+        ("track.set_active", {"path": "Drums/Kick", "on": False}),
+        ("track.set_destination", {"path": "Drums/Kick", "destination": "Drums"}),
+    ]
+
+
 def test_refuses_wrong_host_version(bridge):
     bridge.version = "6.0.6"
     from openwig.bridge import BridgeError
@@ -77,22 +140,34 @@ def test_refuses_wrong_host_version(bridge):
         JavaSong(bridge=bridge)
 
 
-def test_targeted_reads_address_nested_tracks_without_index_or_write(bridge):
+def test_targeted_reads_and_path_edits_address_nested_tracks(bridge):
     track = JavaSong(bridge=bridge).track_at("Drums/Kick")
     bridge.calls.clear()
     assert track.snapshot()["method"] == "track.read"
     assert track.read_clip(2)["method"] == "clip.read"
     assert track.read_device(1)["method"] == "device.read"
     assert track.enumerate_automation() == []
+    track.volume(0.2)
     assert bridge.calls == [
         ("track.read", {"path": "Drums/Kick"}),
         ("clip.read", {"path": "Drums/Kick", "clip": 2}),
         ("device.read", {"path": "Drums/Kick", "device": 1}),
         ("automation.enumerate", {"path": "Drums/Kick"}),
+        ("track.set_volume", {"path": "Drums/Kick", "value": 0.2}),
     ]
     with pytest.raises(ValueError, match="index-based"):
-        track.volume(0.2)
-    assert len(bridge.calls) == 4
+        _ = track.idx
+
+
+def test_renamed_root_group_supplies_current_parent_path(bridge):
+    song = JavaSong(bridge=bridge)
+    group = song.group_track("Drums/Bus")
+    group.rename("Rhythm")
+    bridge.calls.clear()
+    song.audio_track("Hat", parent=group)
+    assert bridge.calls == [
+        ("track.create", {"type": "audio", "index": -1, "name": "Hat", "parent": "Rhythm"}),
+    ]
 
 
 @pytest.mark.parametrize("path", ["master", "fx/Reverb", "Leads/Vocals"])

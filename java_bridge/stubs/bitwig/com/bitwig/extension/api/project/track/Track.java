@@ -11,6 +11,7 @@ public interface Track extends TrackOrTrackGroup {
     ClipTimeline clipTimeline();
     com.bitwig.extension.api.project.routing.SourceSelector sourceSelector();
     com.bitwig.extension.api.project.routing.DestinationSelector destinationSelector();
+    com.bitwig.extension.api.project.routing.AudioDestination audioDestination();
     com.bitwig.extension.api.project.routing.TrackAudioSource preFader();
     com.bitwig.extension.api.project.routing.TrackAudioSource postFader();
     com.bitwig.extension.api.project.routing.NoteSource postFxNotes();

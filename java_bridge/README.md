@@ -116,8 +116,39 @@ was rejected without changing the parameter. Device rename, expansion, and
 deletion also passed. Run `tests/live_java_parameters.py` to repeat the
 parameter check. A newly inserted device may expose only a few paths while
 it loads; callers should wait until the desired path appears.
-Solo and arm are not exposed by the document API used here; they need the
-obfuscated layer and are still missing.
+Solo writes now use the exact-build model and passed disposable-project
+readback checks (see below). Arm writes remain missing.
+
+### Additional write checks (2026-10-18)
+
+`tests/live_java_writes.py --disposable` passed on the isolated 6.1.5 copy
+with `scratch/probe-project/probe.bwproject`, without saving the project.
+The flag is required because the script clears the active project. Run with
+`$env:PYTHONPATH="src"; python tests/live_java_writes.py --disposable`.
+
+Verified operations are project metadata (`JavaSong.set_metadata`), cue-marker
+creation (`add_cue_marker`, beats and optional hex/RGB(A) color), scene name,
+comment and color (`update_scene`), group creation (`group_track`), and nested
+instrument/audio tracks (`track`/`audio_track` with `parent`). Track solo,
+comment, activity and audio destination writes are exposed as `.solo()`,
+`.comment()`, `.active()` and `.route_to()`. Nested volume/pan and note clips
+passed dump readback. Nested native-device enum writes, rename, expansion,
+enable/disable and snapshots also passed. Expansion is accepted without a
+readback assertion. Device parameter discovery waits for the model to load.
+
+Path handles from `track_at()` support these edits. Renaming a root group
+updates its handle for subsequent child creation; nested titles containing
+`/` retain a usable path after renaming. Existing descendant handles must be
+selected again after renaming an ancestor. Duplicate titles still resolve
+to the first match.
+
+`JavaSong.import_dawproject(path)` uses Bitwig's native two-phase importer.
+The synthetic export/clear/import check recovered groups, nested notes,
+metadata, solo and comments. Import appends content to the active project;
+`clear()` does not remove scenes or markers (the check grew from 13 to 26
+scenes). This is a limited import check, not a lossless round-trip claim.
+Embedded audio, plugin restoration, device-state fidelity and arbitrary
+third-party archives remain unverified. Corpus/recreate work remains gated.
 
 Arranger automation passed live checks on a disposable FM-4 track: volume and
 pan normalized readback, native `OUTPUT` parameter automation, curvature 0.4,
