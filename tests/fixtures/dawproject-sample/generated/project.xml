@@ -1,0 +1,91 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Project version="1.0">
+  <Application name="Bitwig Studio" version="6.1.5" />
+  <Transport>
+    <Tempo value="120" unit="bpm" />
+    <TimeSignature numerator="4" denominator="4" />
+  </Transport>
+  <Structure>
+    <Track contentType="notes" loaded="true" id="id158" name="Fixture Synth">
+      <Channel audioChannels="2" destination="id176" role="regular" solo="false" id="id159">
+        <Devices>
+          <BuiltinDevice deviceID="7a0a94df-3aa4-4bb5-8e24-2511999871ad" deviceName="FM-4" deviceRole="instrument" loaded="true" id="id163" name="FM-4">
+            <Parameters />
+            <Enabled value="true" id="id164" name="On/Off" />
+          </BuiltinDevice>
+        </Devices>
+        <Mute value="false" id="id162" name="Mute" />
+        <Pan max="1.000000" min="0.000000" unit="normalized" value="0.500000" id="id161" name="Pan" />
+        <Sends>
+          <Send destination="id171" type="post" id="id224">
+            <Volume max="1.000000" min="0.000000" unit="linear" value="0.300000" id="id225" name="Send" />
+          </Send>
+        </Sends>
+        <Volume max="2.000000" min="0.000000" unit="linear" value="1.000000" id="id160" name="Volume" />
+      </Channel>
+    </Track>
+    <Track contentType="audio" loaded="true" id="id165" name="Fixture Audio">
+      <Channel audioChannels="2" destination="id176" role="regular" solo="false" id="id166">
+        <Mute value="false" id="id169" name="Mute" />
+        <Pan max="1.000000" min="0.000000" unit="normalized" value="0.500000" id="id168" name="Pan" />
+        <Sends>
+          <Send destination="id171" type="post" id="id226">
+            <Enable value="false" id="id228" />
+            <Volume max="1.000000" min="0.000000" unit="linear" value="0.000000" id="id227" name="Send" />
+          </Send>
+        </Sends>
+        <Volume max="2.000000" min="0.000000" unit="linear" value="1.000000" id="id167" name="Volume" />
+      </Channel>
+    </Track>
+    <Track contentType="audio" loaded="true" id="id170" name="Fixture FX">
+      <Channel audioChannels="2" destination="id176" role="effect" solo="false" id="id171">
+        <Mute value="false" id="id174" name="Mute" />
+        <Pan max="1.000000" min="0.000000" unit="normalized" value="0.500000" id="id173" name="Pan" />
+        <Sends>
+          <Send destination="id171" type="post" id="id229">
+            <Enable value="false" id="id231" />
+            <Volume max="1.000000" min="0.000000" unit="linear" value="0.000000" id="id230" name="Send" />
+          </Send>
+        </Sends>
+        <Volume max="2.000000" min="0.000000" unit="linear" value="1.000000" id="id172" name="Volume" />
+      </Channel>
+    </Track>
+    <Track contentType="audio notes" loaded="true" id="id175" name="Master">
+      <Channel audioChannels="2" role="master" solo="false" id="id176">
+        <Devices />
+        <Mute value="false" id="id179" name="Mute" />
+        <Pan max="1.000000" min="0.000000" unit="normalized" value="0.5" id="id178" name="Pan" />
+        <Volume max="2.000000" min="0.000000" unit="linear" value="1.0" id="id177" name="Volume" />
+      </Channel>
+    </Track>
+  </Structure>
+  <Arrangement>
+    <Lanes timeUnit="beats">
+      <Lanes track="id158" id="id308">
+        <Clips id="id309">
+          <Clip time="0.0" duration="4.0" playStart="0.0" enable="true">
+            <Notes id="id310">
+              <Note time="2.000000" duration="0.500000" channel="0" key="67" vel="0.650000" rel="0.500000" />
+              <Note time="0.000000" duration="1.000000" channel="0" key="60" vel="0.800000" rel="0.500000" />
+            </Notes>
+          </Clip>
+        </Clips>
+      </Lanes>
+      <Lanes track="id165" id="id311">
+        <Clips id="id312" />
+      </Lanes>
+      <Lanes track="id170" id="id313">
+        <Clips id="id314" />
+      </Lanes>
+    </Lanes>
+  </Arrangement>
+  <Scenes>
+    <Scene name="Scene 1">
+      <Lanes>
+        <ClipSlot hasStop="true" track="id158" id="id331" />
+        <ClipSlot hasStop="true" track="id165" id="id332" />
+        <ClipSlot hasStop="true" track="id170" id="id333" />
+      </Lanes>
+    </Scene>
+  </Scenes>
+</Project>

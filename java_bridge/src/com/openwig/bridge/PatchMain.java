@@ -82,10 +82,16 @@ public final class PatchMain {
         method.visitVarInsn(Opcodes.ALOAD, 0);
         method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "com/bitwig/flt/app/eY1", "Lg",
                 "()LF;", false);
+        method.visitVarInsn(Opcodes.ASTORE, 2);
+        method.visitVarInsn(Opcodes.ALOAD, 2);
+        method.visitJumpInsn(Opcodes.IFNULL, absent);
+        method.visitVarInsn(Opcodes.ALOAD, 2);
         method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "F", "getValue",
                 "()Ljava/lang/Object;", true);
         method.visitTypeInsn(Opcodes.CHECKCAST, "java/util/List");
         method.visitVarInsn(Opcodes.ASTORE, 1);
+        method.visitVarInsn(Opcodes.ALOAD, 1);
+        method.visitJumpInsn(Opcodes.IFNULL, absent);
         method.visitVarInsn(Opcodes.ALOAD, 1);
         method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "java/util/List", "isEmpty",
                 "()Z", true);
@@ -475,6 +481,28 @@ public final class PatchMain {
         trackSnapshot.visitInsn(Opcodes.ARETURN);
         trackSnapshot.visitMaxs(0, 0);
         trackSnapshot.visitEnd();
+
+        MethodVisitor readObject = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "readObject", "(Ljava/lang/String;Ljava/lang/String;I)Lorg/json/JSONObject;", null, null);
+        readObject.visitCode();
+        readObject.visitVarInsn(Opcodes.ALOAD, 0);
+        readObject.visitVarInsn(Opcodes.ALOAD, 1);
+        readObject.visitVarInsn(Opcodes.ILOAD, 2);
+        readObject.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "readObject",
+                "(Ljava/lang/String;Ljava/lang/String;I)Lorg/json/JSONObject;", false);
+        readObject.visitInsn(Opcodes.ARETURN);
+        readObject.visitMaxs(0, 0);
+        readObject.visitEnd();
+
+        MethodVisitor enumeratePath = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "automationEnumeratePath", "(Ljava/lang/String;)Lorg/json/JSONArray;", null, null);
+        enumeratePath.visitCode();
+        enumeratePath.visitVarInsn(Opcodes.ALOAD, 0);
+        enumeratePath.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "automationEnumerate",
+                "(Ljava/lang/String;)Lorg/json/JSONArray;", false);
+        enumeratePath.visitInsn(Opcodes.ARETURN);
+        enumeratePath.visitMaxs(0, 0);
+        enumeratePath.visitEnd();
 
         MethodVisitor dumpProject = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "dumpProject", "()Lorg/json/JSONObject;", null, null);

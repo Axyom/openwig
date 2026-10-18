@@ -65,6 +65,86 @@ public final class OpenwigDocument {
         return audioStatus();
     }
 
+    /** Titles are literal path segments; duplicate siblings resolve to the first. */
+    private static TrackOrTrackGroup resolve(ApiProject project, String path) {
+        if (path == null || path.isEmpty()) throw new IllegalArgumentException("track path is required");
+        if (path.equals("master")) return project.getTrackGroup().masterTrack();
+        boolean effect = path.startsWith("fx/");
+        return resolveIn(effect ? project.getTrackGroup().effectTracks()
+                : project.getTrackGroup().mainTracks(), effect ? path.substring(3) : path, path);
+    }
+
+    private static TrackOrTrackGroup resolveIn(java.util.List<?> siblings, String remaining, String fullPath) {
+        TrackOrTrackGroup found = null;
+        int length = -1;
+        // Titles themselves can contain '/'. Prefer the longest matching title,
+        // preserving first-match behavior for duplicate sibling titles.
+        for (Object candidate : siblings) {
+            TrackOrTrackGroup item = (TrackOrTrackGroup) candidate;
+            String title = item.getTitle();
+            if (!title.isEmpty() && title.length() > length &&
+                    (remaining.equals(title) || remaining.startsWith(title + "/"))) {
+                found = item;
+                length = title.length();
+            }
+        }
+        if (found != null) {
+            if (length == remaining.length()) return found;
+            if (found instanceof TrackGroup group)
+                return resolveIn(group.mainTracks(), remaining.substring(length + 1), fullPath);
+        }
+        throw new IllegalArgumentException("track path not found: " + fullPath);
+    }
+
+    private static Integer indexIn(java.util.List<?> siblings, TrackOrTrackGroup wanted) {
+        Object target = ((ApiObject) wanted).getTarget();
+        for (int i = 0; i < siblings.size(); i++) {
+            TrackOrTrackGroup item = (TrackOrTrackGroup) siblings.get(i);
+            if (((ApiObject) item).getTarget() == target) return i;
+            if (item instanceof TrackGroup group) {
+                Integer child = indexIn(group.mainTracks(), wanted);
+                if (child != null) return child;
+            }
+        }
+        return null;
+    }
+
+    private static Track view(TrackOrTrackGroup item) {
+        return item instanceof Track direct ? direct : item.asTrack();
+    }
+
+    private static int sceneCount() {
+        // ApiProject.getScene and ApiTrack.clipSlot CREATE objects out of range.
+        // Count first using the exact-build model's read-only getter.
+        return ((oZU) DirectAccess.activeDocumentObject()).Qjx().ce_();
+    }
+
+    public static JSONObject readObject(String method, String path, int index) {
+        ApiProject project = project();
+        try {
+            TrackOrTrackGroup item = resolve(project, path);
+            Track track = view(item);
+            if (method.equals("track.read")) {
+                int trackIndex;
+                if (path.equals("master")) trackIndex = -1;
+                else if (path.startsWith("fx/"))
+                    trackIndex = -indexIn(project.getTrackGroup().effectTracks(), item) - 2;
+                else trackIndex = indexIn(project.getTrackGroup().mainTracks(), item);
+                return readTrackOrGroup(item, trackIndex, path, sceneCount(), routingContext(project));
+            }
+            if (method.equals("clip.read")) {
+                java.util.List<?> clips = track.clipTimeline().getEvents();
+                if (index < 0 || index >= clips.size()) throw new IllegalArgumentException("clip index out of range: " + index);
+                return readClip((Clip) clips.get(index));
+            }
+            java.util.List<?> devices = track.deviceChain().getDevices();
+            if (index < 0 || index >= devices.size()) throw new IllegalArgumentException("device index out of range: " + index);
+            Device device = (Device) devices.get(index);
+            JSONObject result = readDevice(device, index, routingContext(project));
+            return result;
+        } finally { project.dispose(); }
+    }
+
     public static TrackOrTrackGroup trackOrGroup(ApiProject project, int index) {
         if (index == -1) {
             return project.getTrackGroup().masterTrack();
@@ -280,34 +360,252 @@ public final class OpenwigDocument {
     public static JSONArray deviceSnapshot(int trackIndex) {
         ApiProject project = project();
         try {
-            return deviceSnapshotList(track(project, trackIndex));
+            return deviceSnapshotList(track(project, trackIndex), routingContext(project));
         } finally {
             project.dispose();
         }
     }
 
-    private static JSONArray deviceSnapshotList(Track view) {
+    private static JSONArray deviceSnapshotList(Track view, java.util.IdentityHashMap<Object, JSONObject> context) {
         JSONArray devices = new JSONArray();
         java.util.List<?> members = view.deviceChain().getDevices();
         for (int i = 0; i < members.size(); i++) {
             Device device = (Device) members.get(i);
-            String kind = "unknown";
-            if (device instanceof NativeDevice) {
-                kind = "native";
-            } else if (device instanceof Vst3Device) {
-                kind = "vst3";
-            } else if (device instanceof Vst2Device) {
-                kind = "vst2";
-            } else if (device instanceof PluginDevice) {
-                kind = "plugin";
-            }
-            devices.put(new JSONObject().put("index", i)
-                    .put("display_name", device.getDisplayName())
-                    .put("kind", kind)
-                    .put("enabled", device.getEnabled().getValue())
-                    .put("active", device.getActive()));
+            devices.put(readDevice(device, i, context));
         }
         return devices;
+    }
+
+    private static JSONObject readDevice(Device device, int i, java.util.IdentityHashMap<Object, JSONObject> context) {
+        String kind = "unknown";
+        if (device instanceof NativeDevice) {
+            kind = "native";
+        } else if (device instanceof Vst3Device) {
+            kind = "vst3";
+        } else if (device instanceof Vst2Device) {
+            kind = "vst2";
+        } else if (device instanceof PluginDevice) {
+            kind = "plugin";
+        }
+        Object target = ((ApiObject) device).getTarget();
+        // Per-call identity cache: do not rediscover parameter atoms for a
+        // device reached twice through nested/shared component references.
+        JSONObject cached = context.get(target);
+        if (cached != null) {
+            if (cached.optBoolean("reading", false))
+                return new JSONObject().put("index", i).put("reference", true)
+                        .put("device_name", device.getDisplayName());
+            return new JSONObject(cached.toString()).put("index", i);
+        }
+        JSONObject result = new JSONObject().put("index", i)
+                .put("display_name", device.getDisplayName())
+                .put("kind", kind)
+                .put("enabled", device.getEnabled().getValue())
+                .put("active", device.getActive());
+        context.put(target, result);
+        result.put("reading", true);
+        // Pure stored-model getters, cross-checked against ApiDawProjectExporter.
+        result.put("device_name", modelGet(target, "HT3"))
+                .put("preset", modelGet(target, "SVb"))
+                .put("displayed_preset", modelGet(target, "Sxv"));
+        String role = ((Enum<?>) modelGet(target, "Jxd")).name();
+        result.put("role", switch (role) {
+            case "AUDIO_TO_AUDIO" -> "audioFX";
+            case "NOTE_TO_NOTE" -> "noteFX";
+            case "NOTE_TO_AUDIO" -> "instrument";
+            case "AUDIO_TO_NOTE" -> "analyzer";
+            default -> role;
+        });
+        if (device instanceof NativeDevice nativeDevice) {
+            result.put("device_id", modelGet(modelGet(target, "odb"), "Gcr").toString());
+            JSONArray available = listDeviceParameters(device);
+            JSONObject values = new JSONObject();
+            for (int n = 0; n < available.length(); n++) {
+                JSONObject parameter = available.getJSONObject(n);
+                String name = parameter.getString("path");
+                switch (parameter.getString("kind")) {
+                    case "double" -> values.put(name, nativeDevice.getDoubleParameter(name).getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0);
+                    case "boolean" -> values.put(name, nativeDevice.getBooleanParameter(name).getValue());
+                    case "enum" -> values.put(name, nativeDevice.getEnumParameter(name).getValue());
+                }
+            }
+            result.put("parameters", available).put("values", values);
+        } else if (device instanceof PluginDevice) {
+            Class<?> clap = classForName("com.bitwig.flt.document.core.master.device.cq");
+            if (clap != null && clap.isInstance(target)) result.put("kind", "clap");
+            result.put("device_id", modelGet(modelGet(target, "urJ"), "Gcr"));
+            Object plugin = modelGet(target, "Oof");
+            JSONArray parameters = new JSONArray();
+            if (plugin != null) {
+                result.put("vendor", modelGet(plugin, "bla"));
+                for (Object parameter : (java.util.List<?>) modelGet(plugin, "HT3")) {
+                    parameters.put(new JSONObject()
+                            .put("id", modelGet(parameter, "KF3"))
+                            .put("name", modelGet(parameter, "rqQ"))
+                            .put("value", modelGet(parameter, "YiG"))
+                            .put("gui_value", modelGet(parameter, "wtf"))
+                            .put("display", modelGet(parameter, "SSK"))
+                            .put("unit", modelGet(parameter, "AAj")));
+                }
+            }
+            result.put("parameters", parameters).put("parameter_unit", "normalized")
+                    .put("parameters_available", parameters.length() > 0)
+                    .put("parameters_status", parameters.length() == 0 ? "unavailable_model_cache" : "resident_model_cache");
+            Object sidechain = plugin == null ? null : modelGet(modelGet(modelGet(plugin, "Idv"), "APa"), "LZe");
+            result.put("sidechain", sourceInfo(sidechain, context));
+        }
+        if (device instanceof NativeDevice) {
+            JSONArray chains = new JSONArray();
+            JSONArray sidechains = new JSONArray();
+            java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+            boolean complete = readNestedComponents(target, modelGet(target, "bhG"), chains, sidechains, seen, context, 0);
+            result.put("chains", chains).put("chains_complete", complete).put("sidechains", sidechains)
+                    .put("sidechain", sidechains.length() == 0 ? JSONObject.NULL :
+                            sidechains.getJSONObject(0).get("source"));
+        }
+        // Gated metadata inventory only. These getters return stored fields;
+        // no engine interface, graph query, grid creation, or mapping callback.
+        JSONArray modulators = new JSONArray();
+        Object modulatorBank = modelGet(target, "YGC");
+        if (modulatorBank != null) {
+            for (Object modulator : (java.util.List<?>) modelGet(modulatorBank, "Klm")) {
+                modulators.put(new JSONObject()
+                        .put("index", modulators.length())
+                        .put("id", jsonModelValue(modelGet(modulator, "UNI")))
+                        .put("device_name", modelGet(modulator, "HT3"))
+                        .put("display_name", modelGet(modulator, "ruM"))
+                        .put("preset", modelGet(modulator, "SVb")));
+            }
+        }
+        result.put("modulators", modulators).put("modulators_status", "inventory_only");
+        result.remove("reading");
+        return result;
+    }
+
+    private static boolean readNestedComponents(Object owner, Object node, JSONArray out, JSONArray sidechains,
+            java.util.IdentityHashMap<Object, Boolean> seen,
+            java.util.IdentityHashMap<Object, JSONObject> context, int depth) {
+        if (node == null || seen.containsKey(node)) return true;
+        if (depth > 32 || seen.size() >= 20000) return false;
+        seen.put(node, true);
+        if (automationInstance("WYJ", node)) {
+            Object source = modelGet(modelGet(node, "APa"), "LZe");
+            sidechains.put(new JSONObject().put("component_path", jsonModelValue(automationIdentifier(owner, node)))
+                    .put("source", sourceInfo(source, context)));
+            return true;
+        }
+        if (automationInstance("com.bitwig.flt.document.core.master.device.YLB", node)) {
+            out.put(readNestedChain(owner, node, "chain", out.length(), context));
+            return true;
+        }
+        if (automationInstance("com.bitwig.flt.document.core.master.device.AYz", node)) {
+            int index = 0;
+            for (Object chain : (java.util.List<?>) modelGet(node, "NFl"))
+                out.put(readNestedChain(owner, chain, "layer", index++, context));
+            return true;
+        }
+        if (automationInstance("Jnx", node)) {
+            int index = 0;
+            for (Object pad : (java.util.List<?>) modelGet(node, "IYM")) {
+                Object chain = modelGet(pad, "n3R");
+                JSONObject item = chain == null ? new JSONObject().put("kind", "drum_pad")
+                        .put("index", index).put("has_chain", false).put("devices", new JSONArray())
+                        : readNestedChain(owner, chain, "drum_pad", index, context);
+                item.put("key", modelGet(pad, "KF3"));
+                out.put(item);
+                index++;
+            }
+            return true;
+        }
+        // These model classes are leaves for nesting discovery.
+        if (automationInstance("Ob", node) || automationInstance("KOL", node) ||
+                automationInstance("mqD", node)) return true;
+        boolean complete = true;
+        try {
+            java.lang.reflect.Method childrenOf = node.getClass().getMethod("hMI");
+            childrenOf.setAccessible(true);
+            Object children = childrenOf.invoke(node);
+            if (children instanceof java.util.List<?> members)
+                for (Object child : members)
+                    complete &= readNestedComponents(owner, child, out, sidechains, seen, context, depth + 1);
+        } catch (NoSuchMethodException leaf) {
+            // No stored component children.
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("stored nested component read", failure);
+        }
+        return complete;
+    }
+
+    private static JSONObject readNestedChain(Object owner, Object chain, String kind, int index,
+            java.util.IdentityHashMap<Object, JSONObject> context) {
+        Object stored = modelGet(chain, "nY");
+        JSONArray devices = new JSONArray();
+        if (stored != null) {
+            try {
+                Class<?> wrapper = classForName("com.bitwig.flt.document.api.document.ApiDeviceChain");
+                java.lang.reflect.Constructor<?> constructor = wrapper.getDeclaredConstructor(
+                        classForName("com.bitwig.flt.document.core.master.device.Wju"));
+                constructor.setAccessible(true);
+                DeviceChain api = (DeviceChain) constructor.newInstance(stored);
+                java.util.List<?> members = api.getDevices();
+                for (int i = 0; i < members.size(); i++)
+                    devices.put(readDevice((Device) members.get(i), i, context));
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException("stored nested chain wrapper", failure);
+            }
+        }
+        return new JSONObject().put("kind", kind).put("index", index)
+                .put("component_path", jsonModelValue(automationIdentifier(owner, chain)))
+                .put("has_chain", stored != null).put("devices", devices);
+    }
+
+    private static java.util.IdentityHashMap<Object, JSONObject> routingContext(ApiProject project) {
+        java.util.IdentityHashMap<Object, JSONObject> context = new java.util.IdentityHashMap<>();
+        for (Object item : project.getTrackGroup().mainTracks()) {
+            TrackOrTrackGroup track = (TrackOrTrackGroup) item;
+            indexRouting(track, track.getTitle(), context);
+        }
+        for (Object item : project.getTrackGroup().effectTracks()) {
+            TrackOrTrackGroup track = (TrackOrTrackGroup) item;
+            indexRouting(track, "fx/" + track.getTitle(), context);
+        }
+        indexRouting(project.getTrackGroup().masterTrack(), "master", context);
+        return context;
+    }
+
+    private static void indexRouting(TrackOrTrackGroup item, String path,
+                                    java.util.IdentityHashMap<Object, JSONObject> context) {
+        Track track = view(item);
+        context.put(((ApiObject) track).getTarget(), new JSONObject().put("path", path));
+        Object[] sources = {track.preFader(), track.postFader(), track.postFxNotes(), track.deviceChain().preFx()};
+        String[] taps = {"pre_fader", "post_fader", "post_fx_notes", "pre_fx"};
+        for (int i = 0; i < sources.length; i++) {
+            if (sources[i] != null) context.put(((ApiObject) sources[i]).getTarget(),
+                    new JSONObject().put("path", path).put("tap", taps[i]));
+        }
+        if (item instanceof TrackGroup group)
+            for (Object child : group.mainTracks()) {
+                TrackOrTrackGroup member = (TrackOrTrackGroup) child;
+                indexRouting(member, path + "/" + member.getTitle(), context);
+            }
+    }
+
+    private static Object sourceInfo(Object source, java.util.IdentityHashMap<Object, JSONObject> context) {
+        if (source == null) return JSONObject.NULL;
+        JSONObject known = context.get(source);
+        return known != null ? known : new JSONObject().put("model_class", source.getClass().getName())
+                .put("label", modelGet(source, "IxG")).put("resolved", false);
+    }
+
+    private static Object modelGet(Object target, String method) {
+        if (target == null) return null;
+        try {
+            java.lang.reflect.Method getter = target.getClass().getMethod(method);
+            getter.setAccessible(true);
+            return getter.invoke(target);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("model getter " + target.getClass().getName() + "." + method, failure);
+        }
     }
 
     private static NativeDevice nativeDevice(ApiProject project, int trackIndex, int deviceIndex) {
@@ -598,44 +896,46 @@ public final class OpenwigDocument {
             if (deviceIndex < 0 || deviceIndex >= members.size()) {
                 throw new IllegalArgumentException("device index out of range: " + deviceIndex);
             }
-            Object target = ((ApiObject) members.get(deviceIndex)).getTarget();
-            // tjt.bhG() is a pure getter for the native device's CONTENTS root.
-            Object contents;
-            try {
-                contents = target.getClass().getMethod("bhG").invoke(target);
-            } catch (ReflectiveOperationException error) {
-                throw new IllegalStateException("native device contents unavailable", error);
-            }
-            Class<?> decimal = classForName("Ob");
-            Class<?> bool = classForName("KOL");
-            Class<?> indexed = classForName("mqD");
-            java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
-            java.util.List<Object> found = new java.util.ArrayList<>();
-            walkAtoms(contents, 0, seen, found, decimal, bool, indexed);
-            java.lang.reflect.Method pathOf = identifierPathMethod(target.getClass());
-            JSONArray out = new JSONArray();
-            for (Object atom : found) {
-                JSONObject item = new JSONObject().put("kind", atomKind(atom, decimal, bool, indexed));
-                if (pathOf != null) {
-                    try {
-                        String path = (String) pathOf.invoke(target, atom);
-                        if (path != null && path.startsWith("CONTENTS/")) {
-                            item.put("path", path.substring("CONTENTS/".length()));
-                        } else {
-                            continue;
-                        }
-                    } catch (Throwable ignored) {
+            return listDeviceParameters((Device) members.get(deviceIndex));
+        } finally { project.dispose(); }
+    }
+
+    private static JSONArray listDeviceParameters(Device device) {
+        Object target = ((ApiObject) device).getTarget();
+        // tjt.bhG() is a pure getter for the native device's CONTENTS root.
+        Object contents;
+        try {
+            contents = target.getClass().getMethod("bhG").invoke(target);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("native device contents unavailable", error);
+        }
+        Class<?> decimal = classForName("Ob");
+        Class<?> bool = classForName("KOL");
+        Class<?> indexed = classForName("mqD");
+        java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+        java.util.List<Object> found = new java.util.ArrayList<>();
+        walkAtoms(contents, 0, seen, found, decimal, bool, indexed);
+        java.lang.reflect.Method pathOf = identifierPathMethod(target.getClass());
+        JSONArray out = new JSONArray();
+        for (Object atom : found) {
+            JSONObject item = new JSONObject().put("kind", atomKind(atom, decimal, bool, indexed));
+            if (pathOf != null) {
+                try {
+                    String path = (String) pathOf.invoke(target, atom);
+                    if (path != null && path.startsWith("CONTENTS/")) {
+                        item.put("path", path.substring("CONTENTS/".length()));
+                    } else {
                         continue;
                     }
-                } else {
-                    break;
+                } catch (Throwable ignored) {
+                    continue;
                 }
-                out.put(item);
+            } else {
+                break;
             }
-            return out;
-        } finally {
-            project.dispose();
+            out.put(item);
         }
+        return out;
     }
 
     private static java.util.Map<String, String> parameterKinds(int trackIndex, int deviceIndex) {
@@ -816,37 +1116,48 @@ public final class OpenwigDocument {
                         .put("color", color == null ? JSONObject.NULL : color.toHex()));
             }
             out.put("cue_markers", markers);
+            java.util.IdentityHashMap<Object, JSONObject> context = routingContext(project);
+            int scenesCount = sceneCount();
+            JSONArray scenes = new JSONArray();
+            for (int i = 0; i < scenesCount; i++) {
+                com.bitwig.extension.api.project.Scene scene = project.getScene(i);
+                Color color = scene.getColor();
+                scenes.put(new JSONObject().put("index", i).put("name", scene.getTitle())
+                        .put("color", color == null ? JSONObject.NULL : color.toHex()));
+            }
+            out.put("scenes", scenes).put("scene_count", scenesCount);
             JSONArray main = new JSONArray();
             java.util.List<?> tops = project.getTrackGroup().mainTracks();
             for (int i = 0; i < tops.size(); i++) {
-                main.put(dumpTrackOrGroup((TrackOrTrackGroup) tops.get(i), i));
+                main.put(readTrackOrGroup((TrackOrTrackGroup) tops.get(i), i, ((TrackOrTrackGroup) tops.get(i)).getTitle(), scenesCount, context));
             }
             out.put("main_tracks", main);
             JSONArray effects = new JSONArray();
             java.util.List<?> fx = project.getTrackGroup().effectTracks();
             for (int i = 0; i < fx.size(); i++) {
-                effects.put(dumpTrackOrGroup((TrackOrTrackGroup) fx.get(i), -i - 2));
+                effects.put(readTrackOrGroup((TrackOrTrackGroup) fx.get(i), -i - 2, "fx/" + ((TrackOrTrackGroup) fx.get(i)).getTitle(), scenesCount, context));
             }
             out.put("effect_tracks", effects);
-            out.put("master", dumpTrackOrGroup(project.getTrackGroup().masterTrack(), -1));
+            out.put("master", readTrackOrGroup(project.getTrackGroup().masterTrack(), -1, "master", scenesCount, context));
             return out;
         } finally {
             project.dispose();
         }
     }
 
-    private static JSONObject dumpTrackOrGroup(TrackOrTrackGroup item, int index) {
+    private static JSONObject readTrackOrGroup(TrackOrTrackGroup item, int index, String path, int scenesCount, java.util.IdentityHashMap<Object, JSONObject> context) {
         Color color = item.getColor();
         JSONObject out = new JSONObject()
                 .put("index", index)
                 .put("name", item.getTitle())
+                .put("path", path)
                 .put("is_group", item instanceof TrackGroup)
                 .put("color", color == null ? JSONObject.NULL : color.toHex());
         if (item instanceof TrackGroup group) {
             JSONArray children = new JSONArray();
             java.util.List<?> members = group.mainTracks();
             for (int i = 0; i < members.size(); i++) {
-                children.put(dumpTrackOrGroup((TrackOrTrackGroup) members.get(i), i));
+                children.put(readTrackOrGroup((TrackOrTrackGroup) members.get(i), i, path + "/" + ((TrackOrTrackGroup) members.get(i)).getTitle(), scenesCount, context));
             }
             out.put("children", children);
         }
@@ -867,6 +1178,8 @@ public final class OpenwigDocument {
             Send send = mixer.getSend(i);
             JSONObject entry = new JSONObject()
                     .put("index", i)
+                    .put("mode", send.getSendMode().name())
+                    .put("effective_mode", send.getEffectiveSendMode().name())
                     .put("amount", send.getAmount()
                             .getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0);
             try {
@@ -878,16 +1191,39 @@ public final class OpenwigDocument {
             sends.put(entry);
         }
         out.put("sends", sends);
-        out.put("devices", deviceSnapshotList(view));
+        out.put("devices", deviceSnapshotList(view, context));
+        com.bitwig.extension.api.project.routing.Destination destination = view.destinationSelector().getDestination();
+        Track destinationTrack = destination == null ? null : destination.getTrack();
+        out.put("destination", destination == null ? JSONObject.NULL : destinationTrack == null ?
+                sourceInfo(((ApiObject) destination).getTarget(), context) :
+                context.getOrDefault(((ApiObject) destinationTrack).getTarget(),
+                        new JSONObject().put("name", destinationTrack.getTitle())));
+        com.bitwig.extension.api.project.routing.Source source = view.sourceSelector().getSource();
+        out.put("source", sourceInfo(source == null ? null : ((ApiObject) source).getTarget(), context));
+        out.put("automation", readTrackAutomation(view, path));
         JSONArray clips = new JSONArray();
-        try {
-            for (Object clip : view.clipTimeline().getEvents()) {
-                clips.put(dumpClip((Clip) clip));
-            }
-        } catch (RuntimeException noTimeline) {
-            // Some channels (for example the master) have no clip timeline to read.
+        ClipTimeline timeline = view.clipTimeline();
+        if (timeline != null) {
+            for (Object clip : timeline.getEvents()) clips.put(readClip((Clip) clip));
         }
         out.put("clips", clips);
+        JSONArray slots = new JSONArray();
+        // Track slot banks can be shorter than the project scene bank.
+        // Never ask clipSlot for a missing index: it silently appends a slot.
+        int slotCount;
+        try {
+            Object target = ((ApiObject) view).getTarget();
+            slotCount = (Integer) target.getClass().getMethod("ce_").invoke(target);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("launcher slot count unavailable for " + path, error);
+        }
+        for (int i = 0; i < Math.min(slotCount, scenesCount); i++) {
+            com.bitwig.extension.api.project.timeline.ClipSlot slot = view.clipSlot(i);
+            Clip clip = slot.getClip();
+            slots.put(new JSONObject().put("index", i).put("has_stop", slot.hasStopButton())
+                    .put("clip", clip == null ? JSONObject.NULL : readClip(clip)));
+        }
+        out.put("clip_slots", slots);
         return out;
     }
 
@@ -900,7 +1236,301 @@ public final class OpenwigDocument {
         }
     }
 
-    private static JSONObject dumpClip(Clip clip) {
+    // Exact-build native automation reader. Called only on document event queue.
+    // All HMG lanes are returned; exporter omits targets absent from its parameter
+    // identity map, so callers must distinguish raw inventory from export count.
+    private static JSONArray readTrackAutomation(Track view, String path) {
+        Object trackTarget = ((ApiObject) view).getTarget();
+        JSONArray out = new JSONArray();
+        Object pan = ((ApiObject) view.mixer().getPan()).getTarget();
+        java.util.List<?> devices = view.deviceChain().getDevices();
+        for (Object lane : (java.util.List<?>) modelGet(modelGet(trackTarget, "HMG"), "IYM")) {
+            Object target = modelGet(lane, "DvC");
+            JSONObject item = new JSONObject().put("track_path", path)
+                    .put("target_class", target == null ? JSONObject.NULL : target.getClass().getName())
+                    .put("target_name", target == null ? JSONObject.NULL : jsonModelValue(modelGet(target, "rqQ")))
+                    .put("target_path", JSONObject.NULL).put("target_status", target == null ? "null" : "model");
+            String targetPath = automationIdentifier(trackTarget, target);
+            if (targetPath != null) item.put("target_path", targetPath);
+            for (int i = 0; target != null && i < devices.size(); i++) {
+                Object device = ((ApiObject) devices.get(i)).getTarget();
+                String devicePath = automationIdentifier(device, target);
+                if (devicePath != null && !devicePath.startsWith("PROJECT/")) {
+                    item.put("device", i).put("target_path", devicePath)
+                            .put("target_scope", devicePath.contains("DEVICE_CHAIN/") ? "nested_device" :
+                                    devicePath.startsWith("MODULATORS/") ? "modulator" : "device");
+                    break;
+                }
+            }
+            Object timeline = modelGet(lane, "oLP");
+            if (timeline == null) {
+                out.put(item.put("status", "null_timeline").put("unit", JSONObject.NULL)
+                        .put("points", new JSONArray()).put("point_count", 0));
+                continue;
+            }
+            Object type = modelGet(modelGet(timeline, "Nsg"), "NFl");
+            boolean midi = automationInstance("YOq", target);
+            boolean plugin = automationInstance("com.bitwig.flt.document.core.master.device.GAN", target);
+            String unit = target == pan || midi || plugin ? "normalized" : automationUnit(type);
+            if (midi) {
+                Object kind = modelGet(target, "ViH");
+                item.put("expression", enumField(kind, "Gcr") ? "channel_controller" :
+                        enumField(kind, "jPB") ? "channel_pressure" : "pitch_bend")
+                        .put("channel", modelGet(target, "wtf"));
+                if (enumField(kind, "Gcr")) item.put("controller", modelGet(target, "CaE"));
+            }
+            if (plugin) item.put("parameter_id", jsonModelValue(modelGet(target, "KF3")));
+            JSONArray points = readModelPoints(timeline, type, unit);
+            out.put(item.put("unit", jsonModelValue(unit)).put("time_unit", "beats")
+                    .put("points", points).put("point_count", points.length()).put("status", "read"));
+        }
+        return out;
+    }
+
+    private static Object jsonModelValue(Object value) {
+        return value == null ? JSONObject.NULL : value;
+    }
+
+    private static boolean automationInstance(String name, Object value) {
+        Class<?> type = classForName(name);
+        return value != null && type != null && type.isInstance(value);
+    }
+
+    private static String automationIdentifier(Object owner, Object target) {
+        if (owner == null || target == null) return null;
+        java.lang.reflect.Method method = identifierPathMethod(owner.getClass());
+        if (method == null) return null;
+        try { return (String) method.invoke(owner, target); }
+        catch (ReflectiveOperationException absent) { return null; }
+    }
+
+    private static String automationUnit(Object type) {
+        if (!automationInstance("aB", type)) return null;
+        Object domain = modelGet(type, "ppu");
+        if (enumField(domain, "jPB")) return "decibel";
+        if (enumField(domain, "Gcr") || enumField(domain, "Qcu")) return "semitones";
+        Object unit = modelGet(type, "Mqo");
+        if (enumField(unit, "nsm")) return "beats";
+        if (enumField(unit, "eUA")) return "bpm";
+        if (enumField(unit, "xeZ")) return "seconds";
+        if (enumField(unit, "wtf")) return "hertz";
+        return "linear";
+    }
+
+    // For raw note-expression or clip-automation timelines (lGQ subclasses).
+    // Expression-specific unit overrides can use readModelPoints directly.
+    private static JSONArray readExpressionPoints(Object timeline) {
+        if (timeline == null) return new JSONArray();
+        Object type = modelGet(timeline, "eUA");
+        return readModelPoints(timeline, type, automationUnit(type));
+    }
+
+    private static JSONArray readModelPoints(Object timeline, Object type, String unit) {
+        JSONArray points = new JSONArray();
+        if (timeline == null) return points;
+        if (!automationInstance("jmN", timeline)) {
+            for (Object point : (java.util.List<?>) modelGet(timeline, "IYM"))
+                points.put(readModelPoint(point, type, unit));
+            return points;
+        }
+        try {
+            Class<?> listenerType = classForName("htX");
+            Object listener = java.lang.reflect.Proxy.newProxyInstance(listenerType.getClassLoader(),
+                    new Class<?>[]{listenerType}, (proxy, method, args) -> {
+                        String name = method.getName();
+                        if (name.equals("automationWillBePlayedBack") || name.equals("automationAfterEndPointWillBePlayedBack"))
+                            points.put(readModelPoint(args[0], type, unit));
+                        if (name.equals("ne_")) return true;
+                        if (name.equals("hK_")) return false;
+                        if (name.equals("hashCode")) return System.identityHashCode(proxy);
+                        if (name.equals("equals")) return proxy == args[0];
+                        if (name.equals("toString")) return "Openwig automation reader";
+                        return null; // All other exact-build htX/nFh methods return void and are no-op.
+                    });
+            Object context = modelGet(timeline, "Nsg");
+            Object filter = classForName("QsC").getMethod("IYM").invoke(null);
+            double end = classForName("dZ").getField("jPB").getDouble(null);
+            java.lang.reflect.Method walk = classForName("jmN").getMethod("IYM",
+                    classForName("com.bitwig.flt.document.core.iface.fui"), double.class, double.class,
+                    classForName("TCM"), boolean.class, boolean.class, listenerType);
+            walk.invoke(timeline, context, 0.0, end, filter, true, true, listener);
+            return points;
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("native composite automation read", failure);
+        }
+    }
+
+    private static JSONObject readModelPoint(Object point, Object type, String unit) {
+        if (point == null) return new JSONObject().put("status", "null_point")
+                .put("time", JSONObject.NULL).put("value", JSONObject.NULL);
+        JSONObject out = new JSONObject().put("time", modelGet(point, "tS"))
+                .put("point_class", point.getClass().getName());
+        if (automationInstance("GUX", point)) {
+            double raw = ((Number) modelGet(point, "IYM")).doubleValue();
+            return out.put("kind", "real").put("raw_value", raw)
+                    .put("value", convertAutomationReal(raw, type, unit))
+                    .put("interpolation", "linear"); // This is the exporter's interpolation.
+        }
+        if (automationInstance("MJZ", point))
+            return out.put("kind", "boolean").put("value", modelGet(point, "eUA"));
+        if (automationInstance("NME", point)) {
+            int raw = ((Number) modelGet(point, "Wqw")).intValue();
+            try {
+                Object value = classForName("aJ").getMethod("jPB", int.class).invoke(type, raw);
+                return out.put("kind", "enum").put("raw_value", raw).put("value", value);
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException("native enum automation conversion", failure);
+            }
+        }
+        if (automationInstance("xmH", point))
+            return out.put("kind", "integer").put("value", modelGet(point, "Wqw"));
+        if (automationInstance("pmA", point))
+            return out.put("kind", "time_signature").put("value", JSONObject.NULL)
+                    .put("numerator", modelGet(point, "dU_")).put("denominator", modelGet(point, "Qcu"));
+        return out.put("status", "unsupported_point_type").put("value", JSONObject.NULL);
+    }
+
+    private static double convertAutomationReal(double raw, Object type, String unit) {
+        if (!automationInstance("aB", type))
+            throw new IllegalStateException("real automation requires aB value type");
+        try {
+            if ("normalized".equals(unit))
+                return ((Number) classForName("aB").getMethod("IYM", double.class).invoke(type, raw)).doubleValue();
+            String field = switch (unit == null ? "linear" : unit) {
+                case "percent" -> "jPB";
+                case "decibel" -> "AOA";
+                case "hertz" -> "wtf";
+                case "semitones" -> "Qcu";
+                case "seconds" -> "xeZ";
+                case "beats" -> "nsm";
+                case "bpm" -> "eUA";
+                default -> "IYM";
+            };
+            Object domain = modelGet(type, "ppu");
+            Object destination = classForName("fH").getField(field).get(null);
+            return ((Number) classForName("fK").getMethod("IYM", double.class,
+                    classForName("fG"), classForName("fH")).invoke(null, raw, domain, destination)).doubleValue();
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("native real automation conversion", failure);
+        }
+    }
+
+    private static boolean enumField(Object value, String field) {
+        try { return value != null && value == ((Enum<?>) value).getDeclaringClass().getField(field).get(null); }
+        catch (ReflectiveOperationException failure) { throw new IllegalStateException("model enum field " + field, failure); }
+    }
+
+
+    // Read-only PNT/Tc getters from exact original 6.1.5. Both vuj MIDI notes
+    // and KoO audio events inherit these fields. No expression creation calls.
+    private static JSONObject readNoteExtras(Object model) {
+        if (model == null) return new JSONObject().put("status", "null_note_model");
+        int recurrence = ((Number) modelGet(model, "QmZ")).intValue();
+        int period = 1 + (recurrence & 7);
+        JSONArray iterations = new JSONArray();
+        for (int i = 0; i < period; i++) iterations.put((recurrence & (1 << (3 + i))) != 0);
+        int repeat = ((Number) modelGet(model, "XYl")).intValue();
+        JSONObject out = new JSONObject()
+                .put("chance_enabled", modelGet(model, "HT3"))
+                .put("chance", modelGet(model, "Mqo"))
+                .put("occurrence_enabled", modelGet(model, "WEC"))
+                .put("occurrence", ((Enum<?>) modelGet(model, "tY1")).name())
+                .put("recurrence_enabled", modelGet(model, "kAg"))
+                .put("recurrence", recurrence)
+                .put("recurrence_period", period)
+                .put("recurrence_iterations", iterations)
+                .put("repeat_enabled", modelGet(model, "ap"))
+                .put("repeat_count", repeat)
+                .put("repeat_subdivisions", Math.abs(repeat) + 1)
+                .put("repeat_curve", modelGet(model, "QPT"))
+                .put("content_start", modelGet(model, "ySK"));
+        JSONArray expressions = new JSONArray();
+        Object content = modelGet(model, "smZ");
+        if (content != null) {
+            for (Object timeline : (java.util.List<?>) modelGet(content, "CZR")) {
+                String name = ((Enum<?>) modelGet(timeline, "bXk")).name();
+                String unit = name.equals("TRANSPOSE") || name.equals("FORMANT") ? "semitones" : "linear";
+                Object type = modelGet(timeline, "eUA");
+                // This uses the same fK.IYM(raw, fG source, fH destination)
+                // conversion as ApiDawProjectExporter. In particular, gain is
+                // converted out of its CUBE_ROOT storage domain to linear.
+                JSONArray points = readModelPoints(timeline, type, unit);
+                java.util.List<?> stored = (java.util.List<?>) modelGet(timeline, "IYM");
+                // Exporter flattens interpolation to linear. Retain the actual
+                // model interpolation/curve in JSON for native read fidelity.
+                for (int i = 0; i < stored.size(); i++) {
+                    Object point = stored.get(i);
+                    if (automationInstance("GUX", point)) {
+                        points.getJSONObject(i)
+                                .put("interpolation", ((Enum<?>) modelGet(point, "AOA")).name().toLowerCase(java.util.Locale.ROOT))
+                                .put("curvature", modelGet(point, "dT_"));
+                    }
+                }
+                expressions.put(new JSONObject().put("expression", name.toLowerCase(java.util.Locale.ROOT))
+                        .put("unit", unit).put("time_unit", "beats")
+                        .put("points", points).put("point_count", points.length()));
+            }
+        }
+        return out.put("expressions", expressions);
+    }
+
+    private static JSONObject readAudioEvent(com.bitwig.extension.api.project.timeline.AudioNote event) {
+        Object model = ((ApiObject) event).getTarget();
+        Object sample = modelGet(model, "xFs");
+        java.io.File file = sample == null ? null : event.getAudioFile();
+        JSONObject out = new JSONObject().put("start", event.getTime())
+                .put("duration", event.getDuration()).put("muted", event.isMuted())
+                .put("file", file == null ? JSONObject.NULL : file.getAbsolutePath())
+                .put("sample_file_status", file == null ? "unresolved" : "resolved")
+                .put("sample_rate", sample == null ? JSONObject.NULL : event.getSampleRate()).put("channels", sample == null ? JSONObject.NULL : event.getChannelCount())
+                .put("sample_duration_seconds", sample == null ? JSONObject.NULL : event.getAudioFileDurationInSeconds())
+                .put("algorithm", modelGet(modelGet(model, "TdG"), "jPB"))
+                .put("fade_in", modelGet(model, "dM_"))
+                .put("fade_out", modelGet(model, "KF3"))
+                .put("fade_time_unit", "beats")
+                .put("play_start_offset", modelGet(model, "xTe"))
+                .put("warp_mode", event.getWarpMode().name())
+                .put("preserve_transients_mode", event.getPreserveTransientsMode().name())
+                .put("transient_rate", event.getTransientRate().name())
+                .put("warp_grain_size", event.getWarpGrainSize().name())
+                .put("warp_tail_mode", event.getWarpTailMode().name())
+                .put("preview_onsets", event.getPreviewOnsets())
+                .put("preserve_formants", event.getPreserveFormants())
+                .put("formant_envelope_resolution", event.getFormantEnvelopeResolution())
+                .put("reverse", modelGet(modelGet(model, "jsk"), "wtf"))
+                .put("sample_play_start_seconds", modelGet(model, "IT3"))
+                .put("sample_play_stop_seconds", modelGet(model, "Klm"));
+        com.bitwig.extension.api.project.timeline.WarpMarkers warp = event.getWarpEvents();
+        JSONArray markers = new JSONArray();
+        // The API returns a sanitized copy and can drop stored markers. Read
+        // the original GLs timeline, exactly as the DAWproject exporter does.
+        Object storedWarp = modelGet(model, "p3P");
+        int count = ((Number) modelGet(storedWarp, "WEC")).intValue();
+        try {
+            java.lang.reflect.Method markerAt = storedWarp.getClass().getMethod("Gcr", int.class);
+            markerAt.setAccessible(true);
+            for (int i = 0; i < count; i++) {
+                Object marker = markerAt.invoke(storedWarp, i);
+                markers.put(new JSONObject().put("time", modelGet(marker, "tS"))
+                        .put("content_time", modelGet(marker, "IYM")));
+            }
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("stored warp marker read", failure);
+        }
+        out.put("warp_markers", event.getWarpMode().name().equals("RAW") ? new JSONArray() : markers)
+                .put("api_warp_markers_valid", warp.areWarpMarkersValid());
+        if (event.getWarpMode().name().equals("RAW")) out.put("inactive_warp_markers", markers);
+        JSONObject extras = readNoteExtras(model);
+        String contentTimeUnit = event.getWarpMode().name().equals("RAW") ? "seconds" : "beats";
+        for (Object expression : extras.getJSONArray("expressions")) {
+            ((JSONObject) expression).put("time_unit", contentTimeUnit);
+        }
+        out.put("content_time_unit", contentTimeUnit);
+        for (String key : extras.keySet()) out.put(key, extras.get(key));
+        return out;
+    }
+
+    private static JSONObject readClip(Clip clip) {
         Color color = clip.getColor();
         JSONObject out = new JSONObject()
                 .put("name", clip.getTitle())
@@ -917,7 +1547,7 @@ public final class OpenwigDocument {
             JSONArray notes = new JSONArray();
             for (Object item : noteClip.getContent().getEventTimeline().getEvents()) {
                 InstrumentNote note = (InstrumentNote) item;
-                notes.put(new JSONObject()
+                notes.put(readNoteExtras(((ApiObject) note).getTarget())
                         .put("channel", note.getChannel())
                         .put("key", note.getKey())
                         .put("start", note.getTime())
@@ -930,7 +1560,11 @@ public final class OpenwigDocument {
         } else if (clip instanceof AudioClip audioClip) {
             out.put("content", "audio")
                     .put("fade_in", audioClip.getFadeInTime())
-                    .put("fade_out", audioClip.getFadeOutTime());
+                    .put("fade_out", audioClip.getFadeOutTime()).put("fade_time_unit", "beats");
+            JSONArray events = new JSONArray();
+            for (Object event : audioClip.getContent().getEventTimeline().getEvents())
+                events.put(readAudioEvent((com.bitwig.extension.api.project.timeline.AudioNote) event));
+            out.put("audio_events", events);
         } else {
             out.put("content", "other");
         }
@@ -973,57 +1607,73 @@ public final class OpenwigDocument {
     public static JSONArray automationEnumerate(int trackIndex) {
         ApiProject project = project();
         try {
-            JSONArray lanes = new JSONArray();
-            Track view = track(project, trackIndex);
-            addLane(lanes, "volume", view.mixer().getVolume(), -1);
-            addLane(lanes, "pan", view.mixer().getPan(), -1);
-            for (int i = 0; i < view.mixer().getSendCount(); i++) {
-                addLane(lanes, "send" + i, view.mixer().getSend(i).getAmount(), -1);
-            }
-            java.util.List<?> devices = view.deviceChain().getDevices();
-            for (int d = 0; d < devices.size(); d++) {
-                if (!(devices.get(d) instanceof NativeDevice nativeDevice)) {
-                    continue;
-                }
-                Object target = ((ApiObject) devices.get(d)).getTarget();
-                Class<?> decimal = classForName("Ob");
-                if (decimal == null || target == null) {
-                    continue;
-                }
-                java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
-                java.util.List<Object> found = new java.util.ArrayList<>();
-                Object contents;
-                try {
-                    contents = target.getClass().getMethod("bhG").invoke(target);
-                } catch (ReflectiveOperationException missing) {
-                    continue;
-                }
-                walkAtoms(contents, 0, seen, found, decimal, null, null);
-                java.lang.reflect.Method pathOf = identifierPathMethod(target.getClass());
-                if (pathOf == null) {
-                    continue;
-                }
-                for (Object atom : found) {
-                    String name;
-                    try {
-                        name = (String) pathOf.invoke(target, atom);
-                    } catch (Throwable unreadable) {
-                        continue;
-                    }
-                    if (name == null || !name.startsWith("CONTENTS/")) {
-                        continue;
-                    }
-                    DoubleParameter parameter = nativeDevice.getDoubleParameter(
-                            name.substring("CONTENTS/".length()));
-                    if (parameter != null) {
-                        addLane(lanes, name.substring("CONTENTS/".length()), parameter, d);
-                    }
-                }
+            return automationEnumerate(track(project, trackIndex));
+        } finally { project.dispose(); }
+    }
+
+    public static JSONArray automationEnumerate(String path) {
+        ApiProject project = project();
+        try {
+            JSONArray lanes = readTrackAutomation(view(resolve(project, path)), path);
+            for (int i = 0; i < lanes.length(); i++) {
+                JSONObject lane = lanes.getJSONObject(i);
+                String name = lane.optString("target_path", lane.optString("target_name", ""));
+                if (name.startsWith("CONTENTS/")) name = name.substring("CONTENTS/".length());
+                lane.put("param", name).put("points", lane.getJSONArray("points").length());
             }
             return lanes;
-        } finally {
-            project.dispose();
         }
+        finally { project.dispose(); }
+    }
+
+    private static JSONArray automationEnumerate(Track view) {
+        JSONArray lanes = new JSONArray();
+        addLane(lanes, "volume", view.mixer().getVolume(), -1);
+        addLane(lanes, "pan", view.mixer().getPan(), -1);
+        for (int i = 0; i < view.mixer().getSendCount(); i++) {
+            addLane(lanes, "send" + i, view.mixer().getSend(i).getAmount(), -1);
+        }
+        java.util.List<?> devices = view.deviceChain().getDevices();
+        for (int d = 0; d < devices.size(); d++) {
+            if (!(devices.get(d) instanceof NativeDevice nativeDevice)) {
+                continue;
+            }
+            Object target = ((ApiObject) devices.get(d)).getTarget();
+            Class<?> decimal = classForName("Ob");
+            if (decimal == null || target == null) {
+                continue;
+            }
+            java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+            java.util.List<Object> found = new java.util.ArrayList<>();
+            Object contents;
+            try {
+                contents = target.getClass().getMethod("bhG").invoke(target);
+            } catch (ReflectiveOperationException missing) {
+                continue;
+            }
+            walkAtoms(contents, 0, seen, found, decimal, null, null);
+            java.lang.reflect.Method pathOf = identifierPathMethod(target.getClass());
+            if (pathOf == null) {
+                continue;
+            }
+            for (Object atom : found) {
+                String name;
+                try {
+                    name = (String) pathOf.invoke(target, atom);
+                } catch (Throwable unreadable) {
+                    continue;
+                }
+                if (name == null || !name.startsWith("CONTENTS/")) {
+                    continue;
+                }
+                DoubleParameter parameter = nativeDevice.getDoubleParameter(
+                        name.substring("CONTENTS/".length()));
+                if (parameter != null) {
+                    addLane(lanes, name.substring("CONTENTS/".length()), parameter, d);
+                }
+            }
+        }
+        return lanes;
     }
 
     private static void addLane(JSONArray lanes, String name, DoubleParameter parameter,

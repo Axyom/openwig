@@ -7,4 +7,6 @@ import com.bitwig.extension.api.project.track.Track;
 public interface Send {
     DoubleParameter getAmount();
     Track getTargetTrack();
+    SendMode getSendMode();
+    SendMode getEffectiveSendMode();
 }

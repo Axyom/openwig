@@ -89,7 +89,7 @@ openwig's Python `BridgeClient` received the handshake, changed tempo from
 disposable copy of `demo_openwig.bwproject` (track count 12 to 13). A later
 live check created a one-note arranger clip on a new instrument track and
 read back one clip and one note. These are small integration checks, not a
-Song API parity test. The original Program Files installation was not patched.
+Song API parity test. These checks used a separate test installation.
 Track rename, volume, pan, and mute were verified with readback on another
 disposable track. Volume and pan use the controller-compatible normalized
 `0..1` scale; pan `0.5` is center.
@@ -127,29 +127,111 @@ Repeat using `$env:PYTHONPATH="src"; python tests\live_java_automation.py` on a
 disposable project with no existing tempo automation. Clearing a lane removes
 its time-varying automation; Bitwig can retain one constant fallback point.
 
-`project.dump` passed a live check on a released 7-group, ~90-track project
-("Axyom - The Substance EXPERIMENT"): the full nested group tree, 664 clips,
-776 notes, 10 cue markers, and the master chain (9 native + 2 VST3 devices)
-all read back. The dump also reports transport tempo, groove state, shuffle,
-and the current time signature, plus per-track `is_active` and crossfade
-mode. The dump was written to `scratch/substance-dump.json` during
-that check. Known read gaps after that check: many devices report an empty
-`display_name`, plugin parameters and device-chain nesting are not read,
-and child tracks inside groups are not index-addressable.
+## Native project reader
 
-`automation.enumerate` lists the arranger lanes that exist on one
-top-level track (or the master with track -1): mixer volume/pan/sends and
-every native double parameter, with point counts. Live check: the released
-project's master reported one lane (device 6 `AMPLITUDE`, 13 points).
+Read-only live checks on 2026-10-18 used the owner's released
+"Axyom - The Substance EXPERIMENT" project in the isolated Bitwig copy.
+The corrected full dump contains 107 tracks including 17 groups, 400 devices
+in track-level chains, 2831 arranger clips, 2527 notes, and 10 cue markers.
+Earlier 664-clip/776-note figures were incomplete and are superseded.
+The native scene reader found 10 scenes and 1070 launcher slots.
+
+Every track has a title-based `path`; use `master`, `fx/Name`, or a nested
+group path. Duplicate sibling titles resolve to the first match. This project
+has 105 unique paths for 107 tracks because `Atmos/Pad` and
+`Transitions/Phase Plant` each occur twice. Titles containing `/`, such as
+`Leads/Vocals`, resolve using the longest matching literal title. Polling checks
+covered 105 track reads, 84 clip reads, 82 device reads, and 96 enumerated
+automation lanes through path-addressed RPCs.
+
+Native device reads include identity and numeric/boolean/enum parameter values.
+Nested-chain checks expanded 400 track-level devices to 528 recursive devices
+and found 55 layer chains, with no truncation or cycle references. Drum pads and
+single-chain containers are implemented from verified signatures but were not
+exercised by this project. Recursive reads returned 15742 native/plugin
+parameters, including 6555 plugin parameters.
+Plugin reads include device ID, name, vendor, and preset fields. Parameter
+availability is explicit and depends on resident engine descriptors: an early
+read found all 77 top-level VST3 caches empty; after settling, 62 were available
+and 15 remained `unavailable_model_cache`, yielding 4182 top-level plugin
+parameters. An unavailable cache is not an empty parameter list claim.
+
+Routing reads include native input sources and destinations and plugin
+sidechain sources. Six non-null plugin sidechain sources resolved to track
+paths and tap points. The final native sidechain gate read 143 `WYJ` components
+across recursive devices, including five non-null sources. Note reads include
+chance, repeat, occurrence,
+and recurrence data, plus 154 expression envelopes containing 316 points.
+Audio reads covered 2898 events, 5697 warp markers, and 1425 expression
+envelopes containing 1529 points, along with sample references and clip/event
+settings. Value-level XML comparisons passed for 105 first-match track paths,
+373 device identities, 2821 clips, 2360 notes, all 2898 audio events and 5697
+warp markers, and all the expression envelopes/points counted above. Duplicate
+paths account for the smaller targeted clip/note comparison subset.
+Exports taken before and after the read cycle were unchanged. No project save
+was performed.
+
+Each dump track now includes native composite arranger automation targets,
+units, and points. Live checks found 105 lanes and 4124 points; all 23 exported
+lanes and their 568 points matched, including values. The other 82 lanes are
+native data beyond the exporter's target coverage and are reported as
+diagnostics rather than parity gaps. Path-addressed `automation.enumerate`
+returns targets, units, and integer point counts for this full raw inventory;
+the per-track dump contains the point arrays. Its legacy index form
+retains mixer/native-double enumeration behavior.
+
+The gated read-only modulator inventory passed in the scratch copy: 766 entries
+across 528 devices, with name, display name, preset, index, and nullable ID.
+The engine process remained unchanged across repeated full dumps, no crash or
+hang occurred, and before/after exports and structure/value checks passed.
+This verifies stored inventory only; modulator parameters, mappings, and Grid
+internals remain unresolved. Plugin parameter caches can still be unavailable
+on any read, as described above.
+
+The live synthetic fixture capture (`tests/live_java_reader_fixture.py --capture`)
+passed on a disposable scratch project. It retained only three newly authored
+tracks and a sanitized master, producing a four-track/two-note fixture with
+FM-4; no existing project was cleared or saved. That separate check verified
+the effect-track path read against the dump and a send amount of 0.3 with
+`AUTO` mode, effective `POST`, matching the export's post-fader send type.
+The final released-project native sidechain gate also preserved equal
+before/after exports and passed structure/value checks. Native component and
+plugin sidechain counts above describe separate representations.
+
+Final verification: 94 unit tests passed, the Java bridge smoke check passed,
+and the controller JavaScript syntax check passed. Exact-build reader getter
+signatures and their evidence are recorded in [READER_SIGNATURES.md](READER_SIGNATURES.md).
+These results establish the listed coverage, not complete native schema parity.
+
+```python
+from openwig import JavaSong
+from openwig.java_read import export_to_dict, parity_report
+
+with JavaSong() as song:
+    dump = song.dump()
+    master = song.track_at("master")
+    track = master.read()
+    device = master.read_device(0)
+    lanes = master.enumerate_automation()
+    # On a track containing an arranger clip:
+    # clip = song.track_at("Group/Track").read_clip(0)
+    exported = export_to_dict(song)
+    report = parity_report(dump, exported)
+```
+
+These readers run on demand; the whole-project dump composes shared readers
+in one document event. The parity report identifies structural mismatches and
+distinguishes native, partial, unavailable, and export-only fields.
 
 `project.export_dawproject` writes the open project as a Bitwig
 `.dawproject` archive (the open XML exchange format) using Bitwig's own
 exporter. Python: `JavaSong.export_dawproject(path, embed_media=False)`
 (relative paths resolve against the caller's directory). The structure-only
-export of the released project was 139 KB and contains what `dump` cannot
-read: device identifiers, names, and roles (including plugins), routing
-destinations, automation points, warp markers (5697), launcher clip slots,
-scenes, and time signature. `embed_media=True` also embeds referenced
+export of the released project was 139 KB. It remains the archival format and
+parity baseline, including automation and plugin data where the live model
+reader remains partial. Its XML clip count includes nested content and launcher
+instances, so it differs from the arranger-clip count above.
+`embed_media=True` also embeds referenced
 sample files. The project is not modified, and `ApiProject` additionally
 exposes `importDawProject` for a future write path.
 
@@ -199,7 +281,8 @@ loop readback, and writes `scratch/java-render-smoke.wav`. It does not clear or
 save the project. Use an empty disposable project so existing tracks cannot
 produce a false positive for the non-silence check.
 
-Launcher clips are outside the current migration scope. `JavaSong.clear()` clears the active project of
+Launcher clip writing is outside the current migration scope; launcher slots
+and clips can be read. `JavaSong.clear()` clears the active project of
 main/effect tracks and master devices. Use it on a disposable project while
 the bridge is experimental. `JavaSong.clear_main_tracks()` and
 `JavaSong.clear_effect_tracks()` expose the individual clear operations.
@@ -224,7 +307,10 @@ patch; the installer rejects an unknown original.
 
 ## Next step
 
-Finish audible rendering verification, then port remaining track properties and run
-the existing Python song examples against
-the patched application. The main Song API still targets the controller on
-port 7777 until those operations pass live tests.
+Address remaining schema field gaps and unavailable plugin caches as separate
+verified items. Modulator mappings/parameters and Grid internals remain outside the
+verified inventory boundary.
+Keep unavailable plugin parameter caches explicit. See `JAVA_BRIDGE_GAPS.md`
+and `READER_PARITY_DESIGN.md` for verified coverage and remaining work.
+Catalog capture and recreate/import are design phase 4 and remain out of scope.
+The main Song API still targets the controller on port 7777.

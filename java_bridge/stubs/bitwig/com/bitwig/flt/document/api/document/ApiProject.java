@@ -11,6 +11,7 @@ public class ApiProject {
     public Factory getFactory() { throw new UnsupportedOperationException(); }
     public com.bitwig.extension.api.project.Transport getTransport() { throw new UnsupportedOperationException(); }
     public TrackGroup getTrackGroup() { throw new UnsupportedOperationException(); }
+    public com.bitwig.extension.api.project.Scene getScene(int index) { throw new UnsupportedOperationException(); }
     public CueMarkers getCueMarkers() { throw new UnsupportedOperationException(); }
     public String getMetadataText(ProjectMetadata key) { throw new UnsupportedOperationException(); }
     public com.bitwig.dawproject.Project exportDawProject(java.util.Map map) {

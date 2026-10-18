@@ -123,21 +123,21 @@ class JavaSong:
     def dump(self) -> dict:
         """Read the whole open project.
 
-        Returns metadata, cue markers, and the full track tree: groups with
-        children, per-track mixer state, sends (with target names), device
-        chains with kinds (native/vst3/vst2/plugin), and arranger clips with
-        note contents. Read-only; nothing in the project is modified.
+        Includes the full track tree, scenes/slots, mixer and routing state,
+        nested devices, resident parameter values, arranger automation, note
+        expressions and audio events/warps. Unavailable plugin caches and the
+        inventory-only modulator boundary are explicit. One document event;
+        nothing in the project is modified.
         """
         return self.b.request("project.dump", timeout=125)
 
     def export_dawproject(self, path, *, embed_media: bool = False) -> dict:
         """Export the open project to a Bitwig ``.dawproject`` archive.
 
-        The DAWproject format is Bitwig's open XML exchange format and covers
-        more than ``dump`` (plugin parameters, modulators, routing, note
-        expressions, launcher clips). Media files are referenced, not
-        embedded, unless ``embed_media`` is true. Returns the written path,
-        size, and embedded-file count. The project itself is not modified.
+        Bitwig's XML exchange format is the archival/parity baseline, including
+        plugin state references. Media files are referenced unless
+        ``embed_media`` is true. Returns the written path, size, and embedded
+        file count. The project itself is not modified.
         """
         from pathlib import Path
         return self.b.request("project.export_dawproject",
@@ -189,16 +189,61 @@ class JavaSong:
     def audio_track(self, name: str) -> JavaTrack:
         return self.track(name, kind="audio")
 
+    def track_at(self, path: str) -> JavaTrack:
+        """Select an existing track by title path, ``master``, or ``fx/Name``.
+
+        Duplicate siblings resolve to the first. Path handles expose the
+        polling readers; existing editing methods still require index handles.
+        """
+        if not isinstance(path, str) or not path or any(not part for part in path.split("/")):
+            raise ValueError("a nonempty track path is required")
+        return JavaTrack(self, None, path.rsplit("/", 1)[-1], path=path)
+
 
 class JavaTrack:
-    """Main instrument track controlled by the Java bridge."""
+    """Index-based editing handle or path-based polling reader."""
 
-    def __init__(self, song: JavaSong, index: int, name: str):
+    def __init__(self, song: JavaSong, index: int | None, name: str,
+                 *, path: str | None = None):
         self.s = song
-        self.idx = index
+        self._index = index
         self.name = name
+        self.path = path
+
+    @property
+    def idx(self) -> int:
+        if self._index is None:
+            raise ValueError("this operation requires an index-based track handle")
+        return self._index
+
+    def _read_path(self) -> str:
+        if self.path is not None:
+            return self.path
+        if self.idx == -1:
+            return "master"
+        if self.idx < -1:
+            return "fx/" + self.name
+        return self.snapshot()["name"]
+
+    def read(self) -> dict:
+        """Read this track subtree using the same builder as ``dump()``."""
+        return self.s.b.request("track.read", {"path": self._read_path()}, timeout=125)
+
+    def read_clip(self, index: int) -> dict:
+        """Read one arranger clip, including its note or audio content."""
+        return self.s.b.request("clip.read", {"path": self._read_path(), "clip": int(index)}, timeout=125)
+
+    def read_device(self, index: int) -> dict:
+        """Read identity, nested chains, and resident native/plugin parameters."""
+        return self.s.b.request("device.read", {"path": self._read_path(), "device": int(index)}, timeout=125)
+
+    def enumerate_automation(self) -> list[dict]:
+        """Poll arranger lane targets, units, and point counts for this track."""
+        return self.s.b.request("automation.enumerate", {"path": self._read_path()}, timeout=125)
 
     def snapshot(self) -> dict:
+        if self.path is not None:
+            return self.read()
         return self.s.b.request("track.snapshot", {"index": self.idx})
 
     def add_device(self, name: str) -> JavaTrack:

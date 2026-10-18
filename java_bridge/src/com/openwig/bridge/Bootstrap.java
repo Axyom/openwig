@@ -170,6 +170,14 @@ public final class Bootstrap {
                                 onDocumentEvent(DirectAccess::clearMasterDevices, 60)));
                 case "project.clear" -> response.put("result",
                         onDocumentEvent(DirectAccess::clearProject, 120));
+                case "track.read", "clip.read", "device.read" -> {
+                    JSONObject params = request.getJSONObject("params");
+                    String path = params.getString("path");
+                    int index = method.equals("track.read") ? -1 :
+                            params.getInt(method.equals("clip.read") ? "clip" : "device");
+                    response.put("result", onDocumentEvent(
+                            () -> DirectAccess.readObject(method, path, index), 120));
+                }
                 case "project.dump" -> response.put("result",
                         onDocumentEvent(DirectAccess::dumpProject, 120));
                 case "project.export_dawproject" -> {
@@ -186,7 +194,9 @@ public final class Bootstrap {
                     JSONObject params = request.optJSONObject("params");
                     int track = params == null ? -1 : params.optInt("track", -1);
                     response.put("result", onDocumentEvent(
-                            () -> DirectAccess.automationEnumerate(track), 120));
+                            () -> params != null && params.has("path")
+                                    ? DirectAccess.automationEnumeratePath(params.getString("path"))
+                                    : DirectAccess.automationEnumerate(track), 120));
                 }
                 case "device.count" -> {
                     JSONObject params = request.optJSONObject("params");

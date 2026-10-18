@@ -32,6 +32,10 @@ class FakeJavaBridge:
             return {"metadata": {}, "cue_markers": [], "main_tracks": []}
         if method == "project.export_dawproject":
             return {"path": params["path"], "bytes": 1, "embedded_files": 0}
+        if method in {"track.read", "clip.read", "device.read"}:
+            return {"path": params["path"], "method": method}
+        if method == "automation.enumerate":
+            return []
         raise AssertionError(f"unexpected request: {method}")
 
 
@@ -71,3 +75,37 @@ def test_refuses_wrong_host_version(bridge):
     from openwig.bridge import BridgeError
     with pytest.raises(BridgeError):
         JavaSong(bridge=bridge)
+
+
+def test_targeted_reads_address_nested_tracks_without_index_or_write(bridge):
+    track = JavaSong(bridge=bridge).track_at("Drums/Kick")
+    bridge.calls.clear()
+    assert track.snapshot()["method"] == "track.read"
+    assert track.read_clip(2)["method"] == "clip.read"
+    assert track.read_device(1)["method"] == "device.read"
+    assert track.enumerate_automation() == []
+    assert bridge.calls == [
+        ("track.read", {"path": "Drums/Kick"}),
+        ("clip.read", {"path": "Drums/Kick", "clip": 2}),
+        ("device.read", {"path": "Drums/Kick", "device": 1}),
+        ("automation.enumerate", {"path": "Drums/Kick"}),
+    ]
+    with pytest.raises(ValueError, match="index-based"):
+        track.volume(0.2)
+    assert len(bridge.calls) == 4
+
+
+@pytest.mark.parametrize("path", ["master", "fx/Reverb", "Leads/Vocals"])
+def test_special_and_literal_slash_paths_are_preserved(bridge, path):
+    track = JavaSong(bridge=bridge).track_at(path)
+    track.read()
+    assert bridge.calls[-1] == ("track.read", {"path": path})
+
+
+@pytest.mark.parametrize("path", ["", "/Drums", "Drums/", None])
+def test_empty_path_segments_are_rejected_before_rpc(bridge, path):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    with pytest.raises(ValueError, match="track path"):
+        song.track_at(path)
+    assert bridge.calls == []

@@ -161,6 +161,14 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static JSONObject readObject(String method, String path, int index) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
+    public static JSONArray automationEnumeratePath(String path) {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static JSONObject dumpProject() {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
