@@ -551,19 +551,8 @@ public final class PatchMain {
         MethodVisitor active = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "activeDocumentObject", "()Ljava/lang/Object;", null, null);
         active.visitCode();
-        active.visitMethodInsn(Opcodes.INVOKESTATIC, "com/bitwig/flt/app/eY1", "ncg",
-                "()Lcom/bitwig/flt/app/eY1;", false);
-        active.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "com/bitwig/flt/app/eY1", "Lg",
-                "()LF;", false);
-        active.visitMethodInsn(Opcodes.INVOKEINTERFACE, "F", "getValue",
-                "()Ljava/lang/Object;", true);
-        active.visitTypeInsn(Opcodes.CHECKCAST, "java/util/List");
-        active.visitInsn(Opcodes.ICONST_0);
-        active.visitMethodInsn(Opcodes.INVOKEINTERFACE, "java/util/List", "get",
-                "(I)Ljava/lang/Object;", true);
-        active.visitTypeInsn(Opcodes.CHECKCAST, "aBx");
-        active.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "aBx", "wtf",
-                "()Lcom/bitwig/flt/document/core/iface/IPw;", false);
+        active.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "currentDocument",
+                "()Ljava/lang/Object;", false);
         active.visitInsn(Opcodes.ARETURN);
         active.visitMaxs(0, 0);
         active.visitEnd();
@@ -793,19 +782,8 @@ public final class PatchMain {
     private static void emitNewProject(MethodVisitor method) {
         method.visitTypeInsn(Opcodes.NEW, "com/bitwig/flt/document/api/document/ApiProject");
         method.visitInsn(Opcodes.DUP);
-        method.visitMethodInsn(Opcodes.INVOKESTATIC, "com/bitwig/flt/app/eY1", "ncg",
-                "()Lcom/bitwig/flt/app/eY1;", false);
-        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "com/bitwig/flt/app/eY1", "Lg",
-                "()LF;", false);
-        method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "F", "getValue",
-                "()Ljava/lang/Object;", true);
-        method.visitTypeInsn(Opcodes.CHECKCAST, "java/util/List");
-        method.visitInsn(Opcodes.ICONST_0);
-        method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "java/util/List", "get",
-                "(I)Ljava/lang/Object;", true);
-        method.visitTypeInsn(Opcodes.CHECKCAST, "aBx");
-        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "aBx", "wtf",
-                "()Lcom/bitwig/flt/document/core/iface/IPw;", false);
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "com/openwig/bridge/DirectAccess", "activeDocumentObject",
+                "()Ljava/lang/Object;", false);
         method.visitTypeInsn(Opcodes.CHECKCAST, "com/bitwig/flt/document/core/master/oZU");
         method.visitMethodInsn(Opcodes.INVOKESPECIAL,
                 "com/bitwig/flt/document/api/document/ApiProject", "<init>",

@@ -30,6 +30,10 @@ class FakeJavaBridge:
             return {"active": True}
         if method == "project.dump":
             return {"metadata": {}, "cue_markers": [], "main_tracks": []}
+        if method in {"document.info", "document.select", "project.save_copy"}:
+            return params
+        if method == "document.list":
+            return {"documents": []}
         if method == "project.export_dawproject":
             return {"path": params["path"], "bytes": 1, "embedded_files": 0}
         if method == "project.import_dawproject":
@@ -96,6 +100,20 @@ def test_import_dawproject_sends_resolved_path(bridge):
     assert method == "project.import_dawproject"
     assert params["path"] == str(Path("in.dawproject").resolve())
     assert result["main_tracks"] == 2
+
+
+def test_native_project_save_and_document_selection(bridge):
+    from pathlib import Path
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    song.save_project("new/song.bwproject")
+    song.select_project("new/song.bwproject")
+    song.project_info()
+    assert bridge.calls == [
+        ("project.save_copy", {"path": str(Path("new/song.bwproject").resolve())}),
+        ("document.select", {"path": str(Path("new/song.bwproject").resolve())}),
+        ("document.info", {}),
+    ]
 
 
 def test_metadata_cue_marker_and_scene_updates(bridge):

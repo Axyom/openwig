@@ -358,11 +358,12 @@ public final class Bootstrap {
                     }
                     response.put("result", onDocumentEvent(() -> DirectAccess.trackSnapshot(index)));
                 }
-                case "project.import_dawproject", "project.set_metadata", "cue_marker.create",
+                case "document.info", "document.list", "document.select", "project.save_copy", "project.import_dawproject", "project.set_metadata", "cue_marker.create",
                      "scene.update", "track.create_group", "track.set_solo", "track.set_comment",
                      "track.set_active", "track.set_destination" -> {
                     JSONObject params = request.optJSONObject("params");
-                    long timeout = method.equals("project.import_dawproject") ? 300 : 30;
+                    long timeout = method.equals("project.save_copy") ? 600
+                            : method.equals("project.import_dawproject") ? 300 : 30;
                     response.put("result", onDocumentEvent(
                             () -> DirectAccess.execute(method, params), timeout));
                 }

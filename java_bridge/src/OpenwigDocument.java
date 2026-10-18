@@ -43,6 +43,54 @@ import org.json.JSONObject;
 public final class OpenwigDocument {
     private OpenwigDocument() {}
 
+    public static Object currentDocument() {
+        try {
+            Object app = classForName("com.bitwig.flt.app.eY1").getMethod("ncg").invoke(null);
+            Object selected = app == null ? null : modelGet(modelGet(app, "kxC"), "WEC");
+            if (selected == null) throw new IllegalStateException("no selected Bitwig project");
+            return modelGet(selected, "wtf");
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("cannot resolve selected Bitwig project", failure);
+        }
+    }
+
+    private static JSONObject documentInfo() {
+        Object raw = currentDocument();
+        return new JSONObject().put("path", modelGet(raw, "BEq"))
+                .put("directory", modelGet(raw, "UBi")).put("name", modelGet(raw, "IT3"));
+    }
+
+    private static JSONObject listDocuments() {
+        try {
+            Object app = classForName("com.bitwig.flt.app.eY1").getMethod("ncg").invoke(null);
+            JSONArray result = new JSONArray();
+            for (Object tab : (java.util.List<?>) modelGet(modelGet(app, "Lg"), "getValue")) {
+                Object raw = modelGet(tab, "wtf");
+                if (!(raw instanceof oZU)) continue;
+                ApiProject api = new ApiProject((oZU) raw);
+                try {
+                    result.put(new JSONObject().put("path", modelGet(raw, "BEq"))
+                            .put("name", modelGet(raw, "IT3"))
+                            .put("main_tracks", api.getTrackGroup().mainTracks().size()));
+                } finally { api.dispose(); }
+            }
+            return new JSONObject().put("documents", result);
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("cannot list projects", failure); }
+    }
+
+    private static JSONObject selectDocument(String path) {
+        if (path == null || path.isBlank()) throw new IllegalArgumentException("open project path is required");
+        try {
+            Object app = classForName("com.bitwig.flt.app.eY1").getMethod("ncg").invoke(null);
+            Object tab = app.getClass().getMethod("Trh", java.io.File.class)
+                    .invoke(app, new java.io.File(path).getAbsoluteFile());
+            if (tab == null) throw new IllegalArgumentException("project is not open: " + path);
+            Object selection = modelGet(app, "kxC");
+            selection.getClass().getMethod("jPB", classForName("aBx")).invoke(selection, tab);
+            return documentInfo();
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("cannot select project", failure); }
+    }
+
     private static ApiProject project() {
         return new ApiProject((oZU) DirectAccess.activeDocumentObject());
     }
@@ -1057,9 +1105,7 @@ public final class OpenwigDocument {
                 }
                 // The public API creates the lane; model caches update after this
                 // document event. Shape its points in a subsequent committed event.
-                DirectAccess.runInUndo(project.getTrackGroup().mainTracks().isEmpty()
-                        ? project.getTrackGroup().masterTrack().clipTimeline()
-                        : ((Track) project.getTrackGroup().mainTracks().get(0)).clipTimeline(), () -> {
+                DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
                     Olb existing = automationTimeline(parameter);
                     if (existing != null) existing.W1k();
                     parameter.setAutomation(events);
@@ -2243,6 +2289,10 @@ public final class OpenwigDocument {
     public static JSONObject execute(String method, JSONObject params) {
         JSONObject p = params == null ? new JSONObject() : params;
         return switch (method) {
+            case "document.info" -> documentInfo();
+            case "document.list" -> listDocuments();
+            case "document.select" -> selectDocument(p.optString("path", ""));
+            case "project.save_copy" -> saveNativeProjectCopy(p.optString("path", ""));
             case "project.import_dawproject" -> importDawProject(p.optString("path", ""));
             case "project.set_metadata" -> setProjectMetadata(p);
             case "cue_marker.create" -> createCueMarker(p);
@@ -2533,6 +2583,100 @@ public final class OpenwigDocument {
                     .put("color", actualColor == null ? JSONObject.NULL : actualColor.toHex());
         } finally {
             project.dispose();
+        }
+    }
+
+    private static JSONObject saveNativeProjectCopy(String path) {
+        if (path == null || path.isBlank() || !path.toLowerCase(java.util.Locale.ROOT).endsWith(".bwproject"))
+            throw new IllegalArgumentException("a .bwproject destination is required");
+        java.io.File target = new java.io.File(path).getAbsoluteFile();
+        if (target.exists()) throw new IllegalArgumentException("destination already exists: " + target);
+        ApiProject project = project();
+        Object copy = null;
+        java.nio.file.Path assets = null;
+        boolean reserved = false;
+        boolean markerCreated = false;
+        boolean complete = false;
+        java.nio.file.Path marker = target.getParentFile().toPath().resolve(".bitwig-project");
+        try {
+            java.nio.file.Files.createDirectories(target.getParentFile().toPath());
+            java.nio.file.Files.createFile(target.toPath());
+            reserved = true;
+            if (!java.nio.file.Files.exists(marker)) {
+                java.nio.file.Files.createFile(marker);
+                markerCreated = true;
+            }
+            Object source = project.getTarget();
+            Object serializer = classForName("com.bitwig.flt.document.file.m1G").getMethod("Gcr").invoke(null);
+            byte[] serialized = (byte[]) serializer.getClass().getMethod("jPB", Object.class).invoke(serializer, source);
+            copy = serializer.getClass().getMethod("IYM", byte[].class).invoke(serializer, (Object) serialized);
+            copy.getClass().getMethod("Qcu", String.class).invoke(copy, target.getParent());
+            copy.getClass().getMethod("KF3", String.class).invoke(copy, target.getPath());
+            modelGet(copy, "SOE");
+            java.util.List<?> sourceFiles = (java.util.List<?>) modelGet(modelGet(source, "mfz"), "IYM");
+            java.util.List<?> copyFiles = (java.util.List<?>) modelGet(modelGet(copy, "mfz"), "IYM");
+            if (sourceFiles.size() != copyFiles.size()) throw new IllegalStateException(
+                    "native file index changed while cloning: " + sourceFiles.size() + " -> " + copyFiles.size());
+            int mediaCount = 0;
+            java.util.Map<java.nio.file.Path, String> collected = new java.util.HashMap<>();
+            assets = java.nio.file.Files.createTempDirectory(target.getParentFile().toPath(), "openwig-media-");
+            for (int i = 0; i < sourceFiles.size(); i++) {
+                Object original = sourceFiles.get(i);
+                Object cloned = copyFiles.get(i);
+                java.io.File sourceFile = (java.io.File) modelGet(original, "xeZ");
+                if (sourceFile == null || !sourceFile.isFile()) {
+                    if (!String.valueOf(modelGet(original, "kAg")).isEmpty()) continue;
+                    throw new IllegalStateException("source media unavailable at native file index " + i);
+                }
+                java.nio.file.Path canonical = sourceFile.toPath().toRealPath();
+                String relative = collected.get(canonical);
+                if (relative == null) {
+                    java.nio.file.Path destination = assets.resolve(mediaCount + "-" + sourceFile.getName());
+                    java.nio.file.Files.copy(canonical, destination);
+                    relative = target.getParentFile().toPath().relativize(destination).toString().replace('\\', '/');
+                    collected.put(canonical, relative);
+                    mediaCount++;
+                }
+                cloned.getClass().getMethod("jPB", String.class).invoke(cloned, relative);
+                cloned.getClass().getMethod("jPB", classForName("com.bitwig.flt.packaging.core.MU2")).invoke(cloned, new Object[]{null});
+                cloned.getClass().getMethod("jPB", java.io.File.class).invoke(cloned, new java.io.File(target.getParentFile(), relative));
+            }
+            serializer.getClass().getMethod("jPB", Object.class, java.io.File.class).invoke(serializer, copy, target);
+            java.util.Set<String> states = new java.util.HashSet<>();
+            source.getClass().getMethod("IYM", java.util.Set.class).invoke(source, states);
+            Object embedded = classForName("Y3m").getConstructor().newInstance();
+            for (String state : states) {
+                java.io.File stateFile = (java.io.File) classForName("ri2").getMethod("Gcr", String.class).invoke(null, state);
+                if (!stateFile.isFile()) throw new IllegalStateException("plugin state unavailable: " + state);
+                embedded.getClass().getMethod("IYM", String.class, java.io.File.class).invoke(embedded, "plugin-states/" + state, stateFile);
+            }
+            if (!states.isEmpty()) classForName("com.bitwig.base.serial.file.rdP")
+                    .getMethod("IYM", java.io.File.class, classForName("mgr")).invoke(null, target, embedded);
+            complete = true;
+            return new JSONObject().put("path", target.getPath()).put("bytes", target.length())
+                    .put("media_files", mediaCount).put("plugin_states", states.size());
+        } catch (ReflectiveOperationException | java.io.IOException failure) {
+            throw new IllegalStateException("native project copy failed", failure);
+        } finally {
+            try {
+                if (copy != null) modelGet(copy, "iz_");
+            } finally {
+                project.dispose();
+                if (!complete) {
+                    try {
+                        if (reserved) java.nio.file.Files.deleteIfExists(target.toPath());
+                        if (markerCreated) java.nio.file.Files.deleteIfExists(marker);
+                        if (assets != null) {
+                            try (java.util.stream.Stream<java.nio.file.Path> files = java.nio.file.Files.walk(assets)) {
+                                for (java.nio.file.Path item : files.sorted(java.util.Comparator.reverseOrder()).toList())
+                                    java.nio.file.Files.deleteIfExists(item);
+                            }
+                        }
+                    } catch (java.io.IOException cleanupFailure) {
+                        System.err.println("openwig: native copy cleanup failed: " + cleanupFailure);
+                    }
+                }
+            }
         }
     }
 

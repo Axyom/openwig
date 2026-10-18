@@ -54,7 +54,10 @@ creation with MIDI notes, plus device state and clip/note count readback.
 It also discovers and edits named native device parameters; FM-4 numeric and
 boolean values have passed live round-trip checks.
 It can also clear main/effect tracks and master devices in a disposable project.
-The experimental Python `JavaSong` API exercises that subset directly. The
+The experimental Python `JavaSong` API exercises that subset directly. Native
+`save_project`, `export_project` and offline `write_project` now save and restore
+full 6.1.5 projects with collected media and plugin state; see the
+[verified scope and examples](java_bridge/README.md#full-native-project-writing-615). The
 full `Song` API still uses the controller bridge while the Java backend is
 being completed.
 

@@ -278,13 +278,12 @@ distinguishes native, partial, unavailable, and export-only fields.
 `.dawproject` archive (the open XML exchange format) using Bitwig's own
 exporter. Python: `JavaSong.export_dawproject(path, embed_media=False)`
 (relative paths resolve against the caller's directory). The structure-only
-export of the released project was 139 KB. It remains the archival format and
-parity baseline, including automation and plugin data where the live model
+export of the released project was 139 KB. It remains the interchange format and
+reader parity baseline, including automation and plugin data where the live model
 reader remains partial. Its XML clip count includes nested content and launcher
 instances, so it differs from the arranger-clip count above.
 `embed_media=True` also embeds referenced
-sample files. The project is not modified, and `ApiProject` additionally
-exposes `importDawProject` for a future write path.
+sample files. The project is not modified, and `import_dawproject` provides limited append-style interchange.
 
 For the clip call, send an explicit zero-based main-track index and beat-based
 start and duration. Notes are `[channel, key, start, duration, velocity]`,
@@ -307,7 +306,7 @@ with JavaSong(tempo=128, bars=4) as song:
 MIDI arranger clips. A `JavaTrack` can call `list_parameters(0)`,
 `parameters(0, OUTPUT=0.35)`, and `get_parameters(0, ["OUTPUT"])` after its
 native device has loaded. Boolean values and enum integer indexes are also
-supported; enum writes have not yet been verified live.
+supported; enum writes passed the disposable-project live check.
 
 `JavaSong.play(loop=True)`, `stop()`, and `transport()` use the Java playback
 endpoints. `render("out.wav", tail=1.0)` records one arrangement
@@ -363,5 +362,41 @@ verified items. Modulator mappings/parameters and Grid internals remain outside 
 verified inventory boundary.
 Keep unavailable plugin parameter caches explicit. See `JAVA_BRIDGE_GAPS.md`
 and `READER_PARITY_DESIGN.md` for verified coverage and remaining work.
-Catalog capture and recreate/import are design phase 4 and remain out of scope.
+Full-project native writing is separately authorized and described below;
+catalog capture remains outside the current scope.
 The main Song API still targets the controller on port 7777.
+
+## Full native project writing (6.1.5)
+
+```python
+from openwig import JavaSong
+from openwig.project_archive import write_project
+
+with JavaSong() as song:
+    song.save_project("output/song.bwproject")  # includes unsaved SDK edits
+    song.export_project("song.openwig.zip")   # native document + media + state
+
+restored = write_project("song.openwig.zip", "restored-song")  # works offline
+print(restored["path"])  # open this .bwproject in Bitwig 6.1.5
+```
+
+Both output files and the restored directory must be new. Saving serializes a
+detached copy, collects media, embeds plugin state, and creates the native project
+folder marker. It leaves the original project's name/path and file unchanged.
+The ZIP manifest checks every resource's SHA-256 and size during restoration.
+`JavaSong.write_project(archive, directory)` exposes the same offline restore.
+`projects()`, `project_info()`, and `select_project(path)` address open project
+tabs explicitly; all composition/read calls now use the selected tab.
+
+The full live roundtrip retained 107 tracks, 978 recursive devices, 2831 clips,
+2527 notes, 2898 audio events, 10 scenes and 10 markers. The settled audit found zero reader-visible differences after verifying
+relocated audio by content hash and all 120 embedded plugin-state blobs.
+The source dump and original file hash stayed unchanged. See
+[`JAVA_PROJECT_WRITE_DESIGN.md`](../JAVA_PROJECT_WRITE_DESIGN.md) for comparison
+rules and the manual capture/restore/audit commands in `tests/live_java_recreate.py`.
+Runtime plugin cache availability is reported separately. Third-party plugins
+and licensed packages must still be installed. Native serialization preserves
+opaque state; JSON-only project synthesis and independent Grid/filled-launcher
+validation remain outside the verified scope. Standard DAWproject import can
+lose native devices, automation and audio properties and is not this full-project
+restore path.

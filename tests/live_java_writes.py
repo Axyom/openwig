@@ -65,6 +65,8 @@ def main():
         before_enum = kick.get_parameters(0, [target_enum])[target_enum]
         new_enum_val = 1 if before_enum == 0 else 0
         kick.parameters(0, **{target_enum: new_enum_val})
+        kick.automate("OUTPUT", [(0, 0.2), (4, 0.8)], device_index=0)
+        assert len(kick.automation("OUTPUT")["points"]) == 2
         after_enum = kick.get_parameters(0, [target_enum])[target_enum]
         assert after_enum == new_enum_val, f"enum write failed: {before_enum} -> {after_enum}"
         kick.rename_device(0, "Kick Synth").expand_device(0, False).enable_device(0, False)

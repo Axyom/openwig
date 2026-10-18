@@ -103,3 +103,27 @@ storage. Live claims and remaining coverage are recorded in README and
 
 No observers, engine graph search, launcher writes, project saves, controller
 changes, catalog capture, or recreation/import are part of these readers.
+
+
+## Native copy writing and project selection (6.1.5)
+
+- `eY1.kxC().WEC():aBx` selects the current project tab, whose `wtf():IPw`
+  is the native document. `eY1.Trh(File):aBx` finds an already open file;
+  selection uses `aCy.jPB(aBx)`. Document identity uses `BEq()` (filename),
+  `UBi()` (directory), and `IT3()` (display name). `p3P()` is a UUID.
+- `m1G.Gcr()` returns the native serializer. Inherited `jPB(Object):byte[]`,
+  `IYM(byte[]):Object`, and `jPB(Object,File)` provide detached cloning and
+  native output. Byte-array loads need explicit `Qcu(directory)`,
+  `KF3(filename)`, then `SOE()` before the clone's media index is populated.
+- `oZU.mfz().IYM():List<fe>` indexes media. `fe.xeZ():File` resolves files;
+  `jPB(String)` sets project-relative locations, `jPB(MU2)` sets package
+  identity (null removes it), and `jPB(File)` supplies the collected file.
+  `oZU.iz_()` disposes the detached clone. `mfE.AOA(File)` creates the empty
+  `.bitwig-project` marker used by the normal loader; without it, opening
+  from an arbitrary directory can require a folder-conversion dialog.
+- `oZU.IYM(Set<String>)` collects plugin state identifiers; `ri2.Gcr(String)`
+  resolves their files. `new Y3m().IYM(String,File)` registers resources;
+  `com.bitwig.base.serial.file.rdP.IYM(File,mgr)` appends them to the native
+  file at `plugin-states/<identifier>`, matching normal Save As behavior.
+
+These writer signatures are separate from the read-only reader contract above.

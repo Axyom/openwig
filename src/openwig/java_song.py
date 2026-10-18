@@ -145,6 +145,56 @@ class JavaSong:
                                "embed_media": bool(embed_media)},
                               timeout=310)
 
+    def project_info(self) -> dict:
+        """Return the selected project's native path, directory and name."""
+        return self.b.request("document.info")
+
+    def projects(self) -> list[dict]:
+        """List open projects, including their paths and root track counts."""
+        return self.b.request("document.list")["documents"]
+
+    def select_project(self, path) -> dict:
+        """Select an already open native project by its absolute file path."""
+        from pathlib import Path
+        return self.b.request("document.select", {"path": str(Path(path).resolve())})
+
+    def export_project(self, path) -> dict:
+        """Capture a portable native project ZIP, with media and plugin states.
+
+        Includes unsaved document edits. Uses Bitwig 6.1.5 native serialization;
+        the original project stays open. The archive must not already exist.
+        Installed plugins and licensed Bitwig packages are still required.
+        """
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from openwig.project_archive import pack_project
+        with TemporaryDirectory(prefix="openwig-project-") as work:
+            project = Path(work) / "project" / "project.bwproject"
+            saved = self.save_project(project)
+            result = pack_project(project, path)
+            result.update(media_files=saved["media_files"], plugin_states=saved["plugin_states"])
+            return result
+
+    @staticmethod
+    def write_project(path, directory) -> dict:
+        """Write an archive to a new project directory, without changing Bitwig.
+
+        Can also be used offline via openwig.project_archive.write_project.
+        Open the returned .bwproject path in Bitwig 6.1.5 to use the project.
+        Existing directories are refused; every archived file hash is checked.
+        """
+        from openwig.project_archive import write_project
+        return write_project(path, directory)
+
+    def save_project(self, path) -> dict:
+        """Write a native .bwproject copy with collected media and plugin state.
+
+        Serializes a detached copy of the live document. The open project and
+        its original file remain unchanged. The destination must not exist.
+        """
+        from pathlib import Path
+        return self.b.request("project.save_copy", {"path": str(Path(path).resolve())}, timeout=610)
+
     def import_dawproject(self, path) -> dict:
         """Append a ``.dawproject`` archive into the open project.
 

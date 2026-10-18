@@ -1,6 +1,6 @@
 # Java bridge: reader parity and remaining gaps
 
-The owner-approved scope is `READER_PARITY_DESIGN.md`: read the open project
+The reader scope is `READER_PARITY_DESIGN.md`: read the open project
 natively at DAWproject depth, with an atomic dump and targeted polling reads.
 Read `AGENTS.md` and `java_bridge/README.md` before changing the exact-build
 bridge. Work on `codex/java-bridge-615` or a feature branch, never push master.
@@ -23,7 +23,7 @@ compare equivalent structures through the parity harness.
    comparable counts, field coverage, unavailable data, and missing native
    fields. XML `child_order` preserves interleaved device tags. Synthetic
    fixtures and unit checks cover parsing/report logic. DAWproject remains
-   the archival baseline. Live synthetic capture via
+   the reader interchange baseline. Live synthetic capture via
    `tests/live_java_reader_fixture.py --capture` passed on
    `scratch/probe-project/probe.bwproject`: only three newly authored tracks and
    a sanitized master were retained, yielding four tracks, two notes, and FM-4.
@@ -160,11 +160,20 @@ activity/destination, metadata, cue markers and scene updates. Rename checks
 covered literal slashes in track titles and continued child creation through
 a renamed root-group handle. See `java_bridge/README.md` for the exact limits.
 
-The pending DAWproject import implementation passed a synthetic
+The DAWproject import implementation passed a synthetic
 export/clear/import check for groups, notes, solo, comments and metadata.
 It appends into the active project; scenes/markers are not removed by clear.
-Media/plugin/device-state fidelity and arbitrary archives remain unverified.
-Corpus collection, batch project opening, derived features and recreate remain
-design phase 4 and require the owner's explicit go and a separate design.
+Full-project testing found that DAWproject loses native devices/automation and
+audio/loop properties, so it is not the full-fidelity restoration path.
+
+Full native writing is now owner-authorized under `JAVA_PROJECT_WRITE_DESIGN.md`.
+`save_project` writes detached native copies; `export_project` and offline
+`write_project` capture/restore native ZIPs with collected media, embedded plugin
+states and per-file hashes. The large project reopened with all 107 tracks,
+978 devices, 2831 clips, 2527 notes and 2898 audio events. Reader comparisons
+account explicitly for relocated audio hashes and unavailable runtime plugin
+caches. Opaque Grid/filled-launcher state still lacks independent field-level
+validation, and JSON-only reconstruction remains a separate gap.
+Corpus collection, batch project opening and derived features remain outside scope.
 Never save over the owner's projects, and use clear operations only on
 disposable projects.
