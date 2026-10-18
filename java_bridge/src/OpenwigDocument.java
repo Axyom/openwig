@@ -2293,6 +2293,7 @@ public final class OpenwigDocument {
             case "document.list" -> listDocuments();
             case "document.select" -> selectDocument(p.optString("path", ""));
             case "project.save_copy" -> saveNativeProjectCopy(p.optString("path", ""));
+            case "project.duplicate_range" -> duplicateRange(p);
             case "project.import_dawproject" -> importDawProject(p.optString("path", ""));
             case "project.set_metadata" -> setProjectMetadata(p);
             case "cue_marker.create" -> createCueMarker(p);
@@ -2584,6 +2585,28 @@ public final class OpenwigDocument {
         } finally {
             project.dispose();
         }
+    }
+
+    private static JSONObject duplicateRange(JSONObject params) {
+        double start = params.getDouble("start");
+        double end = params.getDouble("end");
+        if (!Double.isFinite(start) || !Double.isFinite(end) || start < 0 || end <= start)
+            throw new IllegalArgumentException("a finite positive arranger range is required");
+        ApiProject project = project();
+        try {
+            Object raw = project.getTarget();
+            Object root = modelGet(raw, "Qjx");
+            Object selection = modelGet(modelGet(modelGet(raw, "qVp"), "TcG"), "tY1");
+            Object editor = classForName("pZb").getMethod("mjf").invoke(null);
+            // The native Duplicate-and-Push command owns its undo transaction,
+            // splits crossing clips and carries automation and cue markers.
+            editor.getClass().getMethod("wtf", java.util.List.class, double.class,
+                    double.class, classForName("Lsv")).invoke(editor,
+                    java.util.List.of(modelGet(root, "bV_")), start, end, selection);
+            return new JSONObject().put("start", start).put("end", end).put("inserted_beats", end - start);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("native arranger duplication failed", failure);
+        } finally { project.dispose(); }
     }
 
     private static JSONObject saveNativeProjectCopy(String path) {

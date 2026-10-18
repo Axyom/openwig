@@ -127,3 +127,15 @@ changes, catalog capture, or recreation/import are part of these readers.
   file at `plugin-states/<identifier>`, matching normal Save As behavior.
 
 These writer signatures are separate from the read-only reader contract above.
+
+
+## Arranger Duplicate and Push (6.1.5)
+
+`pZb.mjf().wtf(List<zJD>, double start, double end, Lsv)` runs the native
+Duplicate-and-Push edit. `oZU.Qjx().bV_()` addresses the root arranger tree;
+`oZU.qVp().TcG().tY1()` supplies its editor selection. The implementation
+inserts empty time via `XCv.IYM(start, length, fKr, Set)` across all affected
+clip/automation timelines, moves cue markers when the root is selected, and
+copies the range with `HRW.IYM(..., false, true, fKr)`. The native command owns
+its undo transaction; do not nest it in a second synthetic transaction.
+Live probe: clips 0/8 -> 0/4/12, marker 8 -> 12, automation moved and copied.

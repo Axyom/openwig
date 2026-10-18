@@ -145,6 +145,18 @@ class JavaSong:
                                "embed_media": bool(embed_media)},
                               timeout=310)
 
+    def duplicate_range(self, start: float, end: float) -> dict:
+        """Repeat an arranger range, pushing later clips/automation/markers.
+
+        Times are beats. Bitwig's native Duplicate-and-Push operation owns the
+        undo transaction and splits clips crossing the range boundaries.
+        """
+        import math
+        start, end = float(start), float(end)
+        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
+            raise ValueError("a finite positive arranger range is required")
+        return self.b.request("project.duplicate_range", {"start": start, "end": end}, timeout=125)
+
     def project_info(self) -> dict:
         """Return the selected project's native path, directory and name."""
         return self.b.request("document.info")

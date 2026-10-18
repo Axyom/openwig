@@ -30,7 +30,7 @@ class FakeJavaBridge:
             return {"active": True}
         if method == "project.dump":
             return {"metadata": {}, "cue_markers": [], "main_tracks": []}
-        if method in {"document.info", "document.select", "project.save_copy"}:
+        if method in {"document.info", "document.select", "project.save_copy", "project.duplicate_range"}:
             return params
         if method == "document.list":
             return {"documents": []}
@@ -202,3 +202,14 @@ def test_empty_path_segments_are_rejected_before_rpc(bridge, path):
     with pytest.raises(ValueError, match="track path"):
         song.track_at(path)
     assert bridge.calls == []
+
+
+def test_duplicate_arranger_range(bridge):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    assert song.duplicate_range(304, 336) == {"start": 304.0, "end": 336.0}
+    assert bridge.calls == [("project.duplicate_range", {"start": 304.0, "end": 336.0})]
+    for start, end in [(-1, 4), (4, 4), (8, 4), (0, float("inf")), (float("nan"), 4)]:
+        with pytest.raises(ValueError):
+            song.duplicate_range(start, end)
+    assert len(bridge.calls) == 1

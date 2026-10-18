@@ -400,3 +400,14 @@ opaque state; JSON-only project synthesis and independent Grid/filled-launcher
 validation remain outside the verified scope. Standard DAWproject import can
 lose native devices, automation and audio properties and is not this full-project
 restore path.
+
+
+`JavaSong.duplicate_range(start, end)` repeats an arranger range and pushes later
+material by its length (times in beats). It calls Bitwig's native Duplicate and
+Push operation, which owns its undo transaction and handles crossing clips,
+automation and cue markers. A disposable live check duplicated 0..4 beats:
+clips at 0 and 8 became 0, 4 and 12; the marker and later automation moved from
+8 to 12. The music-variation check repeated 304..336 twice in a copied full
+project, moved the vocal entrance 336 to 400 and END 792 to 856, and retained
+107 existing tracks before adding the new synth. Use a project copy for
+arrangement experiments.
