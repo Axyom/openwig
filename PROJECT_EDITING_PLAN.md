@@ -145,8 +145,9 @@ offset, and clears interior audio fades; no duplicate undo wrapper is used.
 
 146 unit tests passed, exact-build build and Java protocol/JAR smoke passed,
 controller syntax and whitespace checks passed. Prior commits `4f78e38` and
-`24aab45` both have green CI. This increment is ready to commit/push; record its
-commit/CI result when available. No in-flight live sessions remain.
+`24aab45` both have green CI. This increment is committed/pushed as **`b8237d7`**
+on `codex/java-bridge-615`; CI was newly triggered and needs rechecking.
+The implementation working tree is clean. No in-flight live sessions remain.
 
 Current scratch project: `scratch/editing-content-gate/saved/project.bwproject`,
 stopped. Last observed scratch launcher PID 61864; always re-identify before
@@ -251,6 +252,16 @@ New interface sources under `scratch/decomp/editing/`:
   their implementations to establish units and semantics before using them.
 - `AudioNote`: warp modes/events, transients, grain/tail mode, formants,
   fades, file/rate/channels/duration. More event properties are inherited.
+- Fresh exact-build `KoO` is now decompiled in `scratch/decomp/editing/`.
+  `KoO.eUA(boolean)` sets reverse directly on `jsk().AOA(boolean)`, but the
+  native reverse command `KoO.IYM(fKr)` also reverses expressions via its
+  superclass and swaps RAW start/stop source offsets (`IT3()`, `IYM(dP)`,
+  `UJq(double)`, `Nwn(double)`), then `JTi()`. Inspect `pUn`/superclasses before
+  using it: direct flag toggling alone would miss important playback semantics.
+  Do not expose reverse until a synthetic asymmetric-source gate passes.
+- Some root `scratch/decomp/` files (e.g. xh3/fKr) are from older symbol builds.
+  Prefer the fresh exact-JAR copies under `scratch/decomp/editing/` when names
+  disagree (fresh uses cPD/dP/oZU; older files mention cpd_2/dp_2/ozu_0).
 - `ApiClip.setTime` ultimately uses native event setters; attached timeline
   sorting and overlap behavior must be tested before exposing clip moves.
 - `ApiAudioClip` is not a class in this build. The actual implementation is
