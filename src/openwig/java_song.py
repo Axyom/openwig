@@ -120,6 +120,16 @@ class JavaSong:
         """Remove main/effect tracks and master devices from the active project."""
         return self.b.request("project.clear", timeout=125)
 
+    def dump(self) -> dict:
+        """Read the whole open project.
+
+        Returns metadata, cue markers, and the full track tree: groups with
+        children, per-track mixer state, sends (with target names), device
+        chains with kinds (native/vst3/vst2/plugin), and arranger clips with
+        note contents. Read-only; nothing in the project is modified.
+        """
+        return self.b.request("project.dump", timeout=125)
+
     def clear_effect_tracks(self) -> int:
         return self.b.request("project.clear_effect_tracks", timeout=65)["deleted"]
 

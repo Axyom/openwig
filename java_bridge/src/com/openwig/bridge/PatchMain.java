@@ -476,6 +476,15 @@ public final class PatchMain {
         trackSnapshot.visitMaxs(0, 0);
         trackSnapshot.visitEnd();
 
+        MethodVisitor dumpProject = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "dumpProject", "()Lorg/json/JSONObject;", null, null);
+        dumpProject.visitCode();
+        dumpProject.visitMethodInsn(Opcodes.INVOKESTATIC, "OpenwigDocument", "dumpProject",
+                "()Lorg/json/JSONObject;", false);
+        dumpProject.visitInsn(Opcodes.ARETURN);
+        dumpProject.visitMaxs(0, 0);
+        dumpProject.visitEnd();
+
         MethodVisitor updateTrack = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                 "updateTrack", "(ILjava/lang/String;Lorg/json/JSONObject;)Lorg/json/JSONObject;",
                 null, null);

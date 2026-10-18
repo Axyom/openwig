@@ -1,19 +1,29 @@
 import com.bitwig.extension.api.Color;
 import com.bitwig.extension.api.project.Factory;
+import com.bitwig.extension.api.project.ProjectMetadata;
 import com.bitwig.extension.api.project.parameter.BooleanParameter;
 import com.bitwig.extension.api.project.parameter.DoubleParameter;
 import com.bitwig.extension.api.project.parameter.EnumParameter;
 import com.bitwig.extension.api.project.parameter.Unit;
 import com.bitwig.extension.api.project.parameter.AutomationEvents;
+import com.bitwig.extension.api.project.timeline.AudioClip;
 import com.bitwig.extension.api.project.timeline.ClipTimeline;
 import com.bitwig.extension.api.project.timeline.Clip;
+import com.bitwig.extension.api.project.timeline.CueMarker;
 import com.bitwig.extension.api.project.timeline.EventTimeline;
 import com.bitwig.extension.api.project.timeline.InstrumentNote;
 import com.bitwig.extension.api.project.timeline.NoteClip;
 import com.bitwig.extension.api.project.track.Track;
+import com.bitwig.extension.api.project.track.TrackGroup;
+import com.bitwig.extension.api.project.track.TrackOrTrackGroup;
+import com.bitwig.extension.api.project.track.TrackType;
 import com.bitwig.extension.api.project.mixer.Mixer;
 import com.bitwig.extension.api.project.mixer.DeviceChain;
 import com.bitwig.extension.api.project.mixer.NativeDevice;
+import com.bitwig.extension.api.project.mixer.PluginDevice;
+import com.bitwig.extension.api.project.mixer.Send;
+import com.bitwig.extension.api.project.mixer.Vst2Device;
+import com.bitwig.extension.api.project.mixer.Vst3Device;
 import com.bitwig.extension.api.project.mixer.Device;
 import com.bitwig.extension.api.project.track.MonitorMode;
 import com.bitwig.flt.document.api.document.ApiProject;
@@ -51,11 +61,32 @@ public final class OpenwigDocument {
         return audioStatus();
     }
 
-    private static Track track(ApiProject project, int index) {
-        if (index < 0 || index >= project.getTrackGroup().mainTracks().size()) {
+    public static TrackOrTrackGroup trackOrGroup(ApiProject project, int index) {
+        if (index == -1) {
+            return project.getTrackGroup().masterTrack();
+        }
+        if (index < -1) {
+            int effectIndex = -index - 2;
+            if (effectIndex < 0 || effectIndex >= project.getTrackGroup().effectTracks().size()) {
+                throw new IllegalArgumentException("effect track index out of range: " + effectIndex);
+            }
+            return (TrackOrTrackGroup) project.getTrackGroup().effectTracks().get(effectIndex);
+        }
+        if (index >= project.getTrackGroup().mainTracks().size()) {
             throw new IllegalArgumentException("main track index out of range: " + index);
         }
-        return (Track) project.getTrackGroup().mainTracks().get(index);
+        return (TrackOrTrackGroup) project.getTrackGroup().mainTracks().get(index);
+    }
+
+    private static Track track(ApiProject project, int index) {
+        if (index == -1) {
+            return project.getTrackGroup().masterTrack();
+        }
+        TrackOrTrackGroup item = trackOrGroup(project, index);
+        if (item instanceof Track tr) {
+            return tr;
+        }
+        return item.asTrack();
     }
 
     private static Track effectTrack(ApiProject project, int index) {
@@ -245,18 +276,34 @@ public final class OpenwigDocument {
     public static JSONArray deviceSnapshot(int trackIndex) {
         ApiProject project = project();
         try {
-            JSONArray devices = new JSONArray();
-            java.util.List<?> members = track(project, trackIndex).deviceChain().getDevices();
-            for (int i = 0; i < members.size(); i++) {
-                Device device = (Device) members.get(i);
-                devices.put(new JSONObject().put("index", i)
-                        .put("display_name", device.getDisplayName())
-                        .put("enabled", device.getEnabled().getValue()));
-            }
-            return devices;
+            return deviceSnapshotList(track(project, trackIndex));
         } finally {
             project.dispose();
         }
+    }
+
+    private static JSONArray deviceSnapshotList(Track view) {
+        JSONArray devices = new JSONArray();
+        java.util.List<?> members = view.deviceChain().getDevices();
+        for (int i = 0; i < members.size(); i++) {
+            Device device = (Device) members.get(i);
+            String kind = "unknown";
+            if (device instanceof NativeDevice) {
+                kind = "native";
+            } else if (device instanceof Vst3Device) {
+                kind = "vst3";
+            } else if (device instanceof Vst2Device) {
+                kind = "vst2";
+            } else if (device instanceof PluginDevice) {
+                kind = "plugin";
+            }
+            devices.put(new JSONObject().put("index", i)
+                    .put("display_name", device.getDisplayName())
+                    .put("kind", kind)
+                    .put("enabled", device.getEnabled().getValue())
+                    .put("active", device.getActive()));
+        }
+        return devices;
     }
 
     private static NativeDevice nativeDevice(ApiProject project, int trackIndex, int deviceIndex) {
@@ -728,6 +775,143 @@ public final class OpenwigDocument {
         } finally {
             project.dispose();
         }
+    }
+
+    /** Read the whole open project: metadata, cue markers, all tracks, devices, clips, notes. */
+    public static JSONObject dumpProject() {
+        ApiProject project = project();
+        try {
+            JSONObject out = new JSONObject();
+            JSONObject metadata = new JSONObject();
+            for (ProjectMetadata key : ProjectMetadata.values()) {
+                String value = project.getMetadataText(key);
+                if (value != null && !value.isBlank()) {
+                    metadata.put(key.name().toLowerCase(java.util.Locale.ROOT), value);
+                }
+            }
+            out.put("metadata", metadata);
+            JSONArray markers = new JSONArray();
+            for (Object item : project.getCueMarkers().getEvents()) {
+                CueMarker marker = (CueMarker) item;
+                Color color = marker.getColor();
+                markers.put(new JSONObject().put("time", marker.getTime())
+                        .put("name", marker.getTitle())
+                        .put("color", color == null ? JSONObject.NULL : color.toHex()));
+            }
+            out.put("cue_markers", markers);
+            JSONArray main = new JSONArray();
+            java.util.List<?> tops = project.getTrackGroup().mainTracks();
+            for (int i = 0; i < tops.size(); i++) {
+                main.put(dumpTrackOrGroup((TrackOrTrackGroup) tops.get(i), i));
+            }
+            out.put("main_tracks", main);
+            JSONArray effects = new JSONArray();
+            java.util.List<?> fx = project.getTrackGroup().effectTracks();
+            for (int i = 0; i < fx.size(); i++) {
+                effects.put(dumpTrackOrGroup((TrackOrTrackGroup) fx.get(i), -i - 2));
+            }
+            out.put("effect_tracks", effects);
+            out.put("master", dumpTrackOrGroup(project.getTrackGroup().masterTrack(), -1));
+            return out;
+        } finally {
+            project.dispose();
+        }
+    }
+
+    private static JSONObject dumpTrackOrGroup(TrackOrTrackGroup item, int index) {
+        Color color = item.getColor();
+        JSONObject out = new JSONObject()
+                .put("index", index)
+                .put("name", item.getTitle())
+                .put("is_group", item instanceof TrackGroup)
+                .put("color", color == null ? JSONObject.NULL : color.toHex());
+        if (item instanceof TrackGroup group) {
+            JSONArray children = new JSONArray();
+            java.util.List<?> members = group.mainTracks();
+            for (int i = 0; i < members.size(); i++) {
+                children.put(dumpTrackOrGroup((TrackOrTrackGroup) members.get(i), i));
+            }
+            out.put("children", children);
+        }
+        Track view = item instanceof Track direct ? direct : item.asTrack();
+        out.put("track_type", trackTypeName(view));
+        Mixer mixer = view.mixer();
+        out.put("volume", mixer.getVolume().getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0)
+                .put("pan", (mixer.getPan().getValue(Unit.PERCENTAGE_OF_RANGE) + 100.0) / 200.0)
+                .put("mute", mixer.getMute().getValue());
+        JSONArray sends = new JSONArray();
+        for (int i = 0; i < mixer.getSendCount(); i++) {
+            Send send = mixer.getSend(i);
+            JSONObject entry = new JSONObject()
+                    .put("index", i)
+                    .put("amount", send.getAmount()
+                            .getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0);
+            try {
+                Track target = send.getTargetTrack();
+                entry.put("target", target == null ? JSONObject.NULL : target.getTitle());
+            } catch (RuntimeException unreadable) {
+                entry.put("target", JSONObject.NULL);
+            }
+            sends.put(entry);
+        }
+        out.put("sends", sends);
+        out.put("devices", deviceSnapshotList(view));
+        JSONArray clips = new JSONArray();
+        try {
+            for (Object clip : view.clipTimeline().getEvents()) {
+                clips.put(dumpClip((Clip) clip));
+            }
+        } catch (RuntimeException noTimeline) {
+            // Some channels (for example the master) have no clip timeline to read.
+        }
+        out.put("clips", clips);
+        return out;
+    }
+
+    private static String trackTypeName(Track view) {
+        try {
+            TrackType type = view.getTrackType();
+            return type == null ? null : type.name();
+        } catch (RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    private static JSONObject dumpClip(Clip clip) {
+        Color color = clip.getColor();
+        JSONObject out = new JSONObject()
+                .put("name", clip.getTitle())
+                .put("start", clip.getTime())
+                .put("duration", clip.getDuration())
+                .put("muted", clip.isMuted())
+                .put("loop", clip.isLoopEnabled())
+                .put("loop_start", clip.getLoopStart())
+                .put("loop_duration", clip.getLoopDuration())
+                .put("play_start_offset", clip.getPlayStartOffset())
+                .put("color", color == null ? JSONObject.NULL : color.toHex());
+        if (clip instanceof NoteClip noteClip) {
+            out.put("content", "note");
+            JSONArray notes = new JSONArray();
+            for (Object item : noteClip.getContent().getEventTimeline().getEvents()) {
+                InstrumentNote note = (InstrumentNote) item;
+                notes.put(new JSONObject()
+                        .put("channel", note.getChannel())
+                        .put("key", note.getKey())
+                        .put("start", note.getTime())
+                        .put("duration", note.getDuration())
+                        .put("on_velocity", note.getOnVelocity())
+                        .put("off_velocity", note.getOffVelocity())
+                        .put("muted", note.isMuted()));
+            }
+            out.put("notes", notes);
+        } else if (clip instanceof AudioClip audioClip) {
+            out.put("content", "audio")
+                    .put("fade_in", audioClip.getFadeInTime())
+                    .put("fade_out", audioClip.getFadeOutTime());
+        } else {
+            out.put("content", "other");
+        }
+        return out;
     }
 
     private static MonitorMode monitorMode(String name) {

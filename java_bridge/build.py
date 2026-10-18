@@ -22,6 +22,9 @@ HERE = Path(__file__).resolve().parent
 
 def build(bitwig_root: Path, output: Path, jdk_bin: Path) -> None:
     source = bitwig_root / "bin" / "bitwig.jar"
+    backup = bitwig_root / "bin" / "bitwig.jar.openwig-original-6.1.5"
+    if backup.exists() and hashlib.sha256(backup.read_bytes()).hexdigest() == ORIGINAL_SHA256:
+        source = backup
     libs = bitwig_root / "bin" / "libs.jar"
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     if digest != ORIGINAL_SHA256:

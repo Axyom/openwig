@@ -6,6 +6,7 @@ import com.bitwig.extension.api.project.Titled;
 import com.bitwig.extension.api.project.mixer.Mixer;
 import com.bitwig.extension.api.project.mixer.DeviceChain;
 
+/** Compile-time signature only; the patched JAR keeps Bitwig's own interface. */
 public interface Track extends TrackOrTrackGroup {
     ClipTimeline clipTimeline();
     Mixer mixer();
@@ -13,4 +14,5 @@ public interface Track extends TrackOrTrackGroup {
     void setMonitorMode(MonitorMode mode);
     void setColor(Color color);
     Color getColor();
+    TrackType getTrackType();
 }

@@ -161,6 +161,10 @@ public final class DirectAccess {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }
 
+    public static JSONObject dumpProject() {
+        throw new UnsupportedOperationException("build did not install direct adapter");
+    }
+
     public static int noteCount(int trackIndex, int clipIndex) {
         throw new UnsupportedOperationException("build did not install direct adapter");
     }

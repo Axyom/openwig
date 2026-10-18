@@ -30,7 +30,13 @@ removes every main track and reports the number removed. `fxtrack.count`,
 `fxtrack.create`, `fxtrack.delete`, and `project.clear_effect_tracks` cover the
 effect bank. `master.device_count`, `master.insert_factory`, and `master.clear`
 cover the master device chain. `project.clear` removes main tracks, effect
-tracks, and master devices and reports each count.
+tracks, and master devices and reports each count. `project.dump` reads the
+whole open project read-only: project metadata, cue markers, and the full
+track tree (nested groups with children, track kinds, mixer volume/pan/mute,
+sends with target names, device chains with `native`/`vst3`/`vst2`/`plugin`
+kinds, and arranger clips). Note clips include every note field
+(channel, key, start, duration, on/off velocity, muted); audio clips include
+fades. Python: `JavaSong.dump()`.
 It also supports `clip.count`, `clip.note_count`, and
 `clip.create_arranger_with_notes` for a selected main-track index. It reports
 `song_edit: false` because feature parity has
@@ -120,6 +126,14 @@ changing the existing lane. Tempo automation also passed point readback.
 Repeat using `$env:PYTHONPATH="src"; python tests\live_java_automation.py` on a
 disposable project with no existing tempo automation. Clearing a lane removes
 its time-varying automation; Bitwig can retain one constant fallback point.
+
+`project.dump` passed a live check on a released 7-group, ~90-track project
+("Axyom - The Substance EXPERIMENT"): the full nested group tree, 664 clips,
+776 notes, 10 cue markers, and the master chain (9 native + 2 VST3 devices)
+all read back. The dump was written to `scratch/substance-dump.json` during
+that check. Known read gaps after that check: many devices report an empty
+`display_name`, plugin parameters and device-chain nesting are not read,
+and automation lanes are not enumerated.
 
 For the clip call, send an explicit zero-based main-track index and beat-based
 start and duration. Notes are `[channel, key, start, duration, velocity]`,

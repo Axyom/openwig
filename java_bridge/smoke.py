@@ -34,8 +34,12 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="openwig-java-smoke-") as temp:
         work = Path(temp)
         patched = work / "bitwig.jar"
+        original_jar = BITWIG_ROOT / "bin" / "bitwig.jar"
+        backup = BITWIG_ROOT / "bin" / "bitwig.jar.openwig-original-6.1.5"
+        if backup.exists():
+            original_jar = backup
         build(BITWIG_ROOT, patched, JDK_BIN)
-        with zipfile.ZipFile(BITWIG_ROOT / "bin" / "bitwig.jar") as original, \
+        with zipfile.ZipFile(original_jar) as original, \
              zipfile.ZipFile(patched) as result:
             assert set(result.namelist()) - set(original.namelist()) == {BRIDGE_CLASS, ACCESS_CLASS, SONG_CLASS, TRANSPORT_CLASS, UNDO_CLASS}
             assert {name for name in original.namelist()

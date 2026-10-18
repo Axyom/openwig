@@ -23,38 +23,37 @@ otherwise renders are silent (`render` now warns).
 Probe on the owner's open project: `track.count` = 7, `fxtrack.count` = 0,
 `master.device_count` = 11, tempo 150, loop region 792 beats.
 
-1. **Group tracks crash `track.snapshot`.** All 7 main tracks raised
-   `ClassCastException: ApiTrackGroup cannot be cast to ...extension.api.project.track.Track`
-   at `OpenwigDocument.track(OpenwigDocument.java:58)` (via `trackSnapshot:727`).
-   The bridge assumes every main track is a plain `Track`. Needs: handle
-   `ApiTrackGroup`, expose children, nesting depth, group-level devices, and the
-   track kind (instrument, audio, hybrid, group, effect).
-2. **Master chain is write-only by count.** Only `master.device_count`,
-   `master.insert_factory`, `master.clear`. No list of device names, enabled state,
-   or parameters. `device.*` calls take a *main track index* and reject -1.
-   Needed: address the master track and effect tracks in every `device.*` call.
-3. **Effect tracks are only create/delete/count.** No snapshot, no devices, no
-   volume/pan/sends, no automation access.
-4. **Non-native devices are opaque.** `deviceSnapshot` returns only
-   `display_name` + `enabled`; parameters are served only for `NativeDevice`
-   (`device has no named parameters` otherwise). Needed: device kind (native,
-   VST2/VST3/CLAP, preset), vendor/plugin id, parameter names and values for
-   plugins, device chain nesting (layers, FX layers, drum machine pads, instrument
-   selector, note FX), preset name, device expanded/enabled/mute state.
-5. **Clips are count-only.** `clip.count`, `clip.note_count` exist; nothing returns
-   clip contents. Needed for corpus: arranger clips (start, length, loop
-   start/length, offset, name, color) and notes with every field (key, start,
-   length, velocity, release velocity, pan, timbre, pressure, gain, transpose,
-   chance, repeats, occurrence, recurrence, mute), audio clips (file path/hash,
-   gain, warp markers, stretch mode, fades, reverse, pitch), launcher clips and
-   scenes (read only).
+1. **Group tracks crash `track.snapshot`.** FIXED: `track()` accepts
+   `TrackOrTrackGroup` (groups convert via `asTrack()`), and `project.dump`
+   returns the full nested group tree with children and track kinds.
+   Live-verified on the released project (7 top groups, 4 levels deep).
+2. **Master chain is write-only by count.** PARTLY FIXED: `device.*` calls now
+   accept track index -1 for the master and negative indexes for effect
+   tracks; `project.dump` lists master devices with kinds and enabled state.
+   Still missing: master device parameters by index.
+3. **Effect tracks are only create/delete/count.** PARTLY FIXED:
+   `project.dump` includes effect tracks as full track dumps. Still no
+   per-effect-track snapshot/rename/update routes.
+4. **Non-native devices are opaque.** PARTLY FIXED: `device.snapshot` and the
+   dump report `kind` (`native`/`vst3`/`vst2`/`plugin`) and `active`. Still
+   missing: plugin identity (vendor/name/preset), plugin parameter reads,
+   device-chain nesting (layers, drum pads, note FX), and many devices read
+   back an empty `display_name`.
+5. **Clips are count-only.** PARTLY FIXED: `project.dump` returns arranger
+   clips with name, color, start, duration, mute, loop info, play offset, and
+   note contents (channel, key, start, duration, on/off velocity, muted) or
+   audio fades (664 clips / 776 notes read on the released project). Still
+   missing: note expressions (gain/pan/transpose/timbre/pressure values are
+   write-only in this API), chance/repeats/occurrence, audio clip sample
+   reference (file path), warp/stretch data, launcher clips and scenes.
 6. **Automation cannot be enumerated.** Read/write exist per named parameter, but
    there is no "which parameters have automation" listing, no plugin-parameter or
    send/mute automation, no clip-level (launcher) automation, no automation of
    macros/remote controls.
-7. **Project-level data is missing:** time signature and its changes, tempo
-   *changes* as a map (only the lane is readable), cue markers, arranger loop
-   region details, project name/path, sample rate, key/scale hints if any.
+7. **Project-level data:** PARTLY FIXED: `project.dump` reads cue markers
+   (time/name/color) and the 10 text metadata fields (title, artist, ...).
+   Still missing: time signature and its changes, tempo map as data,
+   project name/path, sample rate, key/scale hints.
 8. **Mixer detail not readable:** send targets and amounts per track, input/output
    routing, sidechain sources, crossfader assignment, solo/arm, channel width,
    monitor mode (the official API has no getter; the model classes may).

@@ -2,7 +2,8 @@ package com.bitwig.extension.api.project.track;
 
 import java.util.List;
 
-public interface TrackGroup {
+/** Compile-time signature only; the patched JAR keeps Bitwig's own interface. */
+public interface TrackGroup extends TrackOrTrackGroup {
     List mainTracks();
     List effectTracks();
     void addMainTrack(TrackOrTrackGroup track);

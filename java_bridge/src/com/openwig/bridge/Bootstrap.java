@@ -170,6 +170,8 @@ public final class Bootstrap {
                                 onDocumentEvent(DirectAccess::clearMasterDevices, 60)));
                 case "project.clear" -> response.put("result",
                         onDocumentEvent(DirectAccess::clearProject, 120));
+                case "project.dump" -> response.put("result",
+                        onDocumentEvent(DirectAccess::dumpProject, 120));
                 case "device.count" -> {
                     JSONObject params = request.optJSONObject("params");
                     int track = params == null ? -1 : params.optInt("track", -1);
