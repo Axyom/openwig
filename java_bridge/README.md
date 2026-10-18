@@ -463,3 +463,39 @@ Native save now matches clone media by persisted source identity instead of
 list position: serialization removes unused media left by clip deletion.
 Ambiguous or unmatched identities fail explicitly. This also fixes saving after
 clearing a project with formerly referenced media.
+
+## Native copy/split and expressive MIDI replacement
+
+`track.copy_clip(index, start, destination=None)` copies a complete arranger clip
+at an absolute beat position. Destination defaults to the source track and must
+belong to the same `JavaSong`. Returns the destination's sorted `clip` index and
+`data`. Native content/settings are retained; content is made independent so
+later edits do not mutate the source. Overlaps are rejected.
+
+`track.split_clip(index, beat)` splits strictly inside a clip using an absolute
+arranger beat. Returns `{"clips": [{"clip": index, "data": snapshot}, ...]}`.
+Native splitting preserves note/audio content, adjusts the right play offset,
+and removes interior audio fades. Indexes may change after timeline edits.
+
+`track.replace_notes(index, notes)` replaces a MIDI clip's content; `[]` clears
+it. Each note is a dictionary with `key` (0..127) and positive beat `duration`.
+Optional fields: `channel` (0..15, default 0), `start` (local beats, default 0),
+`on_velocity` (.8), `off_velocity` (.5), `muted` (False), `chance` (1). Velocities
+and chance use 0..1. Container settings and other clips are preserved, including
+when the original content was shared by a copy/split.
+
+`expressions` optionally maps `gain`, `pan`, `transpose`, `timbre`, `pressure`
+to `{"unit": "<Bitwig Unit name>", "points": [[beat, value], ...]}`.
+Points interpolate linearly, have increasing local beats within note duration,
+and use explicit units. For example pressure `PERCENTAGE_OF_RANGE` values
+20..80 store .2...8; transpose `SEMITONES` 0..7; gain `DECIBEL` -6..0.
+This writes MIDI pitch expression, distinct from the still-unverified audio
+pitch processing. Recurrence/repeat/occurrence controls and arbitrary curve
+shapes are not yet exposed by note replacement. Unknown fields fail explicitly.
+All notes/expressions are staged off-document before replacement, so malformed
+later notes cannot erase earlier content.
+
+Manual gate: `tests/live_java_content.py --disposable --project <open fixture>
+--output <fresh scratch directory>`. Reopen its saved project and run `--verify`
+with the same output directory. Includes independent/cross-track copies,
+MIDI/audio splits, five expression types, invalid requests, and native persistence.

@@ -432,6 +432,87 @@ class JavaTrack:
         """Delete an arranger clip. Later clips keep their positions."""
         return self.s.b.request("clip.delete", self._track_params(clip=self._clip_index(index)))
 
+    def copy_clip(self, index: int, start: float, *, destination: JavaTrack | None = None) -> dict:
+        """Copy a complete arranger clip to a beat position, without linked content.
+
+        Defaults to this track. Returns the destination's sorted ``clip`` index
+        and ``data``. Overlaps are rejected. Native settings and expressions are
+        preserved; subsequent content edits do not affect the original.
+        """
+        self._clip_index(index)
+        start = self._clip_number(start, "start")
+        if start < 0:
+            raise ValueError("start must be nonnegative")
+        params = self._track_params(clip=index, start=start)
+        if destination is not None:
+            if not isinstance(destination, JavaTrack) or destination.s is not self.s:
+                raise ValueError("destination must be a track in the same JavaSong")
+            params["destination"] = destination._track_params()
+        return self.s.b.request("clip.copy", params, timeout=125)
+
+    def split_clip(self, index: int, beat: float) -> dict:
+        """Split strictly inside an arranger clip at an absolute beat position.
+
+        Returns ``clips`` containing each piece's sorted index and data. Bitwig
+        preserves content, adjusts play offsets, and removes the internal fades.
+        """
+        self._clip_index(index)
+        beat = self._clip_number(beat, "beat")
+        if beat < 0:
+            raise ValueError("beat must be nonnegative")
+        return self.s.b.request("clip.split", self._track_params(clip=index, beat=beat), timeout=125)
+
+    def replace_notes(self, index: int, notes) -> dict:
+        """Replace a MIDI clip's content with note dictionaries; [] clears it.
+
+        Required fields: ``key`` (0..127), ``duration`` (positive beats).
+        Optional: ``channel`` (0..15), ``start`` (local beats), ``on_velocity``,
+        ``off_velocity``, ``muted``, ``chance``. Defaults: 0, 0, .8, .5, False, 1.
+        Optional ``expressions`` maps gain/pan/transpose/timbre/pressure to
+        ``{"unit": BitwigUnitName, "points": [[local_beat, value], ...]}``.
+        Curves are linear; beats increase within note duration. Replacement
+        unlinks shared content and preserves the clip container's settings.
+        """
+        import copy
+        self._clip_index(index)
+        payload = copy.deepcopy(list(notes))
+        allowed = {"key", "channel", "start", "duration", "on_velocity",
+                   "off_velocity", "muted", "chance", "expressions"}
+        for note in payload:
+            if not isinstance(note, dict) or note.keys() - allowed or not {"key", "duration"} <= note.keys():
+                raise ValueError("notes require key/duration and supported fields")
+            for key, limit in (("key", 127), ("channel", 15)):
+                value = note.get(key, 0)
+                if type(value) is not int or not 0 <= value <= limit:
+                    raise ValueError(f"{key} must be an integer in 0..{limit}")
+            duration = self._clip_number(note["duration"], "duration")
+            start = self._clip_number(note.get("start", 0), "start")
+            if duration <= 0 or start < 0:
+                raise ValueError("note start must be nonnegative and duration positive")
+            for key in ("on_velocity", "off_velocity", "chance"):
+                if key in note and not 0 <= self._clip_number(note[key], key) <= 1:
+                    raise ValueError(f"{key} must be in 0..1")
+            if "muted" in note and type(note["muted"]) is not bool:
+                raise ValueError("muted must be boolean")
+            expressions = note.get("expressions", {})
+            if not isinstance(expressions, dict) or expressions.keys() - {"gain", "pan", "transpose", "timbre", "pressure"}:
+                raise ValueError("unsupported MIDI expressions")
+            for curve in expressions.values():
+                if not isinstance(curve, dict) or curve.keys() != {"unit", "points"} or not isinstance(curve["unit"], str):
+                    raise ValueError("expression requires unit and points")
+                if not isinstance(curve["points"], (list, tuple)) or not curve["points"]:
+                    raise ValueError("expression points required")
+                last = -1.
+                for point in curve["points"]:
+                    if not isinstance(point, (list, tuple)) or len(point) != 2:
+                        raise ValueError("expression points require beat and value")
+                    beat = self._clip_number(point[0], "expression beat")
+                    self._clip_number(point[1], "expression value")
+                    if not 0 <= beat <= duration or beat <= last:
+                        raise ValueError("expression beats must increase within note duration")
+                    last = beat
+        return self.s.b.request("clip.replace_notes", self._track_params(clip=index, notes=payload), timeout=125)
+
     def import_audio(self, file, *, start: float = 0, duration: float | None = None,
                      source_offset: float = 0, gain_db: float = 0,
                      name: str | None = None) -> dict:

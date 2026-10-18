@@ -2306,7 +2306,7 @@ public final class OpenwigDocument {
             case "document.select" -> selectDocument(p.optString("path", ""));
             case "project.save_copy" -> saveNativeProjectCopy(p.optString("path", ""));
             case "project.duplicate_range" -> editRange(p, "duplicate");
-            case "clip.update", "clip.delete", "clip.import_audio" -> editClip(method, p);
+            case "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio" -> editClip(method, p);
             case "project.insert_time" -> editRange(p, "insert");
             case "project.delete_range" -> editRange(p, "delete");
             case "project.import_dawproject" -> importDawProject(p.optString("path", ""));
@@ -2671,6 +2671,77 @@ public final class OpenwigDocument {
             java.util.List<?> members = timeline.getEvents();
             if (index < 0 || index >= members.size()) throw new IllegalArgumentException("clip index out of range");
             Clip clip = (Clip) members.get(index);
+            if (method.equals("clip.replace_notes")) {
+                if (!(clip instanceof NoteClip)) throw new IllegalArgumentException("MIDI replacement requires a note clip");
+                JSONArray notes = params.getJSONArray("notes");
+                java.util.List<InstrumentNote> staged = new java.util.ArrayList<>();
+                for (int i = 0; i < notes.length(); i++) staged.add(stageInstrumentNote(project.getFactory(), notes.getJSONObject(i)));
+                DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                    // A split or native copy may still reference shared content.
+                    modelGet(((ApiObject) clip).getTarget(), "knw");
+                    EventTimeline content = ((NoteClip) clip).getContent().getEventTimeline();
+                    double low = 0, high = 1;
+                    for (Object member : content.getEvents()) {
+                        InstrumentNote note = (InstrumentNote) member;
+                        low = Math.min(low, note.getTime());
+                        high = Math.max(high, note.getTime() + note.getDuration() + 1);
+                    }
+                    content.clearTime(low, high);
+                    for (InstrumentNote note : staged) content.addEvent(note);
+                });
+                return readClip(clip);
+            }
+            if (method.equals("clip.copy")) {
+                double start = finiteField(params, "start", clip.getTime() + clip.getDuration());
+                Track destination = params.has("destination") ? resolveTrack(project, params.getJSONObject("destination")) : track;
+                ClipTimeline output = destination.clipTimeline();
+                noClipOverlap(output, null, start, clip.getDuration());
+                try {
+                    Object raw = modelGet(((ApiObject) clip).getTarget(), "VxG");
+                    classForName("com.bitwig.ramona.core.nvG").getMethod("IYM", classForName("com.bitwig.ramona.core.kX1"))
+                            .invoke(null, raw);
+                    Class<?> wrapper = classForName(clip instanceof AudioClip
+                            ? "com.bitwig.flt.document.api.document.ApiAudioNoteClipEvent"
+                            : "com.bitwig.flt.document.api.document.ApiInstrumentNoteClipEvent");
+                    Clip cloned = (Clip) wrapper.getConstructor(classForName(clip instanceof AudioClip ? "ukL" : "ME2"))
+                            .newInstance(raw);
+                    cloned.setTime(start);
+                    DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                        output.addEvent(cloned);
+                        // Native clone references can share content. Unlink using
+                        // Bitwig's own make-unique operation after attaching it.
+                        modelGet(raw, "knw");
+                    });
+                    return clipLocation(output, raw);
+                } catch (ReflectiveOperationException failure) {
+                    throw new IllegalStateException("native clip copy failed", failure);
+                }
+            }
+            if (method.equals("clip.split")) {
+                double beat = finiteField(params, "beat", Double.NaN);
+                if (beat <= clip.getTime() + 1e-6 || beat >= clip.getTime() + clip.getDuration() - 1e-6)
+                    throw new IllegalArgumentException("split must be strictly inside the clip");
+                try {
+                    Object selection = modelGet(modelGet(modelGet(project.getTarget(), "qVp"), "TcG"), "tY1");
+                    Object context = modelGet(selection, "gn_");
+                    Object rawTimeline = ((ApiObject) timeline).getTarget();
+                    // The native Split Event entry point owns its transaction.
+                    rawTimeline.getClass().getMethod("IYM", classForName("L3"), double.class,
+                            classForName("ydz"), classForName("wYJ"))
+                            .invoke(rawTimeline, ((ApiObject) clip).getTarget(), beat, context, null);
+                    JSONArray pieces = new JSONArray();
+                    for (Object member : timeline.getEvents()) {
+                        Clip piece = (Clip) member;
+                        if (((ApiObject) piece).getTarget() == ((ApiObject) clip).getTarget()
+                                || Math.abs(piece.getTime() - beat) < 1e-6)
+                            pieces.put(clipLocation(timeline, ((ApiObject) piece).getTarget()));
+                    }
+                    if (pieces.length() != 2) throw new IllegalStateException("split did not produce two clips");
+                    return new JSONObject().put("clips", pieces);
+                } catch (ReflectiveOperationException failure) {
+                    throw new IllegalStateException("native clip split failed", failure);
+                }
+            }
             if (method.equals("clip.delete")) {
                 DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(),
                         () -> timeline.clearTime(clip.getTime(), clip.getTime() + clip.getDuration()));
@@ -2727,6 +2798,67 @@ public final class OpenwigDocument {
             });
             return readClip(clip);
         } finally { project.dispose(); }
+    }
+
+    private static JSONObject clipLocation(ClipTimeline timeline, Object raw) {
+        java.util.List<?> clips = timeline.getEvents();
+        for (int i = 0; i < clips.size(); i++) {
+            Clip clip = (Clip) clips.get(i);
+            if (((ApiObject) clip).getTarget() == raw)
+                return new JSONObject().put("clip", i).put("data", readClip(clip));
+        }
+        throw new IllegalStateException("clip is not attached to requested timeline");
+    }
+
+    private static InstrumentNote stageInstrumentNote(Factory factory, JSONObject data) {
+        java.util.Set<String> fields = java.util.Set.of("key", "channel", "start", "duration", "on_velocity",
+                "off_velocity", "muted", "chance", "expressions");
+        for (String key : data.keySet()) if (!fields.contains(key)) throw new IllegalArgumentException("unknown note field: " + key);
+        double key = finiteField(data, "key", -1), channel = finiteField(data, "channel", 0);
+        double start = finiteField(data, "start", 0), duration = finiteField(data, "duration", -1);
+        double on = finiteField(data, "on_velocity", .8), off = finiteField(data, "off_velocity", .5);
+        double chance = finiteField(data, "chance", 1);
+        if (key != Math.rint(key) || key < 0 || key > 127 || channel != Math.rint(channel) || channel < 0 || channel > 15
+                || start < 0 || duration <= 0 || !Double.isFinite(start + duration)
+                || on < 0 || on > 1 || off < 0 || off > 1 || chance < 0 || chance > 1)
+            throw new IllegalArgumentException("invalid note key/channel/time/velocity/chance");
+        if (data.has("muted") && !(data.get("muted") instanceof Boolean)) throw new IllegalArgumentException("note muted must be boolean");
+        JSONObject expressions = data.optJSONObject("expressions");
+        if (data.has("expressions") && expressions == null) throw new IllegalArgumentException("expressions must be an object");
+        // Stage all notes and curves off-document; reject the complete request
+        // before replacing any existing content.
+        InstrumentNote note = factory.createInstrumentNote((int) channel, (int) key, start, duration, on, off);
+        note.setIsMuted(data.optBoolean("muted", false));
+        note.setChance(chance);
+        if (expressions != null) for (String name : expressions.keySet()) {
+            com.bitwig.extension.api.project.timeline.NoteExpression expression = switch (name) {
+                case "gain" -> note.getGain();
+                case "pan" -> note.getPan();
+                case "transpose" -> note.getTranspose();
+                case "timbre" -> note.getTimbre();
+                case "pressure" -> note.getPressure();
+                default -> throw new IllegalArgumentException("unknown MIDI expression: " + name);
+            };
+            JSONObject curve = expressions.getJSONObject(name);
+            for (String field : curve.keySet()) if (!java.util.Set.of("unit", "points").contains(field))
+                throw new IllegalArgumentException("unknown expression field: " + field);
+            Unit unit = Unit.valueOf(curve.getString("unit"));
+            JSONArray points = curve.getJSONArray("points");
+            if (points.length() == 0) throw new IllegalArgumentException("expression points required");
+            AutomationEvents events = factory.createDoubleAutomationEvents(unit);
+            double last = -1;
+            for (int j = 0; j < points.length(); j++) {
+                JSONArray point = points.getJSONArray(j);
+                if (point.length() != 2) throw new IllegalArgumentException("expression points need beat and value");
+                double time = point.getDouble(0), value = point.getDouble(1);
+                if (!Double.isFinite(time) || !Double.isFinite(value) || time < 0 || time > duration || time <= last)
+                    throw new IllegalArgumentException("expression beats must increase within note duration");
+                events.addPoint(time, value);
+                last = time;
+            }
+            expression.setEvents(events, unit);
+        }
+        return note;
     }
 
     private static JSONObject editRange(JSONObject params, String operation) {

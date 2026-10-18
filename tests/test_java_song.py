@@ -58,7 +58,7 @@ class FakeJavaBridge:
             return {"path": params["path"], "method": method}
         if method == "automation.enumerate":
             return []
-        if method in {"clip.update", "clip.delete", "clip.import_audio"}:
+        if method in {"clip.update", "clip.delete", "clip.import_audio", "clip.copy", "clip.split", "clip.replace_notes"}:
             return params
         raise AssertionError(f"unexpected request: {method}")
 
@@ -121,6 +121,57 @@ def test_audio_import_rejects_invalid_values_without_rpc(bridge, tmp_path, kwarg
     bridge.calls.clear()
     with pytest.raises(ValueError):
         track.import_audio(source, **kwargs)
+    assert bridge.calls == []
+
+
+def test_native_clip_copy_split_and_note_replacement_contract(bridge):
+    song = JavaSong(bridge=bridge)
+    source = song.track_at("Group/MIDI")
+    destination = song.track_at("Group/Copy")
+    notes = [dict(key=64, duration=2, channel=3, start=.25, on_velocity=.6,
+                  off_velocity=.2, muted=False, chance=.75, expressions={
+                      "pressure": {"unit": "PERCENTAGE_OF_RANGE", "points": [[0, 20], [2, 80]]}})]
+    bridge.calls.clear()
+    source.copy_clip(1, 16, destination=destination)
+    source.split_clip(0, 2)
+    source.replace_notes(0, notes)
+    source.replace_notes(0, [])
+    assert bridge.calls == [
+        ("clip.copy", {"path": "Group/MIDI", "clip": 1, "start": 16., "destination": {"path": "Group/Copy"}}),
+        ("clip.split", {"path": "Group/MIDI", "clip": 0, "beat": 2.}),
+        ("clip.replace_notes", {"path": "Group/MIDI", "clip": 0, "notes": notes}),
+        ("clip.replace_notes", {"path": "Group/MIDI", "clip": 0, "notes": []}),
+    ]
+
+
+@pytest.mark.parametrize("note", [{}, {"key": 128, "duration": 1}, {"key": True, "duration": 1},
+    {"key": 60, "duration": 0}, {"key": 60, "duration": 1, "channel": 1.5},
+    {"key": 60, "duration": 1, "start": -1}, {"key": 60, "duration": 1, "chance": 2},
+    {"key": 60, "duration": 1, "on_velocity": float("nan")},
+    {"key": 60, "duration": 1, "muted": 1}, {"key": 60, "duration": 1, "unknown": 0},
+    {"key": 60, "duration": 1, "expressions": {"unknown": {}}},
+    {"key": 60, "duration": 1, "expressions": {"pressure": {"unit": "PERCENTAGE_OF_RANGE", "points": []}}},
+    {"key": 60, "duration": 1, "expressions": {"pressure": {"unit": "PERCENTAGE_OF_RANGE", "points": [[1, .2], [0, .3]]}}},
+    {"key": 60, "duration": 1, "expressions": {"pressure": {"unit": "PERCENTAGE_OF_RANGE", "points": [[2, .2]]}}},
+])
+def test_note_replacement_validates_all_notes_before_rpc(bridge, note):
+    track = JavaSong(bridge=bridge).track_at("MIDI")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.replace_notes(0, [{"key": 60, "duration": 1}, note])
+    assert bridge.calls == []
+
+
+def test_copy_split_reject_invalid_arguments_without_rpc(bridge):
+    track = JavaSong(bridge=bridge).track_at("MIDI")
+    bridge.calls.clear()
+    for value in (-1, True, float("inf")):
+        with pytest.raises(ValueError):
+            track.copy_clip(0, value)
+        with pytest.raises(ValueError):
+            track.split_clip(0, value)
+    with pytest.raises(ValueError):
+        track.copy_clip(0, 4, destination="MIDI")
     assert bridge.calls == []
 
 

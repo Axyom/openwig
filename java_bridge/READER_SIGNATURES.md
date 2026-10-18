@@ -167,3 +167,24 @@ shape application must offset caller points past that anchor and validate times.
   source location (when present). Source/clone indexes are NOT stable after
   deleting media: unused entries disappear during serialization. Match identities
   and resolve source files from the live index; reject ambiguous matches.
+
+### Native copy/split and MIDI expressions (6.1.5)
+
+- Raw `xh3.VxG()` clones a clip, preserving content/settings. Initialize the
+  cloned object's native identity with `nvG.IYM(kX1)`, wrap ME2/ukL via the public
+  ApiInstrumentNoteClipEvent/ApiAudioNoteClipEvent constructors, attach it to the
+  destination, then call `xh3.knw()` to make its referenced content unique.
+  `knw()` invokes `IW()` / `xh3.IYM(List)`, cloning shared content references.
+- `XCv.IYM(L3, double, ydz, wYJ)` is the transaction-owning Split Event entry;
+  `iGQ.IYM(Bq2,double,fKr,wYJ)` supplies clip-specific offset/content behavior.
+  Context is `oZU.qVp().TcG().tY1().gn_()` (fKr). Callback can be null. Reject
+  boundary/outside splits before invoking. Never nest another undo transaction.
+- MIDI replacement makes content unique, reads the resulting current content
+  timeline, clears its full note range and attaches staged InstrumentNotes in
+  one native undo transaction. `InstrumentNote.setIsMuted/setChance` and
+  getGain/getPan/getTranspose/getTimbre/getPressure are available.
+- `ApiNoteExpression.setEvents(AutomationEvents,Unit)` writes local beat/value
+  curves; `Factory.createDoubleAutomationEvents(Unit)` plus `.addPoint` stages
+  them. Readback verifies gain domain conversion, pressure/timbre percentages,
+  semitone transpose, channel/velocities/chance, and persistence. This does not
+  establish audible audio-clip transpose support.

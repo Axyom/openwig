@@ -85,7 +85,10 @@ Do not equate native snapshot preservation with arbitrary field editing.
      nested crossing clips, effect/master automation, cue markers, and persistence.
    - Done: nonzero-start automation anchor handling; hold curvature canonicalization.
    - Implemented: move/resize/trim/mute/name/color/loop/fade and delete existing clips.
-   - Next: native clip copy/split; replace/edit MIDI content and expressions.
+   - Implemented: native independent clip copy (same/cross track), split, MIDI
+     content replacement/clear, gain/pan/pitch/timbre/pressure linear expressions.
+   - Next: individual event properties, expression shapes and remaining probability
+     controls; continue arbitrary audio-event editing.
    - Verify clips crossing edit boundaries, nested tracks, effect/master
      automation, markers, invalid input, and save/reopen persistence.
 2. **Audio creation and editing — pending.**
@@ -123,6 +126,37 @@ Do not equate native snapshot preservation with arbitrary field editing.
 
 ## Current checkpoint: start here
 
+Latest increment: native `JavaTrack.copy_clip`, `split_clip`, and
+`replace_notes`. Live gate `tests/live_java_content.py` covered nested tracks,
+same-track and cross-track independent copies, MIDI/audio splits, native
+loop/play offset/fade preservation, content replacement/clearing, atomic reject
+of malformed later notes, five linear expression types, and zero reader-visible
+differences after save/reopen. Data: `scratch/editing-content-gate/`, including
+`before.json` and `persistence.json`. Source fixtures are synthetic only.
+
+Public note replacement accepts dictionaries with key/duration and optional
+channel/start/on_velocity/off_velocity/muted/chance/expressions. Expressions map
+gain/pan/transpose/timbre/pressure to explicit Bitwig units and local beat/value
+points. Replacement intentionally replaces all note content, unlinks shared
+native content first, and preserves the clip container. It does not yet expose
+every recurrence/repeat/occurrence control or arbitrary interpolation shapes.
+Native splitting retains the complete content, shifts the right piece's play
+offset, and clears interior audio fades; no duplicate undo wrapper is used.
+
+146 unit tests passed, exact-build build and Java protocol/JAR smoke passed,
+controller syntax and whitespace checks passed. Prior commits `4f78e38` and
+`24aab45` both have green CI. This increment is ready to commit/push; record its
+commit/CI result when available. No in-flight live sessions remain.
+
+Current scratch project: `scratch/editing-content-gate/saved/project.bwproject`,
+stopped. Last observed scratch launcher PID 61864; always re-identify before
+process actions. The previous clip fixture and owner deliverable are preserved.
+Next: audio-event offset/gain/mute/reverse/warp operations, isolated pitch proof,
+then plugin/nested routing, launcher, Grid, and JSON reconstruction milestones.
+The full goal remains active and incomplete.
+
+### Previous clip editing increment
+
 Latest increment: generic arranger clip updates/deletion and local RAW audio
 import, public `JavaTrack.update_clip`, `delete_clip`, and `import_audio`.
 The native edits run in undo transactions, preserve underlying note/audio
@@ -151,11 +185,11 @@ has zero differences. The reopened recording measured 440.023 Hz and source-tone
 amplitude 0.00266. A second save from collected relative media succeeded.
 The raw loopback's total RMS also includes unrelated tones; pitch testing needs
 isolation. Committed and pushed as **`4f78e38`** on `codex/java-bridge-615`.
-GitHub CI run `39176057597` was queued at this checkpoint:
+GitHub CI run `39176057597` completed successfully:
 https://github.com/Axyom/openwig/actions/runs/39176057597 .
 The working tree was clean after the implementation commit.
 
-Current scratch project: `scratch/editing-clip-gate-5/saved/project.bwproject`,
+Previous scratch project: `scratch/editing-clip-gate-5/saved/project.bwproject`,
 stopped. Last observed scratch launcher PID 66136; re-identify before any process
 operation. Second collected save: `scratch/editing-clip-gate-5/resaved/project.bwproject`.
 No live tool sessions remain running.
