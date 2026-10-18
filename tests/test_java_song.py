@@ -58,12 +58,70 @@ class FakeJavaBridge:
             return {"path": params["path"], "method": method}
         if method == "automation.enumerate":
             return []
+        if method in {"clip.update", "clip.delete", "clip.import_audio"}:
+            return params
         raise AssertionError(f"unexpected request: {method}")
 
 
 @pytest.fixture
 def bridge():
     return FakeJavaBridge()
+
+
+def test_clip_edits_and_audio_import_wire_contract(bridge, tmp_path):
+    track = JavaSong(bridge=bridge).track_at("Group/Audio")
+    source = tmp_path / "tone.wav"
+    source.write_bytes(b"fixture")
+    bridge.calls.clear()
+    changes = dict(start=8, duration=4, loop=True, loop_start=.5,
+                   loop_duration=2, play_start_offset=.25, muted=False,
+                   name="Edited", color="#aa55ee", fade_in=.25, fade_out=.5)
+    track.update_clip(2, **changes)
+    track.delete_clip(1)
+    track.import_audio(source, start=16, source_offset=.5, gain_db=-6,
+                       name="Tone")
+    assert bridge.calls == [
+        ("clip.update", {"path": "Group/Audio", "clip": 2, "changes": changes}),
+        ("clip.delete", {"path": "Group/Audio", "clip": 1}),
+        ("clip.import_audio", {"path": "Group/Audio", "file": str(source.resolve()),
+                               "start": 16, "source_offset": .5, "gain_db": -6,
+                               "name": "Tone"}),
+    ]
+
+
+@pytest.mark.parametrize("index", [-1, True, 1.5, "1"])
+def test_clip_edits_reject_invalid_indexes_without_rpc(bridge, index):
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.delete_clip(index)
+    with pytest.raises(ValueError):
+        track.update_clip(index, name="invalid")
+    assert bridge.calls == []
+
+
+@pytest.mark.parametrize("changes", [dict(), dict(unknown=1), dict(start=-1),
+    dict(duration=0), dict(loop_duration=-1), dict(fade_in=-1),
+    dict(start=float("nan")), dict(duration=float("inf")), dict(loop=1),
+    dict(muted="yes"), dict(name=2), dict(start=True)])
+def test_clip_changes_rejected_before_rpc(bridge, changes):
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.update_clip(0, **changes)
+    assert bridge.calls == []
+
+
+@pytest.mark.parametrize("kwargs", [dict(start=-1), dict(source_offset=-1),
+    dict(duration=0), dict(gain_db=float("nan")), dict(gain_db=True), dict(name=42)])
+def test_audio_import_rejects_invalid_values_without_rpc(bridge, tmp_path, kwargs):
+    source = tmp_path / "tone.wav"
+    source.write_bytes(b"fixture")
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.import_audio(source, **kwargs)
+    assert bridge.calls == []
 
 
 def test_dump_sends_read_only_project_dump(bridge):

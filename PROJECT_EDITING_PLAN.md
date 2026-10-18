@@ -84,12 +84,13 @@ Do not equate native snapshot preservation with arbitrary field editing.
    - Done: `insert_time(start, beats)` and `delete_range(start, end)`, including
      nested crossing clips, effect/master automation, cue markers, and persistence.
    - Done: nonzero-start automation anchor handling; hold curvature canonicalization.
-   - Next: move/resize/trim/mute/name/color/loop/fade existing clips; clip
-     copy/split/delete; replace/edit MIDI content and expressions.
+   - Implemented: move/resize/trim/mute/name/color/loop/fade and delete existing clips.
+   - Next: native clip copy/split; replace/edit MIDI content and expressions.
    - Verify clips crossing edit boundaries, nested tracks, effect/master
      automation, markers, invalid input, and save/reopen persistence.
 2. **Audio creation and editing — pending.**
-   - Local sample import, audio events, offsets, fades, gain/pitch/reverse,
+   - Implemented: local RAW sample import, source offsets, container fades, gain.
+   - Pending: audio-event edits, pitch/reverse,
      stretch/warp settings and markers, event replacement/deletion.
    - Use authored synthetic audio fixtures. Verify timing and audible output,
      media collection, and save/reopen; never use track counts as sole proof.
@@ -122,41 +123,69 @@ Do not equate native snapshot preservation with arbitrary field editing.
 
 ## Current checkpoint: start here
 
-Latest completed increment: native empty-time insertion, delete-and-pull, and
-nonzero-start automation. Public Python methods, RPCs, contract tests and the
-manual `tests/live_java_ranges.py` gate are implemented. The gate verified a
-crossing 2..8 clip split around an inserted 4..8 gap; later 12..16 material moved
-to 16..20; deleting the gap pulled it back. Nested track, effect/master automation,
-and cue markers were checked in both directions. A saved synthetic fixture
-reopened with **zero differences** in clips, shaped automation, and cue markers.
-107 unit tests, Java build/protocol smoke and controller syntax checks passed.
-Native transport loop bounds remain unchanged by these commands and are
-documented as requiring explicit adjustment.
+Latest increment: generic arranger clip updates/deletion and local RAW audio
+import, public `JavaTrack.update_clip`, `delete_clip`, and `import_audio`.
+The native edits run in undo transactions, preserve underlying note/audio
+content, maintain sorted positions, and reject overlaps before mutation. The
+manual gate checks move/resize, name/mute/color/loop/play offset, audio fades,
+source offsets in seconds, gain in decibels, rejected edits, deletion, media
+collection, playback, and save/reopen. Audio event/container times are beats;
+RAW source offsets and expression domains are seconds. Resize trims the
+container; it does not scale or rewrite its content events.
 
-Persistence initially found that native save/load clears curvature on hold
-segments. The writer now canonicalizes hold curvature to zero immediately;
-linear curvature (-0.2 in the gate) persists. This was retested live and through
-save/reopen. Evidence: `scratch/editing-range-gate-2/persistence.json`.
+Saving exposed an older assumption: serialization drops unused media entries
+(e.g. after clearing/deleting audio), so source and cloned indexes cannot be
+paired. The saver now matches persisted media identities (name, relative and
+absolute locations, package identity, length), fails on ambiguity, and collects
+only the clone's referenced media. Source files are resolved from the live
+source, never by guessing relocated clone paths.
 
-The running scratch Bitwig instance is currently on the **synthetic disposable**
-`scratch/editing-range-gate-2/project.bwproject`, stopped. Last observed launcher
-PID: 63008 (recheck before any process operation; never rely on a stale PID).
-No owner project is open in that scratch instance. The saved musical variation
-under `scratch/music-variations/substance-v1/project/` remains a user deliverable;
-do not clear or overwrite it. Use `scratch/probe-project/probe.bwproject` or the
-synthetic range fixture for the next mutation tests.
+Evidence is in `scratch/editing-clip-gate-5/`; reusable manual gate:
+`tests/live_java_clips.py`. Run mutation with `--disposable --project <open file>
+--output <fresh directory> [--render]`, then reopen its saved project and run
+`--verify` with that saved project's exact path and the same output directory.
+Final local validation: 130 unit tests passed, exact-build Java build and
+JAR/protocol smoke passed, controller syntax and diff whitespace checks passed.
+Mutation/playback and reopened/playback gates both passed; reopened reader audit
+has zero differences. The reopened recording measured 440.023 Hz and source-tone
+amplitude 0.00266. A second save from collected relative media succeeded.
+The raw loopback's total RMS also includes unrelated tones; pitch testing needs
+isolation. Implementation is ready to commit/push; CI status will be recorded
+at the next checkpoint.
+
+Current scratch project: `scratch/editing-clip-gate-5/saved/project.bwproject`,
+stopped. Last observed scratch launcher PID 66136; re-identify before any process
+operation. Second collected save: `scratch/editing-clip-gate-5/resaved/project.bwproject`.
+No live tool sessions remain running.
+
+**Pitch remains pending.** Initial RAW import stored transpose but playback
+ignored it. Experimental STRETCH/ELASTIQUE_PRO warp/pitch variants had valid
+readback and save/reopen, but loopback included other tones even while Bitwig
+was stopped. A first apparent pitch pass was not reproducible. Transpose and
+warp writes are deliberately absent from the public import API and the native
+RPC rejects a transpose field; do not claim verified audible transposition.
+CFR sources for WarpMode/Markers and implementations are available under
+`scratch/decomp/editing/`. Stop unrelated audio before the next pitch gate, or
+use an isolated native render path. The owner had muted the output earlier;
+unmuting restored audible capture. Do not repeat broad endpoint troubleshooting.
+
+Prior completed increment `2fad08f`: empty-time insertion, delete-and-pull,
+nonzero-start automation and native hold-curve canonicalization. All five CI
+jobs passed; 107 baseline tests. Range persistence report:
+`scratch/editing-range-gate-2/persistence.json`, zero differences. Transport loop
+bounds intentionally require explicit caller adjustment.
+
+The scratch instance is on the synthetic clip fixture (see final checkpoint
+entry below). No owner project was edited. Preserve the saved user musical
+variation at `scratch/music-variations/substance-v1/project/`.
 
 Immediate next actions:
 
-1. Implement generic clip move/resize/trim/mute/name/color/loop/fade edits with
-   whole-request validation, a safe overlap policy and native undo. Verify sorting,
-   boundary handling and persistence before exposing public methods.
-2. Implement synthetic local-audio import and audio-event edits through the
-   interfaces below. Establish clip/event/source time units explicitly; add
-   authored audio fixtures, readback and playback/save/reopen evidence.
-3. Continue the remaining phases in order, shrinking actual capability gaps.
-4. Update this checkpoint with evidence, commit/CI status, current open project,
-   in-flight work, and the next action on every checkpoint.
+1. Finish any recorded pending validation/commit below, keep CI and this handoff
+   accurate. The overall goal remains active.
+2. Native clip copy/split, MIDI content replacement and note-expression edits.
+3. Audio-event editing/reverse/warps and properly isolated pitch playback proof.
+4. Continue plugin/nested routing, launcher, Grid and JSON reconstruction phases.
 
 ## Exact-build research already available
 

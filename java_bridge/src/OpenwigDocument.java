@@ -2306,6 +2306,7 @@ public final class OpenwigDocument {
             case "document.select" -> selectDocument(p.optString("path", ""));
             case "project.save_copy" -> saveNativeProjectCopy(p.optString("path", ""));
             case "project.duplicate_range" -> editRange(p, "duplicate");
+            case "clip.update", "clip.delete", "clip.import_audio" -> editClip(method, p);
             case "project.insert_time" -> editRange(p, "insert");
             case "project.delete_range" -> editRange(p, "delete");
             case "project.import_dawproject" -> importDawProject(p.optString("path", ""));
@@ -2601,6 +2602,133 @@ public final class OpenwigDocument {
         }
     }
 
+    private static double modelDoubleArgument(Object target, String method, double value) {
+        try {
+            return ((Number) target.getClass().getMethod(method, double.class).invoke(target, value)).doubleValue();
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("native numeric operation " + method, failure);
+        }
+    }
+
+    private static double finiteField(JSONObject value, String key, double fallback) {
+        double number = value.has(key) ? value.getDouble(key) : fallback;
+        if (!Double.isFinite(number)) throw new IllegalArgumentException(key + " must be finite");
+        return number;
+    }
+
+    private static void noClipOverlap(ClipTimeline timeline, Clip ignored, double start, double duration) {
+        if (start < 0 || duration <= 0 || !Double.isFinite(start + duration))
+            throw new IllegalArgumentException("clip start must be nonnegative and duration positive");
+        for (Object member : timeline.getEvents()) {
+            Clip other = (Clip) member;
+            if (ignored != null && ((ApiObject) other).getTarget() == ((ApiObject) ignored).getTarget()) continue;
+            if (start < other.getTime() + other.getDuration() - 1e-6
+                    && start + duration > other.getTime() + 1e-6)
+                throw new IllegalArgumentException("clip edit overlaps existing material");
+        }
+    }
+
+    private static JSONObject editClip(String method, JSONObject params) {
+        ApiProject project = project();
+        try {
+            Track track = resolveTrack(project, params);
+            ClipTimeline timeline = track.clipTimeline();
+            if (method.equals("clip.import_audio")) {
+                java.io.File file = new java.io.File(params.getString("file")).getAbsoluteFile();
+                if (!file.isFile()) throw new IllegalArgumentException("audio file does not exist: " + file);
+                double start = finiteField(params, "start", 0);
+                double sourceOffset = finiteField(params, "source_offset", 0);
+                double gain = finiteField(params, "gain_db", 0);
+                if (params.has("transpose")) throw new IllegalArgumentException("audio transpose is not yet playback-verified");
+                if (start < 0 || sourceOffset < 0) throw new IllegalArgumentException("negative audio position");
+                Factory factory = project.getFactory();
+                com.bitwig.extension.api.project.file.SampleReference sample = factory.createSampleReferenceForLocalFile(file);
+                double seconds = sample.getDurationInSeconds() - sourceOffset;
+                if (sample.getSampleRate() <= 0 || sample.getChannelCount() <= 0 || seconds <= 0)
+                    throw new IllegalArgumentException("audio source has no usable frames at this offset");
+                Object nativeTransport = modelGet(project.getTarget(), "THS");
+                double naturalDuration = modelDoubleArgument(nativeTransport, "AOA",
+                        modelDoubleArgument(nativeTransport, "xeZ", start) + seconds) - start;
+                double duration = finiteField(params, "duration", naturalDuration);
+                noClipOverlap(timeline, null, start, duration);
+                AudioClip clip = factory.createAudioClip(false);
+                clip.setTime(start);
+                clip.setDuration(duration);
+                clip.setTitle(params.optString("name", file.getName()));
+                com.bitwig.extension.api.project.timeline.AudioNote event = factory.createAudioNote(0, duration, sample);
+                event.setWarpMode(com.bitwig.extension.api.project.timeline.WarpMode.RAW);
+                invokeModelSetter(((ApiObject) event).getTarget(), "UJq", double.class, sourceOffset);
+                event.getGain().setValue(gain, Unit.DECIBEL);
+                clip.getContent().getEventTimeline().addEvent(event);
+                DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> timeline.addEvent(clip));
+                int index = -1;
+                java.util.List<?> members = timeline.getEvents();
+                for (int j = 0; j < members.size(); j++)
+                    if (((ApiObject) members.get(j)).getTarget() == ((ApiObject) clip).getTarget()) index = j;
+                return new JSONObject().put("clip", index).put("data", readClip(clip));
+            }
+            int index = params.getInt("clip");
+            java.util.List<?> members = timeline.getEvents();
+            if (index < 0 || index >= members.size()) throw new IllegalArgumentException("clip index out of range");
+            Clip clip = (Clip) members.get(index);
+            if (method.equals("clip.delete")) {
+                DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(),
+                        () -> timeline.clearTime(clip.getTime(), clip.getTime() + clip.getDuration()));
+                return new JSONObject().put("deleted", index).put("count", timeline.getEvents().size());
+            }
+            JSONObject changes = params.getJSONObject("changes");
+            java.util.Set<String> allowed = java.util.Set.of("start", "duration", "name", "muted", "loop",
+                    "loop_start", "loop_duration", "play_start_offset", "color", "fade_in", "fade_out");
+            for (String key : changes.keySet())
+                if (!allowed.contains(key)) throw new IllegalArgumentException("unknown clip field: " + key);
+            for (String key : new String[]{"muted", "loop"})
+                if (changes.has(key) && !(changes.get(key) instanceof Boolean))
+                    throw new IllegalArgumentException(key + " must be a boolean");
+            if (changes.has("name") && !(changes.get("name") instanceof String))
+                throw new IllegalArgumentException("clip name must be a string");
+            double start = finiteField(changes, "start", clip.getTime());
+            double duration = finiteField(changes, "duration", clip.getDuration());
+            double loopStart = finiteField(changes, "loop_start", clip.getLoopStart());
+            double loopDuration = finiteField(changes, "loop_duration", clip.getLoopDuration());
+            double offset = finiteField(changes, "play_start_offset", clip.getPlayStartOffset());
+            if (loopDuration <= 0) throw new IllegalArgumentException("loop duration must be positive");
+            boolean audio = clip instanceof AudioClip;
+            if (!audio && (changes.has("fade_in") || changes.has("fade_out")))
+                throw new IllegalArgumentException("fades require an audio clip");
+            double fadeIn = finiteField(changes, "fade_in", audio ? ((AudioClip) clip).getFadeInTime() : 0);
+            double fadeOut = finiteField(changes, "fade_out", audio ? ((AudioClip) clip).getFadeOutTime() : 0);
+            if (fadeIn < 0 || fadeOut < 0 || fadeIn > duration || fadeOut > duration)
+                throw new IllegalArgumentException("fades must fit within the clip duration");
+            Color color = changes.has("color") ? parseColor(changes) : null;
+            noClipOverlap(timeline, clip, start, duration);
+            boolean reposition = start != clip.getTime() || duration != clip.getDuration();
+            DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                if (reposition) {
+                    try {
+                        Object rawTimeline = ((ApiObject) timeline).getTarget();
+                        rawTimeline.getClass().getMethod("IYM", classForName("No"), boolean.class)
+                                .invoke(rawTimeline, ((ApiObject) clip).getTarget(), false);
+                    } catch (ReflectiveOperationException failure) {
+                        throw new IllegalStateException("cannot detach arranger clip", failure);
+                    }
+                    clip.setTime(start);
+                    clip.setDuration(duration);
+                }
+                if (changes.has("name")) clip.setTitle(changes.getString("name"));
+                if (changes.has("color")) clip.setColor(color);
+                if (changes.has("muted")) clip.setIsMuted(changes.getBoolean("muted"));
+                if (changes.has("loop")) clip.setIsLoopEnabled(changes.getBoolean("loop"));
+                if (changes.has("loop_start")) clip.setLoopStart(loopStart);
+                if (changes.has("loop_duration")) clip.setLoopDuration(loopDuration);
+                if (changes.has("play_start_offset")) clip.setPlayStartOffset(offset);
+                if (changes.has("fade_in")) ((AudioClip) clip).setFadeInTime(fadeIn);
+                if (changes.has("fade_out")) ((AudioClip) clip).setFadeOutTime(fadeOut);
+                if (reposition) timeline.addEvent(clip);
+            });
+            return readClip(clip);
+        } finally { project.dispose(); }
+    }
+
     private static JSONObject editRange(JSONObject params, String operation) {
         double start = params.getDouble("start");
         double end = params.getDouble("end");
@@ -2630,6 +2758,13 @@ public final class OpenwigDocument {
         } finally { project.dispose(); }
     }
 
+    private static java.util.List<Object> mediaIdentity(Object file) {
+        Object location = modelGet(file, "QmZ");
+        return java.util.List.of(modelGet(file, "Gcr"), modelGet(file, "tDS"),
+                modelGet(file, "kAg"), modelGet(file, "xTe"),
+                location == null ? "" : modelGet(location, "AOA"));
+    }
+
     private static JSONObject saveNativeProjectCopy(String path) {
         if (path == null || path.isBlank() || !path.toLowerCase(java.util.Locale.ROOT).endsWith(".bwproject"))
             throw new IllegalArgumentException("a .bwproject destination is required");
@@ -2654,22 +2789,35 @@ public final class OpenwigDocument {
             Object serializer = classForName("com.bitwig.flt.document.file.m1G").getMethod("Gcr").invoke(null);
             byte[] serialized = (byte[]) serializer.getClass().getMethod("jPB", Object.class).invoke(serializer, source);
             copy = serializer.getClass().getMethod("IYM", byte[].class).invoke(serializer, (Object) serialized);
+            // Resolve the clone against the source directory first. Native
+            // cloning drops unused media entries, so source/clone list indexes
+            // cannot be paired after edits such as deleting an audio clip.
+            copy.getClass().getMethod("Qcu", String.class).invoke(copy, modelGet(source, "UBi"));
+            copy.getClass().getMethod("KF3", String.class).invoke(copy, modelGet(source, "BEq"));
+            modelGet(copy, "SOE");
+            java.util.List<?> copyFiles = (java.util.List<?>) modelGet(modelGet(copy, "mfz"), "IYM");
+            java.util.Map<java.util.List<Object>, Object> originalByIdentity = new java.util.HashMap<>();
+            for (Object original : (java.util.List<?>) modelGet(modelGet(source, "mfz"), "IYM")) {
+                Object previous = originalByIdentity.put(mediaIdentity(original), original);
+                if (previous != null && !java.util.Objects.equals(modelGet(previous, "xeZ"), modelGet(original, "xeZ")))
+                    throw new IllegalStateException("ambiguous native media identity");
+            }
+            java.util.List<java.io.File> resolvedFiles = new java.util.ArrayList<>();
+            for (Object cloned : copyFiles) {
+                Object original = originalByIdentity.get(mediaIdentity(cloned));
+                if (original == null) throw new IllegalStateException("unmatched cloned media identity");
+                resolvedFiles.add((java.io.File) modelGet(original, "xeZ"));
+            }
             copy.getClass().getMethod("Qcu", String.class).invoke(copy, target.getParent());
             copy.getClass().getMethod("KF3", String.class).invoke(copy, target.getPath());
-            modelGet(copy, "SOE");
-            java.util.List<?> sourceFiles = (java.util.List<?>) modelGet(modelGet(source, "mfz"), "IYM");
-            java.util.List<?> copyFiles = (java.util.List<?>) modelGet(modelGet(copy, "mfz"), "IYM");
-            if (sourceFiles.size() != copyFiles.size()) throw new IllegalStateException(
-                    "native file index changed while cloning: " + sourceFiles.size() + " -> " + copyFiles.size());
             int mediaCount = 0;
             java.util.Map<java.nio.file.Path, String> collected = new java.util.HashMap<>();
             assets = java.nio.file.Files.createTempDirectory(target.getParentFile().toPath(), "openwig-media-");
-            for (int i = 0; i < sourceFiles.size(); i++) {
-                Object original = sourceFiles.get(i);
+            for (int i = 0; i < copyFiles.size(); i++) {
                 Object cloned = copyFiles.get(i);
-                java.io.File sourceFile = (java.io.File) modelGet(original, "xeZ");
+                java.io.File sourceFile = resolvedFiles.get(i);
                 if (sourceFile == null || !sourceFile.isFile()) {
-                    if (!String.valueOf(modelGet(original, "kAg")).isEmpty()) continue;
+                    if (!String.valueOf(modelGet(cloned, "kAg")).isEmpty()) continue;
                     throw new IllegalStateException("source media unavailable at native file index " + i);
                 }
                 java.nio.file.Path canonical = sourceFile.toPath().toRealPath();

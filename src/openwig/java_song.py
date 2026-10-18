@@ -388,6 +388,81 @@ class JavaTrack:
             return {"track": self._index, **extra}
         return {"path": self._read_path(), **extra}
 
+    @staticmethod
+    def _clip_index(index: int) -> int:
+        if type(index) is not int or index < 0:
+            raise ValueError("clip index must be a nonnegative integer")
+        return index
+
+    @staticmethod
+    def _clip_number(value, key: str) -> float:
+        import math
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"{key} must be a finite number")
+        return float(value)
+
+    def update_clip(self, index: int, **changes) -> dict:
+        """Edit an arranger clip; times and fades are beats.
+
+        Moving clips changes their sorted indexes. Overlapping another clip is
+        rejected. Resizing trims the container, preserving its content events.
+        Color is snapped to Bitwig's palette. Returns the updated clip data.
+        """
+        self._clip_index(index)
+        allowed = {"start", "duration", "name", "muted", "loop", "loop_start",
+                   "loop_duration", "play_start_offset", "color", "fade_in", "fade_out"}
+        if not changes or changes.keys() - allowed:
+            raise ValueError("provide supported clip changes")
+        for key, value in changes.items():
+            if key in {"muted", "loop"}:
+                if type(value) is not bool:
+                    raise ValueError(f"{key} must be boolean")
+            elif key in {"name", "color"}:
+                if not isinstance(value, str):
+                    raise ValueError(f"{key} must be a string")
+            else:
+                number = self._clip_number(value, key)
+                if key in {"duration", "loop_duration"} and number <= 0:
+                    raise ValueError(f"{key} must be positive")
+                if key in {"start", "fade_in", "fade_out"} and number < 0:
+                    raise ValueError(f"{key} must be nonnegative")
+        return self.s.b.request("clip.update", self._track_params(clip=index, changes=changes))
+
+    def delete_clip(self, index: int) -> dict:
+        """Delete an arranger clip. Later clips keep their positions."""
+        return self.s.b.request("clip.delete", self._track_params(clip=self._clip_index(index)))
+
+    def import_audio(self, file, *, start: float = 0, duration: float | None = None,
+                     source_offset: float = 0, gain_db: float = 0,
+                     name: str | None = None) -> dict:
+        """Import local audio; return its sorted ``clip`` index and ``data``.
+
+        Start/duration are beats; source_offset is seconds. Default duration
+        follows the source remainder and the project's tempo map. Uses RAW audio.
+        Overlaps are rejected. Requires an audio-capable track.
+        """
+        from pathlib import Path
+        source = Path(file).resolve()
+        if not source.is_file():
+            raise ValueError(f"audio file does not exist: {source}")
+        params = dict(file=str(source), start=start, source_offset=source_offset,
+                      gain_db=gain_db)
+        if duration is not None:
+            params["duration"] = duration
+        for key in ("start", "source_offset", "gain_db", "duration"):
+            if key not in params:
+                continue
+            number = self._clip_number(params[key], key)
+            if key in {"start", "source_offset"} and number < 0:
+                raise ValueError(f"{key} must be nonnegative")
+            if key == "duration" and number <= 0:
+                raise ValueError("duration must be positive")
+        if name is not None:
+            if not isinstance(name, str):
+                raise ValueError("name must be a string")
+            params["name"] = name
+        return self.s.b.request("clip.import_audio", self._track_params(**params), timeout=125)
+
     def read(self) -> dict:
         """Read this track subtree using the same builder as ``dump()``."""
         return self.s.b.request("track.read", {"path": self._read_path()}, timeout=125)

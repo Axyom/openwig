@@ -1,6 +1,8 @@
 package com.bitwig.extension.api.project.timeline;
 public interface AudioNote extends EnduringEvent  {
     boolean isMuted();
+    void setWarpMode(WarpMode mode);
+    NoteExpression getGain();
     java.io.File getAudioFile();
     int getSampleRate();
     int getChannelCount();

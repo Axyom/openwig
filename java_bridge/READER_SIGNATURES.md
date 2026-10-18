@@ -148,3 +148,22 @@ commands using the same root/editor selections as Duplicate and Push. Live gate:
 effect/master automation and cue markers in both directions. Automation creation
 through the public API prepends a `GUX` beat-zero anchor for a nonzero first point;
 shape application must offset caller points past that anchor and validate times.
+
+### Verified clip writes and local audio (6.1.5)
+
+- `Clip` setters cover time/duration/title/mute/color/loop/play offset;
+  `AudioClip.setFadeInTime/OutTime` use beats. Detach attached events with
+  native timeline `IYM(No, boolean=false)` before changing positions; reattach
+  via `ClipTimeline.addEvent` so sorting is updated. `clearTime(start,end)`
+  deletes an isolated clip. Requests reject overlapping ranges before mutation.
+- `Factory.createAudioClip(false)`, `createSampleReferenceForLocalFile(File)`,
+  `createAudioNote(time,duration,SampleReference)` create RAW audio: event time
+  and duration use beats; raw `KoO.UJq(double)` sets source offset in seconds.
+  `AudioNote.getGain().setValue(value, Unit.DECIBEL)` stores gain correctly.
+  Native transport `oZU.THS().xeZ(beats)` maps to seconds, `.AOA(seconds)`
+  maps back to beats. These derive default duration at the insertion position.
+- Media identity for detached native save uses `fe.Gcr()` name, `tDS()` relative
+  location, `kAg()` package identity, `xTe()` length and `QmZ().AOA()` absolute
+  source location (when present). Source/clone indexes are NOT stable after
+  deleting media: unused entries disappear during serialization. Match identities
+  and resolve source files from the live index; reject ambiguous matches.

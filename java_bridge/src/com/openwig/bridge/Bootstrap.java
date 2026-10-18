@@ -358,7 +358,7 @@ public final class Bootstrap {
                     }
                     response.put("result", onDocumentEvent(() -> DirectAccess.trackSnapshot(index)));
                 }
-                case "document.info", "document.list", "document.select", "project.save_copy", "project.duplicate_range", "project.insert_time", "project.delete_range", "project.import_dawproject", "project.set_metadata", "cue_marker.create",
+                case "clip.update", "clip.delete", "clip.import_audio", "document.info", "document.list", "document.select", "project.save_copy", "project.duplicate_range", "project.insert_time", "project.delete_range", "project.import_dawproject", "project.set_metadata", "cue_marker.create",
                      "scene.update", "track.create_group", "track.set_solo", "track.set_comment",
                      "track.set_active", "track.set_destination" -> {
                     JSONObject params = request.optJSONObject("params");

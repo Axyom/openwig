@@ -432,3 +432,34 @@ nonzero-start automation at 8/16 beats, including a hold and curved segment.
 The range/automation synthetic fixture also passed native save/reopen with zero
 clip/automation/marker differences. Hold segments canonicalize curvature to zero
 immediately, matching Bitwig serialization; linear curvature is retained.
+
+## Verified arranger clip editing and audio import
+
+`JavaTrack.update_clip(index, **changes)` edits `start`, `duration`, `name`,
+`muted`, `color`, `loop`, `loop_start`, `loop_duration`, `play_start_offset`,
+`fade_in`, and `fade_out`. Times/fades are beats; fades require audio clips.
+Resizing trims the container without rewriting its content. Moves maintain
+native timeline sorting, so indexes can change. Overlaps with other clips are
+rejected before mutation. Palette colors may snap. `delete_clip(index)` deletes
+one arranger clip without moving later material. Native undo wraps both edits.
+
+`JavaTrack.import_audio(file, start=0, duration=None, source_offset=0,
+gain_db=0, name=None)` creates a RAW audio clip from an existing local file.
+Start/duration are beats, source offset is seconds, gain is decibels. Default
+duration maps the remaining source seconds through the native project tempo
+map. Returns `{"clip": sorted_index, "data": clip_snapshot}`. Rejects overlaps,
+nonfinite values, unavailable sources and offsets beyond the source end.
+Pitch, reverse and arbitrary audio-event edits remain pending; no verified
+pitch control is exposed in this increment.
+
+Manual evidence: `tests/live_java_clips.py --disposable --project <open-fixture>
+--output <fresh-directory> [--render]`. Reopen its saved project, then run with
+`--verify` and the same output. The synthetic gate checks retained MIDI content,
+move/resize/sorting, rejected edits, deletion, RAW source offset/gain, fades,
+collected media and full reader-visible persistence. Loopback includes other
+applications; close unrelated audio for spectral playback checks.
+
+Native save now matches clone media by persisted source identity instead of
+list position: serialization removes unused media left by clip deletion.
+Ambiguous or unmatched identities fail explicitly. This also fixes saving after
+clearing a project with formerly referenced media.

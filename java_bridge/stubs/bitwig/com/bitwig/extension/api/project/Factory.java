@@ -15,6 +15,10 @@ public interface Factory {
     com.bitwig.extension.api.project.timeline.CueMarker createCueMarker(double time);
     NativeDevice createNativeDevice(java.util.UUID id);
     NoteClip createNoteClip(boolean launcher);
+    com.bitwig.extension.api.project.timeline.AudioClip createAudioClip(boolean launcher);
+    com.bitwig.extension.api.project.file.SampleReference createSampleReferenceForLocalFile(java.io.File file);
+    com.bitwig.extension.api.project.timeline.AudioNote createAudioNote(double time, double duration,
+            com.bitwig.extension.api.project.file.SampleReference sample);
     InstrumentNote createInstrumentNote(int channel, int key, double time,
                                         double duration, double velocity, double offVelocity);
 }
