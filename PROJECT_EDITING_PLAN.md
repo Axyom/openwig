@@ -143,7 +143,9 @@ Manual gate: `tests/live_java_audio_events.py --disposable --project <open>
 with 440 Hz in the first second and 880 Hz in the second. Native reverse produced
 880 then 440, forward produced 440 then 880. Verified at 120 and 150 BPM. The final
 150 BPM fixture reopened with **zero differences**, with audible reversed order
-880/440 Hz. Evidence: `scratch/editing-audio-final-gate-150/`, persistence and
+880/440 Hz. A separate trimmed-window probe at 150 BPM preserved offsets
+1.05 -> .25 seconds when reversing a two-beat event starting at source .25 s
+(`partial-reverse.json`). Evidence: `scratch/editing-audio-final-gate-150/`, persistence and
 forward/reverse/reopened-reverse JSON+WAV reports. The test includes nested
 tracks, source-copy independence, atomic rejected edits, source EOF rejection,
 exact deletion and deleting/re-importing the last event. Gain/fades/mute/offset
@@ -162,8 +164,9 @@ This is why metadata-only checks cannot establish complete playback parity.
 
 161 unit tests passed; exact-build build, Java protocol/JAR smoke, controller
 syntax and whitespace checks passed. Prior `b8237d7` and `2d14f7a` CI are green.
-This increment is ready for its implementation commit/push; record the commit
-and CI checkpoint once pushed. No live tool sessions remain running.
+This increment is committed/pushed as **`4711a5e`** on `codex/java-bridge-615`.
+The first post-push CI listing did not yet show its run; recheck GitHub Actions
+for this SHA. Implementation working tree is clean. No live sessions remain.
 
 Current scratch project:
 `scratch/editing-audio-final-gate-150/saved/project.bwproject`, stopped.
