@@ -145,11 +145,11 @@ covered 105 track reads, 84 clip reads, 82 device reads, and 96 enumerated
 automation lanes through path-addressed RPCs.
 
 Native device reads include identity and numeric/boolean/enum parameter values.
-Nested-chain checks expanded 400 track-level devices to 528 recursive devices
-and found 55 layer chains, with no truncation or cycle references. Drum pads and
-single-chain containers are implemented from verified signatures but were not
-exercised by this project. Recursive reads returned 15742 native/plugin
-parameters, including 6555 plugin parameters.
+Nested-chain checks (`YhC` single-slot chains, `AYz` layers, `EhV`/`MU2`
+multiband/splitter bands, and `Jnx` drum pads) expanded 400 track-level devices
+to 977 recursive devices across 419 single-slot `chain`s, 67 `layer` chains, and
+13 `band` chains, with no truncation or cycle references. Recursive reads
+returned 22726 native/plugin parameters, including 8393 plugin parameters.
 Plugin reads include device ID, name, vendor, and preset fields. Parameter
 availability is explicit and depends on resident engine descriptors: an early
 read found all 77 top-level VST3 caches empty; after settling, 62 were available
@@ -180,25 +180,25 @@ returns targets, units, and integer point counts for this full raw inventory;
 the per-track dump contains the point arrays. Its legacy index form
 retains mixer/native-double enumeration behavior.
 
-The gated read-only modulator reader passed in the scratch copy: 766 modulators
-across 528 recursive devices (zero `read_error`), with `modulators_status` set
+The gated read-only modulator reader passed in the scratch copy: 902 modulators
+across 977 recursive devices (zero `read_error`), with `modulators_status` set
 to `"native"`. Beyond name, display name, preset, index, and nullable ID, the
-reader returned 1491 stored modulator parameters across all 766 modulators (790
-`double`, 587 `boolean`, 114 `enum`; units: 717 `linear`, 57 `seconds`, 16
-`hertz`, and 701 unitless boolean/enum) and 450 modulation bindings across 254
-modulators (component keys: 259 `SOURCE`, 168 `MATH`, 19 `LFO`, and 1 each of
-`VELOCITY`, `EG`, `KEYTRACK`, `RANDOM`). All 450 bindings resolved both a
-non-empty `target_parameter` path and an exact `{"path", "device"}`
-`target_owner` (including self-device atoms, modulator-to-modulator targets,
-and nested container targets via `dY3.hMI()`/`dY3.TEI()` and `kX1.L_()` parent
-traversal; legacy `dY3.Lg()` returns null on migrated 6.1.5 documents). The
-engine process (PID 45088) remained unchanged across repeated full dumps, both
-dumps were identical, targeted `track.read` and `device.read` calls matched the
-dump, and before/after `.dawproject` archive entries and structure/value checks
-passed. Grid devices and modulators are read only as stored value atoms (no
+reader returned 1807 stored modulator parameters across all 902 modulators (961
+`double`, 690 `boolean`, 156 `enum`; units: 866 `linear`, 73 `seconds`, 22
+`hertz`, and 846 unitless boolean/enum) and 559 modulation bindings across 315
+modulators (component keys: 298 `SOURCE`, 232 `MATH`, 25 `LFO`, and 1 each of
+`VELOCITY`, `EG`, `KEYTRACK`, `RANDOM`). All 559 bindings resolved both a
+non-empty `target_parameter` path and an exact `{"path", "device"}` (or nested
+`{"path", "chain", "device"}`) `target_owner` via atom identity,
+`dY3.hMI()`/`dY3.TEI()`, and `kX1.L_()` parent traversal (legacy `dY3.Lg()`
+returns null on migrated 6.1.5 documents). The engine process (PID 24652)
+remained unchanged across repeated full dumps, both dumps were identical,
+targeted `track.read` and `device.read` calls matched the dump, and
+before/after `.dawproject` archive entries and structure/value checks passed.
+Grid devices and modulators are read only as stored value atoms (no
 module/cable graph topology), and plugin parameter targets backed by `GAN`
 descriptors rather than `m1C` atoms remain at track-level ownership (`QFL.xTe()`)
-when not bound to a top-level `Wcl` owner. Plugin parameter caches can still be
+when not bound to a `Wcl` owner. Plugin parameter caches can still be
 unavailable on any read, as described above.
 
 The live synthetic fixture capture (`tests/live_java_reader_fixture.py --capture`)

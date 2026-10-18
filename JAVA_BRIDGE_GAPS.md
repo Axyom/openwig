@@ -41,12 +41,12 @@ compare equivalent structures through the parity harness.
    1070. Slot clips and stop-button flags are readable. Launcher writing is
    excluded by the owner's scope.
 4. **Device identity and parameters:** native/plugin identity, roles, vendor,
-   and preset fields are read from the exact-build model. Nested reads expanded
-   400 track-level devices to 528 recursive devices and 55 layer chains, with
-   no truncation or cycle references. Drum pads and single-chain containers
-   have signature-backed implementations but were not exercised by this project.
-   Recursive reads returned 15742 native/plugin parameters, including 6555
-   plugin parameters. The initial native-only count of 6765 preceded nesting.
+   and preset fields are read from the exact-build model. Nested reads (`YhC`
+   single-slot chains, `AYz` layers, and `EhV`/`MU2` multiband/splitter bands)
+   expanded 400 track-level devices to 977 recursive devices across 419
+   single-slot `chain`s, 67 `layer` chains, and 13 `band` chains, with no
+   truncation or cycle references. Recursive reads returned 22726 native/plugin
+   parameters, including 8393 plugin parameters.
    Plugin caches depend on resident engine descriptors: initially all 77
    top-level VST3 caches were empty; after settling, 62 were available and 15
    remained `unavailable_model_cache`, yielding 4182 top-level plugin parameters.
@@ -81,19 +81,19 @@ compare equivalent structures through the parity harness.
    The legacy index form retains its previous mixer/native-double
    enumeration behavior.
 10. **Modulators (inventory, parameters, and bindings):** the gated scratch-copy
-    live check returned 766 modulators across 528 recursive devices with zero
-    `read_error` and `modulators_status: "native"`. All 766 modulators exposed
-    stored parameters (1491 total: 790 `double`, 587 `boolean`, 114 `enum`),
-    and 254 modulators exposed 450 modulation bindings (259 `SOURCE`, 168
-    `MATH`, 19 `LFO`, 1 `VELOCITY`, 1 `EG`, 1 `KEYTRACK`, 1 `RANDOM`). All
-    450/450 bindings resolved a non-empty `target_parameter` and 450/450
-    resolved to an exact `{"path", "device"}` `target_owner` via atom identity,
-    migrated `dY3.TEI()`/`dY3.hMI()`, `Ovr.U3o()`, and bounded `kX1.L_()`
-    parent traversal (`dY3.Lg()` is a legacy field and returns null on 6.1.5
-    documents). Repeated full dumps were identical and retained the same engine
-    process (PID 45088) without a crash or hang, targeted `track.read` and
-    `device.read` calls matched the dump, and before/after `.dawproject` XML
-    entries and structure/value checks passed.
+    live check returned 902 modulators across 977 recursive devices with zero
+    `read_error` and `modulators_status: "native"`. All 902 modulators exposed
+    stored parameters (1807 total: 961 `double`, 690 `boolean`, 156 `enum`),
+    and 315 modulators exposed 559 modulation bindings (298 `SOURCE`, 232
+    `MATH`, 25 `LFO`, 1 `VELOCITY`, 1 `EG`, 1 `KEYTRACK`, 1 `RANDOM`). All
+    559/559 bindings resolved a non-empty `target_parameter` and 559/559
+    resolved to an exact `{"path", "device"}` (or nested `{"path", "chain",
+    "device"}`) `target_owner` via atom identity, migrated `dY3.TEI()`/`dY3.hMI()`,
+    `Ovr.U3o()`, and bounded `kX1.L_()` parent traversal (`dY3.Lg()` is a legacy
+    field and returns null on 6.1.5 documents). Repeated full dumps were
+    identical and retained the same engine process (PID 24652) without a crash
+    or hang, targeted `track.read` and `device.read` calls matched the dump,
+    and before/after `.dawproject` XML entries and structure/value checks passed.
 
 Value-level XML comparisons passed for 105 first-match track paths, 373 device
 identities, 2821 clips, 2360 notes, all 2898 audio events and 5697 warp markers,

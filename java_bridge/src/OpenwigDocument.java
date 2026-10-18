@@ -754,13 +754,31 @@ public final class OpenwigDocument {
             return true;
         }
         if (automationInstance("com.bitwig.flt.document.core.master.device.YLB", node)) {
-            out.put(readNestedChain(owner, node, "chain", out.length(), path, context, owners, atomOwners, out.length()));
+            JSONObject item = readNestedChain(owner, node, "chain", out.length(), path, context, owners, atomOwners, out.length());
+            Object chainName = modelGetOrNull(node, "az_");
+            if (chainName instanceof String text && !text.isEmpty()) item.put("name", text);
+            out.put(item);
             return true;
         }
-        if (automationInstance("com.bitwig.flt.document.core.master.device.AYz", node)) {
+        if (automationInstance("com.bitwig.flt.document.core.master.device.YhC", node)) {
+            Object chain = modelGetOrNull(node, "Lg");
+            if (chain != null) {
+                JSONObject item = readNestedChain(owner, chain, "chain", out.length(), path, context, owners, atomOwners, out.length());
+                Object slotName = modelGetOrNull(node, "IYM");
+                if (slotName instanceof String text && !text.isEmpty()) item.put("name", text);
+                out.put(item);
+            }
+            return true;
+        }
+        if (automationInstance("com.bitwig.flt.document.core.master.device.EhV", node)) {
+            String chainKind = automationInstance("com.bitwig.flt.document.core.master.device.AYz", node)
+                    ? "layer" : "band";
             int index = 0;
             for (Object chain : (java.util.List<?>) modelGet(node, "NFl")) {
-                out.put(readNestedChain(owner, chain, "layer", index, path, context, owners, atomOwners, out.length()));
+                JSONObject item = readNestedChain(owner, chain, chainKind, index, path, context, owners, atomOwners, out.length());
+                Object chainName = modelGetOrNull(chain, "az_");
+                if (chainName instanceof String text && !text.isEmpty()) item.put("name", text);
+                out.put(item);
                 index++;
             }
             return true;

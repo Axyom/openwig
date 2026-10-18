@@ -48,7 +48,10 @@ storage. Live claims and remaining coverage are recorded in README and
   `LTX.tS()/IYM():double`. The API's copied warp object drops some stored
   markers; its validity flag is labeled `api_warp_markers_valid` separately.
 - **Nesting:** stored component children use the existing `hMI():List`
-  traversal. `device.AYz.NFl():List` exposes layers;
+  traversal. `device.YhC.Lg():YLB` exposes single-slot chains (`YhC.IYM():String`
+  reads the slot name, e.g. `FX`, `CHAIN`); `device.EhV.NFl():List` exposes
+  multi-chain containers (`device.AYz` layers and `device.MU2`/`device.YvS`
+  multiband/splitter bands, with `YLB.az_():String` reading the chain/band key);
   `Jnx.IYM():List` exposes pads, `ujg.n3R():YLB` an existing pad chain;
   `YLB.nY():Wju` exposes a stored device chain. The protected
   `ApiDeviceChain(Wju)` constructor only wraps that object. Do not call

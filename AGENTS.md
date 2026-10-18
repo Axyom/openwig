@@ -29,7 +29,11 @@ python java_bridge\build.py --output scratch\bitwig-6.1.5-openwig.jar
 python java_bridge\install.py install|status|restore [--bitwig-root <copy>]
 ```
 
-Java reverse engineering used CFR 0.152 (`scratch/tools/cfr.jar`); decompile with `java -jar scratch/tools/cfr.jar <class-or-jar> --outputdir scratch/decomp` and keep generated output in ignored `scratch/`.
+Java reverse engineering uses CFR 0.152 (`scratch/tools/cfr.jar`). Always check `scratch/decomp/` first, and decompile classes from the backup JAR using `--extraclasspath` (because `.openwig-original-6.1.5` does not end in `.jar`):
+
+```powershell
+java -jar scratch\tools\cfr.jar --extraclasspath scratch\bitwig-6.1.5-live\bin\bitwig.jar.openwig-original-6.1.5 <fully.qualified.ClassName> --outputdir scratch\decomp
+```
 
 ## Architecture
 
@@ -52,6 +56,7 @@ Unit tests use a `FakeBridge` that records `(method, params)` and returns script
 
 ## Constraints
 
+- **Always use CFR (`scratch/tools/cfr.jar --extraclasspath ...`) and existing decompiled sources in `scratch/decomp/`** when inspecting Bitwig classes; do not waste tokens dumping raw `javap -c` bytecode.
 - The controller's obfuscated names live only in `symbols_default.json` (data, no per-build resolver anymore): `paths.data_dir` is duplicated in the JS `_resolveLogPath`/`_defaultsPath` and must stay in lockstep.
 - Supported Bitwig versions are locked in `pyproject.toml` `[tool.openwig]` and `openwig.SUPPORTED_BITWIG_VERSIONS`; the handshake refuses mismatches. Bump deliberately, never automatically. Version also lives in both `pyproject.toml` and `openwig/__init__.py`.
 - `scratch/` is gitignored and excluded from test collection; use it for local probes and build outputs. Root-level `*.wav` files are render outputs, also ignored.
