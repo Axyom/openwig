@@ -146,15 +146,22 @@ automation lanes through path-addressed RPCs.
 
 Native device reads include identity and numeric/boolean/enum parameter values.
 Nested-chain checks (`YhC` single-slot chains, `AYz` layers, `EhV`/`MU2`
-multiband/splitter bands, and `Jnx` drum pads) expanded 400 track-level devices
-to 977 recursive devices across 419 single-slot `chain`s, 67 `layer` chains, and
-13 `band` chains, with no truncation or cycle references. Recursive reads
-returned 22726 native/plugin parameters, including 8393 plugin parameters.
-Plugin reads include device ID, name, vendor, and preset fields. Parameter
-availability is explicit and depends on resident engine descriptors: an early
-read found all 77 top-level VST3 caches empty; after settling, 62 were available
-and 15 remained `unavailable_model_cache`, yielding 4182 top-level plugin
-parameters. An unavailable cache is not an empty parameter list claim.
+multiband/splitter bands, plugin `Ce`/`vCL` FX and multi-out chains, and `Jnx`
+drum pads) expanded 400 track-level devices to 978 recursive devices across 420
+single-slot `chain`s, 67 `layer` chains, and 13 `band` chains (including one
+plugin with a nested FX chain device on `master#dev[5]/band:0[2]`), with no
+truncation or cycle references. Recursive reads returned 22726+ native/plugin
+parameters, including 8393 plugin parameters.
+Plugin reads include device ID, name, vendor, preset fields, and saved
+`.vstpreset` state references (`state`, `state_file`, `state_path`,
+`state_bytes` via `brS.qP3():File`, resolving all 121/121 plugins across the
+project, totaling 357056 bytes). Track `solo` (`roo.fcV().oLP():boolean`) and
+`comment` (`roo.lzE():String`), as well as scene `comment` (`eNm.Vc():String`),
+are also read natively. Parameter availability is explicit and depends on
+resident engine descriptors: an early read found all 77 top-level VST3 caches
+empty; after settling, 62 were available and 15 remained
+`unavailable_model_cache`, yielding 4182 top-level plugin parameters. An
+unavailable cache is not an empty parameter list claim.
 
 Routing reads include native input sources and destinations and plugin
 sidechain sources. Six non-null plugin sidechain sources resolved to track
@@ -180,18 +187,18 @@ returns targets, units, and integer point counts for this full raw inventory;
 the per-track dump contains the point arrays. Its legacy index form
 retains mixer/native-double enumeration behavior.
 
-The gated read-only modulator reader passed in the scratch copy: 902 modulators
-across 977 recursive devices (zero `read_error`), with `modulators_status` set
+The gated read-only modulator reader passed in the scratch copy: 904 modulators
+across 978 recursive devices (zero `read_error`), with `modulators_status` set
 to `"native"`. Beyond name, display name, preset, index, and nullable ID, the
-reader returned 1807 stored modulator parameters across all 902 modulators (961
-`double`, 690 `boolean`, 156 `enum`; units: 866 `linear`, 73 `seconds`, 22
-`hertz`, and 846 unitless boolean/enum) and 559 modulation bindings across 315
-modulators (component keys: 298 `SOURCE`, 232 `MATH`, 25 `LFO`, and 1 each of
-`VELOCITY`, `EG`, `KEYTRACK`, `RANDOM`). All 559 bindings resolved both a
+reader returned 1811 stored modulator parameters across all 904 modulators (962
+`double`, 693 `boolean`, 156 `enum`; units: 867 `linear`, 73 `seconds`, 22
+`hertz`, and 849 unitless boolean/enum) and 560 modulation bindings across 316
+modulators (component keys: 299 `SOURCE`, 232 `MATH`, 25 `LFO`, and 1 each of
+`VELOCITY`, `EG`, `KEYTRACK`, `RANDOM`). All 560 bindings resolved both a
 non-empty `target_parameter` path and an exact `{"path", "device"}` (or nested
 `{"path", "chain", "device"}`) `target_owner` via atom identity,
 `dY3.hMI()`/`dY3.TEI()`, and `kX1.L_()` parent traversal (legacy `dY3.Lg()`
-returns null on migrated 6.1.5 documents). The engine process (PID 24652)
+returns null on migrated 6.1.5 documents). The engine process (PID 56272)
 remained unchanged across repeated full dumps, both dumps were identical,
 targeted `track.read` and `device.read` calls matched the dump, and
 before/after `.dawproject` archive entries and structure/value checks passed.

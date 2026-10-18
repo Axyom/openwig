@@ -537,11 +537,35 @@ public final class OpenwigDocument {
                             .put("unit", modelGet(parameter, "AAj")));
                 }
             }
+            java.io.File stateFile = plugin == null ? null : (java.io.File) modelGetOrNull(plugin, "qP3");
+            boolean hasState = stateFile != null && stateFile.isFile();
+            result.put("state", hasState ? stateFile.getAbsolutePath() : JSONObject.NULL)
+                    .put("state_file", hasState ? stateFile.getAbsolutePath() : JSONObject.NULL)
+                    .put("state_path", hasState ? "plugins/" + stateFile.getName() : JSONObject.NULL)
+                    .put("state_bytes", hasState ? stateFile.length() : 0);
             result.put("parameters", parameters).put("parameter_unit", "normalized")
                     .put("parameters_available", parameters.length() > 0)
                     .put("parameters_status", parameters.length() == 0 ? "unavailable_model_cache" : "resident_model_cache");
             Object sidechain = plugin == null ? null : modelGet(modelGet(modelGet(plugin, "Idv"), "APa"), "LZe");
             result.put("sidechain", sourceInfo(sidechain, context));
+            JSONArray rawPluginChains = new JSONArray();
+            JSONArray sidechains = new JSONArray();
+            java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+            boolean complete = true;
+            if (plugin != null) {
+                complete &= readNestedComponents(target, modelGetOrNull(plugin, "Ce"), rawPluginChains, sidechains, seen,
+                        context, path, owners, atomOwners, 0);
+                complete &= readNestedComponents(target, modelGetOrNull(plugin, "vCL"), rawPluginChains, sidechains, seen,
+                        context, path, owners, atomOwners, 0);
+            }
+            JSONArray chains = new JSONArray();
+            for (int c = 0; c < rawPluginChains.length(); c++) {
+                JSONObject chainItem = rawPluginChains.getJSONObject(c);
+                if (chainItem.optJSONArray("devices") != null && chainItem.getJSONArray("devices").length() > 0) {
+                    chains.put(chainItem);
+                }
+            }
+            result.put("chains", chains).put("chains_complete", complete).put("sidechains", sidechains);
         }
         if (device instanceof NativeDevice) {
             JSONArray chains = new JSONArray();
@@ -772,7 +796,8 @@ public final class OpenwigDocument {
         }
         if (automationInstance("com.bitwig.flt.document.core.master.device.EhV", node)) {
             String chainKind = automationInstance("com.bitwig.flt.document.core.master.device.AYz", node)
-                    ? "layer" : "band";
+                    ? "layer" : automationInstance("com.bitwig.flt.document.core.master.device.eiA", node)
+                    ? "multi_out" : "band";
             int index = 0;
             for (Object chain : (java.util.List<?>) modelGet(node, "NFl")) {
                 JSONObject item = readNestedChain(owner, chain, chainKind, index, path, context, owners, atomOwners, out.length());
@@ -1363,12 +1388,18 @@ public final class OpenwigDocument {
                     .getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0);
         }
         Color color = track.getColor();
+        Object rawTrack = ((ApiObject) track).getTarget();
+        Object comment = modelGetOrNull(rawTrack, "lzE");
+        Object channel = modelGetOrNull(rawTrack, "fcV");
+        Object solo = channel == null ? null : modelGetOrNull(channel, "oLP");
         return new JSONObject()
                 .put("index", index)
                 .put("name", track.getTitle())
+                .put("comment", comment == null ? "" : comment)
                 .put("volume", mixer.getVolume().getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0)
                 .put("pan", (mixer.getPan().getValue(Unit.PERCENTAGE_OF_RANGE) + 100.0) / 200.0)
                 .put("mute", mixer.getMute().getValue())
+                .put("solo", solo instanceof Boolean flag && flag)
                 .put("sends", sends)
                 .put("color", color == null ? JSONObject.NULL : color.toHex());
     }
@@ -1425,7 +1456,10 @@ public final class OpenwigDocument {
             for (int i = 0; i < scenesCount; i++) {
                 com.bitwig.extension.api.project.Scene scene = project.getScene(i);
                 Color color = scene.getColor();
+                Object rawScene = ((ApiObject) scene).getTarget();
+                Object comment = modelGetOrNull(rawScene, "Vc");
                 scenes.put(new JSONObject().put("index", i).put("name", scene.getTitle())
+                        .put("comment", comment == null ? "" : comment)
                         .put("color", color == null ? JSONObject.NULL : color.toHex()));
             }
             out.put("scenes", scenes).put("scene_count", scenesCount);
@@ -1468,12 +1502,18 @@ public final class OpenwigDocument {
             out.put("children", children);
         }
         Track view = item instanceof Track direct ? direct : item.asTrack();
+        Object rawTrack = ((ApiObject) view).getTarget();
+        Object comment = modelGetOrNull(rawTrack, "lzE");
+        Object channel = modelGetOrNull(rawTrack, "fcV");
+        Object solo = channel == null ? null : modelGetOrNull(channel, "oLP");
         out.put("track_type", trackTypeName(view));
         out.put("is_active", view.isActive());
+        out.put("comment", comment == null ? "" : comment);
         Mixer mixer = view.mixer();
         out.put("volume", mixer.getVolume().getValue(Unit.PERCENTAGE_OF_RANGE) / 100.0)
                 .put("pan", (mixer.getPan().getValue(Unit.PERCENTAGE_OF_RANGE) + 100.0) / 200.0)
-                .put("mute", mixer.getMute().getValue());
+                .put("mute", mixer.getMute().getValue())
+                .put("solo", solo instanceof Boolean flag && flag);
         try {
             out.put("crossfade", mixer.getCrossfadeMode().getValue());
         } catch (RuntimeException unreadable) {

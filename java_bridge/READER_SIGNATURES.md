@@ -16,13 +16,18 @@ storage. Live claims and remaining coverage are recorded in README and
   identity. Plugin `vgq.urJ():LXO`, then `LXO.Gcr():String` supplies identity.
   `eOc` field identifiers differ from `Enum.name()`; names are
   `AUDIO_TO_AUDIO`, `NOTE_TO_NOTE`, `NOTE_TO_AUDIO`, `AUDIO_TO_NOTE`.
-- **Plugin parameters:** `vgq.Oof():brS`; inherited `og3.bla():String` is
-  vendor and `HT3():List` holds resident `GAN` descriptors. `GAN.KF3():int`
-  is the parameter ID, `rqQ():String` its name, `YiG():double` the normalized
-  exporter value, `wtf():double` the GUI value, `SSK()/AAj():String` display
-  and unit labels. Engine callbacks populate the list; an empty resident list
-  does not prove a zero-parameter plugin. Do not call `GAN.tPX(double)`, which
-  sends an engine formatting request.
+- **Track/scene solo and comments:** `roo.lzE():String` reads the track comment,
+  and `roo.fcV():nr` then `nr.oLP():boolean` reads the channel solo state (for
+  `TrackGroup`, `view` wraps the group's master channel `roo`). `eNm.Vc():String`
+  reads the scene comment.
+- **Plugin parameters and state:** `vgq.Oof():brS`; inherited `og3.bla():String`
+  is vendor, `brS.qP3():File` returns the saved `.vstpreset` state file on disk
+  (`plugins/<name>.vstpreset` in `.dawproject`), and `HT3():List` holds resident
+  `GAN` descriptors. `GAN.KF3():int` is the parameter ID, `rqQ():String` its
+  name, `YiG():double` the normalized exporter value, `wtf():double` the GUI
+  value, `SSK()/AAj():String` display and unit labels. Engine callbacks populate
+  the list; an empty resident list does not prove a zero-parameter plugin. Do
+  not call `GAN.tPX(double)`, which sends an engine formatting request.
 - **Routing:** API source/destination selectors wrap stored `qWE.LZe():iml`
   and `hGY.LZe():pys`. `Destination.getTrack()` uses `pys.Wqw():roo`.
   `q3G.IxG():String` reads a stored endpoint label. Match model identities from
@@ -50,13 +55,16 @@ storage. Live claims and remaining coverage are recorded in README and
 - **Nesting:** stored component children use the existing `hMI():List`
   traversal. `device.YhC.Lg():YLB` exposes single-slot chains (`YhC.IYM():String`
   reads the slot name, e.g. `FX`, `CHAIN`); `device.EhV.NFl():List` exposes
-  multi-chain containers (`device.AYz` layers and `device.MU2`/`device.YvS`
-  multiband/splitter bands, with `YLB.az_():String` reading the chain/band key);
-  `Jnx.IYM():List` exposes pads, `ujg.n3R():YLB` an existing pad chain;
-  `YLB.nY():Wju` exposes a stored device chain. The protected
-  `ApiDeviceChain(Wju)` constructor only wraps that object. Do not call
-  `ApiDrumPad.getDeviceChain/getMixer` on an empty pad: they create a chain.
-  Discovery is bounded, reports truncation, and caches each device per call.
+  multi-chain containers (`device.AYz` layers, `device.MU2`/`device.YvS`
+  multiband/splitter bands, and `device.eiA` multi-out chains, with
+  `YLB.az_():String` reading the chain/band key). On plugins (`brS`), inherited
+  `og3.Ce():Piy` exposes the plugin FX chain slot (`YhC`) and `og3.vCL():eiA`
+  exposes multi-out chains (`EhV`). `Jnx.IYM():List` exposes pads,
+  `ujg.n3R():YLB` an existing pad chain; `YLB.nY():Wju` exposes a stored device
+  chain. The protected `ApiDeviceChain(Wju)` constructor only wraps that object.
+  Do not call `ApiDrumPad.getDeviceChain/getMixer` on an empty pad: they create
+  a chain. Discovery is bounded, reports truncation, and caches each device per
+  call.
 - **Automation:** `roo.HMG().IYM():List` exposes arranger lanes; each lane
   has `DvC():m1C` target and `oLP():jmN` composite timeline. The exporter uses
   `jmN.IYM(fui,double,double,TCM,boolean,boolean,htX)` with its stored context,

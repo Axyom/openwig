@@ -40,13 +40,18 @@ compare equivalent structures through the parity harness.
 3. **Scenes and launcher reads:** native scene count 10, launcher slot count
    1070. Slot clips and stop-button flags are readable. Launcher writing is
    excluded by the owner's scope.
-4. **Device identity and parameters:** native/plugin identity, roles, vendor,
-   and preset fields are read from the exact-build model. Nested reads (`YhC`
-   single-slot chains, `AYz` layers, and `EhV`/`MU2` multiband/splitter bands)
-   expanded 400 track-level devices to 977 recursive devices across 419
-   single-slot `chain`s, 67 `layer` chains, and 13 `band` chains, with no
-   truncation or cycle references. Recursive reads returned 22726 native/plugin
-   parameters, including 8393 plugin parameters.
+4. **Device identity, parameters, and plugin state:** native/plugin identity,
+   roles, vendor, preset fields, and saved plugin `.vstpreset` state references
+   (`state`, `state_file`, `state_path`, `state_bytes` via `brS.qP3():File`,
+   resolving all 121/121 plugins across the project, totaling 357056 bytes) are
+   read from the exact-build model. Nested reads (`YhC` single-slot chains,
+   `AYz` layers, `EhV`/`MU2` multiband/splitter bands, and plugin `Ce`/`vCL`
+   FX/multi-out chains) expanded 400 track-level devices to 978 recursive
+   devices across 420 single-slot `chain`s, 67 `layer` chains, and 13 `band`
+   chains (including one plugin with a nested FX chain device on
+   `master#dev[5]/band:0[2]`), with no truncation or cycle references.
+   Recursive reads returned 22726+ native/plugin parameters, including 8393
+   plugin parameters.
    Plugin caches depend on resident engine descriptors: initially all 77
    top-level VST3 caches were empty; after settling, 62 were available and 15
    remained `unavailable_model_cache`, yielding 4182 top-level plugin parameters.
@@ -68,9 +73,10 @@ compare equivalent structures through the parity harness.
    1425 expression envelopes containing 1529 points, with sample references and
    clip/event settings.
 8. **Project/mixer:** metadata text, cue markers, tempo, groove/shuffle,
-   current time signature, track activity, crossfade, and sends with target
-   names and modes are native. Track groups and effect/master reads share the
-   dump builders.
+   current time signature, track activity, solo (`roo.fcV().oLP():boolean`),
+   track/scene comments (`roo.lzE():String`, `eNm.Vc():String`), crossfade, and
+   sends with target names and modes are native. Track groups and effect/master
+   reads share the dump builders.
 9. **Composite arranger automation:** per-track dump data includes the full
    native lane/target/unit/point inventory. The live gate found 105 lanes and
    4124 points. All 23 exported lanes and their 568 points matched, including
@@ -81,17 +87,17 @@ compare equivalent structures through the parity harness.
    The legacy index form retains its previous mixer/native-double
    enumeration behavior.
 10. **Modulators (inventory, parameters, and bindings):** the gated scratch-copy
-    live check returned 902 modulators across 977 recursive devices with zero
-    `read_error` and `modulators_status: "native"`. All 902 modulators exposed
-    stored parameters (1807 total: 961 `double`, 690 `boolean`, 156 `enum`),
-    and 315 modulators exposed 559 modulation bindings (298 `SOURCE`, 232
+    live check returned 904 modulators across 978 recursive devices with zero
+    `read_error` and `modulators_status: "native"`. All 904 modulators exposed
+    stored parameters (1811 total: 962 `double`, 693 `boolean`, 156 `enum`),
+    and 316 modulators exposed 560 modulation bindings (299 `SOURCE`, 232
     `MATH`, 25 `LFO`, 1 `VELOCITY`, 1 `EG`, 1 `KEYTRACK`, 1 `RANDOM`). All
-    559/559 bindings resolved a non-empty `target_parameter` and 559/559
+    560/560 bindings resolved a non-empty `target_parameter` and 560/560
     resolved to an exact `{"path", "device"}` (or nested `{"path", "chain",
     "device"}`) `target_owner` via atom identity, migrated `dY3.TEI()`/`dY3.hMI()`,
     `Ovr.U3o()`, and bounded `kX1.L_()` parent traversal (`dY3.Lg()` is a legacy
     field and returns null on 6.1.5 documents). Repeated full dumps were
-    identical and retained the same engine process (PID 24652) without a crash
+    identical and retained the same engine process (PID 56272) without a crash
     or hang, targeted `track.read` and `device.read` calls matched the dump,
     and before/after `.dawproject` XML entries and structure/value checks passed.
 
