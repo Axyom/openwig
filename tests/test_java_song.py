@@ -1,5 +1,7 @@
 """JavaSong wire-contract tests against a fake bridge (no Bitwig needed)."""
 
+from pathlib import Path
+
 import pytest
 
 from openwig.java_song import JavaSong
@@ -30,6 +32,10 @@ class FakeJavaBridge:
             return {"active": True}
         if method == "project.dump":
             return {"metadata": {}, "cue_markers": [], "main_tracks": []}
+        if method in {"document.open", "document.close"}:
+            return {"operation": method.split(".")[1], "state": "running", "job": method, "path": params["path"]}
+        if method == "document.job_status":
+            return {"state": getattr(self, "job_state", "complete"), "job": params["job"], "error": "boom"}
         if method in {"document.info", "document.select", "project.save_copy", "project.duplicate_range", "project.insert_time", "project.delete_range"}:
             return params
         if method == "document.list":
@@ -410,6 +416,40 @@ def test_metadata_cue_marker_and_scene_updates(bridge):
         ("scene.update", {"index": 0, "name": "Intro", "comment": "Warm pad",
                           "r": 0.2, "g": 0.4, "b": 0.8, "a": 1.0}),
     ]
+
+
+def test_open_project_waits_for_the_native_job_and_selects(bridge):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    song.open_project("copies/song.bwproject")
+    path = str(Path("copies/song.bwproject").resolve())
+    assert bridge.calls == [
+        ("document.open", {"path": path, "activate_engine": False}),
+        ("document.job_status", {"job": "document.open"}),
+        ("document.select", {"path": path}),
+    ]
+
+
+def test_close_project_requires_explicit_discard(bridge):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        song.close_project("copies/song.bwproject")
+    assert bridge.calls == []
+    song.close_project("copies/song.bwproject", discard_changes=True)
+    path = str(Path("copies/song.bwproject").resolve())
+    assert bridge.calls == [
+        ("document.close", {"path": path, "discard_changes": True}),
+        ("document.job_status", {"job": "document.close"}),
+    ]
+
+
+def test_failed_document_job_raises(bridge):
+    from openwig.bridge import BridgeError
+    song = JavaSong(bridge=bridge)
+    bridge.job_state = "failed"
+    with pytest.raises(BridgeError, match="boom"):
+        song.open_project("copies/song.bwproject")
 
 
 def test_scene_bank_structure_requests(bridge):

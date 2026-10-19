@@ -190,6 +190,38 @@ class JavaSong:
         from pathlib import Path
         return self.b.request("document.select", {"path": str(Path(path).resolve())})
 
+    def _wait_document_job(self, job: dict, timeout: float) -> dict:
+        import time
+        deadline = time.monotonic() + timeout
+        while job.get("state") == "running":
+            if time.monotonic() > deadline:
+                raise BridgeError(f"document {job.get('operation')} timed out: {job.get('path')}")
+            time.sleep(.25)
+            job = self.b.request("document.job_status", {"job": job["job"]})
+        if job.get("state") != "complete":
+            raise BridgeError(f"document {job.get('operation')} failed: {job.get('error', job)}")
+        return job
+
+    def open_project(self, path, *, activate_engine: bool = False, timeout: float = 300) -> dict:
+        """Open a native project in a new tab and select it; nothing is saved.
+
+        Bitwig copies a project saved by another version to a backup next to
+        the file when opening it, so open copies of projects you care about.
+        """
+        from pathlib import Path
+        path = str(Path(path).resolve())
+        self._wait_document_job(self.b.request("document.open", {
+            "path": path, "activate_engine": bool(activate_engine)}, timeout=60), timeout)
+        return self.select_project(path)
+
+    def close_project(self, path, *, discard_changes: bool = False, timeout: float = 120) -> dict:
+        """Close an open project tab without saving; unsaved edits are lost."""
+        from pathlib import Path
+        if not discard_changes:
+            raise ValueError("close_project discards unsaved changes; pass discard_changes=True")
+        return self._wait_document_job(self.b.request("document.close", {
+            "path": str(Path(path).resolve()), "discard_changes": True}, timeout=60), timeout)
+
     def export_project(self, path) -> dict:
         """Capture a portable native project ZIP, with media and plugin states.
 

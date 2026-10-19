@@ -130,6 +130,125 @@ public final class OpenwigDocument {
         } catch (ReflectiveOperationException failure) { throw new IllegalStateException("cannot select project", failure); }
     }
 
+    // Native open/close run asynchronously; callers poll document.job_status.
+    private static final java.util.Map<String, JSONObject> documentJobs = new java.util.LinkedHashMap<>();
+
+    private static java.io.File projectFile(JSONObject params) {
+        String path = params.optString("path", "");
+        if (path.isBlank()) throw new IllegalArgumentException("project path is required");
+        java.io.File file = new java.io.File(path).getAbsoluteFile();
+        if (!file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".bwproject"))
+            throw new IllegalArgumentException("a .bwproject file is required");
+        return file;
+    }
+
+    private static JSONObject jobSnapshot(JSONObject status) {
+        synchronized (status) { return new JSONObject(status.toString()); }
+    }
+
+    private static void startDocumentJob(JSONObject status) {
+        while (documentJobs.size() >= 32) {
+            String finished = null;
+            for (String key : documentJobs.keySet())
+                if (!jobSnapshot(documentJobs.get(key)).getString("state").equals("running")) { finished = key; break; }
+            if (finished == null) throw new IllegalStateException("too many active document jobs");
+            documentJobs.remove(finished);
+        }
+        String job = java.util.UUID.randomUUID().toString();
+        status.put("job", job).put("state", "running");
+        documentJobs.put(job, status);
+    }
+
+    /** Native F3z/rdP callback: completion succeeds the job, an exception or message fails it. */
+    private static Object documentCallback(String type, JSONObject status) {
+        Class<?> callbackType = classForName(type);
+        if (callbackType == null) throw new IllegalStateException("missing native callback type " + type);
+        return java.lang.reflect.Proxy.newProxyInstance(callbackType.getClassLoader(), new Class<?>[]{callbackType}, (proxy, call, args) -> {
+            Object value = args == null || args.length == 0 ? null : args[0];
+            switch (call.getName()) {
+                case "hashCode": return System.identityHashCode(proxy);
+                case "equals": return proxy == value;
+                case "toString": return "OpenwigDocumentJob";
+                case "taskCompleted":
+                    synchronized (status) { status.put("state", "complete"); }
+                    return null;
+                case "IYM":
+                    synchronized (status) {
+                        if (value instanceof Throwable failure)
+                            status.put("state", "failed").put("error", String.valueOf(failure.getMessage() == null ? failure : failure.getMessage()));
+                        else if (value instanceof String message) status.put("state", "failed").put("error", message);
+                        else status.put("state", "complete");
+                    }
+                    return null;
+                default: return null;
+            }
+        });
+    }
+
+    private static Object application() throws ReflectiveOperationException {
+        Object app = classForName("com.bitwig.flt.app.eY1").getMethod("ncg").invoke(null);
+        if (app == null) throw new IllegalStateException("Bitwig application is not ready");
+        return app;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static JSONObject openDocument(JSONObject params) {
+        java.io.File file = projectFile(params);
+        if (!file.isFile()) throw new IllegalArgumentException("project file not found: " + file);
+        try {
+            Object app = application();
+            Object tab = app.getClass().getMethod("Trh", java.io.File.class).invoke(app, file);
+            if (tab != null) {
+                Object selection = modelGet(app, "kxC");
+                selection.getClass().getMethod("jPB", classForName("aBx")).invoke(selection, tab);
+                return new JSONObject().put("operation", "open").put("state", "complete")
+                        .put("path", file.getPath()).put("already_open", true);
+            }
+            java.util.List<?> tabs = (java.util.List<?>) modelGet(modelGet(app, "Lg"), "getValue");
+            // Editions without multiple projects would prompt to close the current one.
+            if (!Boolean.TRUE.equals(modelGet(modelGet(modelGet(app, "H3n"), "Klm"), "getBoolValue")) && !tabs.isEmpty())
+                throw new IllegalStateException("this Bitwig edition opens one project at a time; close the open project first");
+            Class<Enum> flagType = (Class<Enum>) classForName("com.bitwig.flt.app.rLC");
+            java.util.EnumSet flags = java.util.EnumSet.of(Enum.valueOf(flagType, "SELECT"));
+            if (params.optBoolean("activate_engine", false)) flags.add(Enum.valueOf(flagType, "ACTIVATE_ENGINE"));
+            JSONObject status = new JSONObject().put("operation", "open").put("path", file.getPath());
+            startDocumentJob(status);
+            Object callback = documentCallback("com.bitwig.base.async.F3z", status);
+            app.getClass().getMethod("IYM", String.class, int.class, java.util.Set.class, classForName("com.bitwig.base.async.F3z"))
+                    .invoke(app, file.getPath(), tabs.size(), flags, callback);
+            return jobSnapshot(status);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("cannot open project", failure);
+        }
+    }
+
+    private static JSONObject closeDocument(JSONObject params) {
+        if (!params.optBoolean("discard_changes", false))
+            throw new IllegalArgumentException("document.close discards unsaved changes; pass discard_changes=true");
+        java.io.File file = projectFile(params);
+        try {
+            Object app = application();
+            Object tab = app.getClass().getMethod("Trh", java.io.File.class).invoke(app, file);
+            if (tab == null) throw new IllegalArgumentException("project is not open: " + file);
+            Class<?> tabType = classForName("aBx");
+            Class<?> doneType = classForName("com.bitwig.base.async.rdP");
+            java.lang.reflect.Method close = null;
+            for (java.lang.reflect.Method candidate : app.getClass().getMethods()) {
+                Class<?>[] types = candidate.getParameterTypes();
+                if (candidate.getName().equals("IYM") && types.length == 4 && types[0] == tabType
+                        && types[1] == boolean.class && types[3] == doneType) { close = candidate; break; }
+            }
+            if (close == null) throw new IllegalStateException("native close method not found");
+            JSONObject status = new JSONObject().put("operation", "close").put("path", file.getPath());
+            startDocumentJob(status);
+            // false skips the interactive save branch; the native path still stops the engine first.
+            close.invoke(app, tab, false, null, documentCallback("com.bitwig.base.async.rdP", status));
+            return jobSnapshot(status);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("cannot close project", failure);
+        }
+    }
+
     private static ApiProject project() {
         return new ApiProject((oZU) DirectAccess.activeDocumentObject());
     }
@@ -2959,6 +3078,13 @@ public final class OpenwigDocument {
             case "document.info" -> documentInfo();
             case "document.list" -> listDocuments();
             case "document.select" -> selectDocument(p.optString("path", ""));
+            case "document.open" -> openDocument(p);
+            case "document.close" -> closeDocument(p);
+            case "document.job_status" -> {
+                JSONObject status = documentJobs.get(p.optString("job", ""));
+                if (status == null) throw new IllegalArgumentException("unknown document job");
+                yield jobSnapshot(status);
+            }
             case "project.save_copy" -> saveNativeProjectCopy(p.optString("path", ""));
             case "project.duplicate_range" -> editRange(p, "duplicate");
             case "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger", "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear", "launcher.read" -> editLauncher(method, p);
