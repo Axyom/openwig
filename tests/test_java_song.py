@@ -63,6 +63,10 @@ class FakeJavaBridge:
         if method in {"launcher.read", "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger",
                       "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear"}:
             return params
+        if method in {"device.insert_plugin", "device.plugin_parameters"}:
+            return params
+        if method in {"device.export_plugin_state", "device.capture_plugin_state", "device.plugin_state_status"}:
+            return {"state": "complete", "job": "fixture", **params}
         raise AssertionError(f"unexpected request: {method}")
 
 
@@ -213,6 +217,45 @@ def test_audio_expression_and_probability_wire_contract(bridge):
     bridge.calls.clear()
     track.update_audio_event(slot=1, **changes)
     assert bridge.calls == [("audio_event.update", {"path": "Audio", "slot": 1, "event": 0, "changes": changes})]
+
+
+def test_vst3_state_parameter_contract(bridge, tmp_path):
+    track = JavaSong(bridge=bridge).track_at("Plugin")
+    plugin_id = "74F3503C00B24D4E000A6C3100D57595"
+    state = tmp_path / "source.vstpreset"
+    state.write_bytes(b"VST3" + b"\x01\x00\x00\x00" + plugin_id.encode("ascii") + bytes(8))
+    output = tmp_path / "output.vstpreset"
+    bridge.calls.clear()
+    track.insert_plugin("kHs Haas", plugin_id.lower(), state=state)
+    track.set_plugin_parameters(0, {1: 0, "2": .2})
+    track.export_plugin_state(0, output)
+    assert bridge.calls == [
+        ("device.insert_plugin", {"path": "Plugin", "name": "kHs Haas", "format": "vst3", "id": plugin_id, "state": str(state.resolve())}),
+        ("device.plugin_parameters", {"path": "Plugin", "device": 0, "values": {"1": 0., "2": .2}}),
+        ("device.capture_plugin_state", {"path": "Plugin", "device": 0}),
+        ("device.export_plugin_state", {"path": "Plugin", "device": 0, "file": str(output.resolve())}),
+    ]
+
+
+@pytest.mark.parametrize("values", [{}, {True: .5}, {"bad": .5}, {2**32: .5},
+    {1: float("nan")}, {1: 1.1}, {1: True}, {1: .3, "1": .4}])
+def test_plugin_parameters_validate_before_rpc(bridge, values):
+    track = JavaSong(bridge=bridge).track_at("Plugin")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.set_plugin_parameters(0, values)
+    assert bridge.calls == []
+
+
+def test_plugin_state_header_and_existing_export_rejected_locally(bridge, tmp_path):
+    track = JavaSong(bridge=bridge).track_at("Plugin")
+    file = tmp_path / "existing.vstpreset"; file.write_bytes(b"invalid state")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.insert_plugin("Haas", "74F3503C00B24D4E000A6C3100D57595", state=file)
+    with pytest.raises(ValueError):
+        track.export_plugin_state(0, file)
+    assert bridge.calls == []
 
 
 def test_copy_split_reject_invalid_arguments_without_rpc(bridge):

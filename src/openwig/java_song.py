@@ -937,6 +937,104 @@ class JavaTrack:
         """Read device indexes, optional display names, and enabled states."""
         return self.s.b.request("device.snapshot", self._track_params())
 
+    def insert_plugin(self, name: str, plugin_id: str, *, state=None) -> dict:
+        """Append a VST3 by its 32-digit class ID, optionally restoring a .vstpreset.
+
+        Returns the device index and initial snapshot. Engine loading is
+        asynchronous; resident parameters can become available shortly afterward.
+        """
+        import re
+        from pathlib import Path
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("plugin name required")
+        if not isinstance(plugin_id, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", plugin_id):
+            raise ValueError("VST3 class ID requires 32 hex digits")
+        params = dict(name=name, format="vst3", id=plugin_id.upper())
+        if state is not None:
+            source = Path(state).resolve()
+            if not source.is_file():
+                raise ValueError("plugin state file required")
+            with source.open("rb") as f:
+                header = f.read(48)
+            if len(header) < 48 or header[:4] != b"VST3" or header[8:40].upper() != plugin_id.upper().encode("ascii"):
+                raise ValueError("state is not a VST3 preset for this class ID")
+            params["state"] = str(source)
+        return self.s.b.request("device.insert_plugin", self._track_params(**params), timeout=125)
+
+    def plugin_parameters(self, index: int) -> dict:
+        """Read resident plugin parameter IDs/normalized values; report unavailable caches."""
+        return self.s.b.request("device.plugin_parameters", self._track_params(device=self._clip_index(index)))
+
+    def _wait_plugin_state(self, job: dict, timeout: float = 40) -> dict:
+        import time
+        deadline = time.monotonic() + timeout
+        while job["state"] == "running":
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"plugin state operation timed out: {job['job']}")
+            time.sleep(.05)
+            job = self.s.b.request("device.plugin_state_status", self._track_params(job=job["job"]))
+        if job["state"] != "complete":
+            raise BridgeError(job.get("error", "plugin state operation failed"))
+        return job
+
+    def capture_plugin_state(self, index: int) -> dict:
+        """Capture the engine's plugin state into the document for native save/export."""
+        import time
+        deadline = time.monotonic() + 40
+        while True:
+            job = self.s.b.request("device.capture_plugin_state", self._track_params(device=self._clip_index(index)))
+            if job["state"] == "busy":
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("plugin was still capturing its previous state")
+                time.sleep(.05)
+                continue
+            result = self._wait_plugin_state(job, timeout=max(.1, deadline - time.monotonic()))
+            if not result.get("dirty", False):
+                return result
+            if time.monotonic() >= deadline:
+                raise TimeoutError("plugin kept changing while its state was captured")
+
+    def set_plugin_parameters(self, index: int, values: dict) -> dict:
+        """Set resident parameter IDs to normalized 0..1, then capture native state.
+
+        Values are validated together before writing. The SDK waits 100 ms for
+        queued engine changes, then captures state for save_project/reopen.
+        This measured pacing is verified with kHs Haas; it is not a general
+        engine acknowledgement. Audio must be active.
+        """
+        if not isinstance(values, dict) or not values:
+            raise ValueError("nonempty plugin parameter values required")
+        payload = {}
+        for key, value in values.items():
+            if not ((type(key) is int and -2147483648 <= key <= 2147483647)
+                    or (isinstance(key, str) and key.lstrip("-").isdigit())):
+                raise ValueError("parameter IDs must be signed 32-bit integers")
+            if not -2147483648 <= int(key) <= 2147483647 or str(int(key)) in payload:
+                raise ValueError("parameter ID outside signed 32-bit range or duplicated")
+            number = self._clip_number(value, "plugin parameter")
+            if not 0 <= number <= 1:
+                raise ValueError("plugin parameter values must be in 0..1")
+            payload[str(int(key))] = number
+        result = self.s.b.request("device.plugin_parameters", self._track_params(
+            device=self._clip_index(index), values=payload))
+        # The native parameter path queues engine updates. A state-capture
+        # callback alone does not fence that queue (live regression gate).
+        # This is measured pacing, not a general engine acknowledgement.
+        import time
+        time.sleep(.1)
+        self.capture_plugin_state(index)
+        return result
+
+    def export_plugin_state(self, index: int, file) -> dict:
+        """Export current VST3 engine state to a fresh .vstpreset file."""
+        from pathlib import Path
+        target = Path(file).resolve()
+        if target.suffix.lower() != ".vstpreset" or target.exists():
+            raise ValueError("fresh .vstpreset destination required")
+        job = self.s.b.request("device.export_plugin_state", self._track_params(
+            device=self._clip_index(index), file=str(target)))
+        return self._wait_plugin_state(job)
+
     def enable_device(self, index: int, on: bool = True) -> JavaTrack:
         self.s.b.request("device.set_enabled", self._track_params(index=int(index), on=bool(on)))
         return self

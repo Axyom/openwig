@@ -15,6 +15,9 @@ public interface Factory {
     com.bitwig.extension.api.project.track.TrackGroup createTrackGroup();
     com.bitwig.extension.api.project.timeline.CueMarker createCueMarker(double time);
     NativeDevice createNativeDevice(java.util.UUID id);
+    com.bitwig.extension.api.project.mixer.PluginPreset createVst3DevicePreset(String name, byte[] id);
+    com.bitwig.extension.api.project.mixer.PluginStateID createPluginStateID(String extension);
+    java.io.OutputStream createPluginStateOutput(com.bitwig.extension.api.project.mixer.PluginStateID id);
     NoteClip createNoteClip(boolean launcher);
     com.bitwig.extension.api.project.timeline.AudioClip createAudioClip(boolean launcher);
     com.bitwig.extension.api.project.file.SampleReference createSampleReferenceForLocalFile(java.io.File file);

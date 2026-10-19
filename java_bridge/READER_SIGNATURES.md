@@ -288,3 +288,22 @@ shape application must offset caller points past that anchor and validate times.
   `IYM(No,false)`, and adds the staged note through `EventTimeline.addEvent`.
   Gate `tests/live_java_note_details.py` verifies arranger/launcher independence,
   field/curve preservation, insertion/deletion and native persistence.
+
+### VST3 construction and state transfer (6.1.5)
+
+- `Factory.createVst3DevicePreset(String,byte[])` -> `ApiVst3Preset` ->
+  `PluginPreset.createDeviceInstance` -> native `lFH`. `DeviceChain.addDevice`
+  attaches it inside undo. IDs use the 32-hex class ID represented by those bytes.
+- Factory `createPluginStateID("vstpreset")` / `createPluginStateOutput(id)`
+  writes into the native state pool; `PluginPreset.setPluginStateID` associates
+  the file before independent device creation. Validate VST3 magic/class first.
+- Resident `brS.HT3()` returns GAN parameters; `KF3()` is the ID. Public
+  `ApiPluginDeviceParameterAtom` wraps normalized get/set through Unit conversion.
+  `brS.NFl()` is the native ghs load-state enum. Caches are not engine fences.
+- `brS.IYM(File,com.bitwig.base.async.rdP)` exports state asynchronously;
+  `brS.IYM(com.bitwig.flt.document.core.master.device.OsP)` captures into the
+  document. `iP2()` indicates an in-flight capture; `dJV()` is state dirtiness.
+  Neither completion proves prior queued parameter updates were applied.
+- Live gate `tests/live_java_plugins.py`, evidence `scratch/editing-plugins/gate-16/`,
+  passes with 100 ms SDK pacing before parameter-state capture. Immediate capture
+  remains unreliable. See the progress plan for negative cases and removed probes.

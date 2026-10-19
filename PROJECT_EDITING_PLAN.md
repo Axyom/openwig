@@ -181,6 +181,50 @@ step: inspect exact-build plugin/factory insertion APIs and nested chain model,
 then implement and live-verify plugin identities/state/parameter edits before
 Grid and editable reconstruction. The full requested scope remains incomplete.
 
+### Latest plugin increment: VST3 insertion and preset transfer (limited live coverage)
+
+Implemented VST3 insertion by exact 32-hex class ID; normalized resident parameter
+IDs/values; async engine state export to fresh `.vstpreset` files; class-ID checked
+state import into independent instances; native state capture for project copies.
+Python methods: `insert_plugin`, `plugin_parameters`, `set_plugin_parameters`,
+`capture_plugin_state`, `export_plugin_state`. Native jobs have bounded bookkeeping,
+explicit errors and timeouts; no application-event-thread blocking while awaiting
+engine capture. Parameter batches reject invalid IDs/values before writing.
+
+Permanent gate `tests/live_java_plugins.py`, evidence `scratch/editing-plugins/gate-16/`:
+installed kHs Haas VST3, two independent instances, nondefault Channel/Delay,
+engine export/import, state-file class ID rejection, occupied export-file protection,
+invalid mixed parameter batch atomicity, audible 440 Hz before/after native reopen,
+identical embedded state hashes and numerical parameter values. Reader comparison
+reports exactly two asynchronous GUI display-string differences (`Right` -> `Left`,
+`5.00 ms` -> `0.40 ms`); do not call that zero reader differences. 232 unit tests pass.
+
+**Open timing limitation:** immediate native capture can save the previous parameter
+state even after its callback completes. Measured diagnostic
+`scratch/plugin-settle-diagnostic.json`: zero delay saved the old value; 50/100/250/
+500/1000 ms retained the requested values. `set_plugin_parameters` currently uses
+100 ms pacing before capture. This is a tested workaround on this host/plugin,
+not a reliable engine fence or coverage of all installed plugins. Do not mark the
+entire plugins milestone complete. Failing saved gates 1..15 preserve the negative
+cases (gate 7's extra capture happened to pass state inspection, but was not a fix).
+
+Fresh exact-build CFR sources: `scratch/decomp/devices/`, particularly ApiFactory,
+ApiVst3Preset/ApiPluginPreset, ApiPluginDeviceParameterAtom, brS/og3/GAN/aAP,
+m1C/zgi, dfb and yJd/AlI/hHR. Tried and removed: source-state dirty flags,
+document bulk capture, GUI gestures/action setters, zero-timestamp engine events,
+explicit RAMONA publication and treating parameter caches as engine acknowledgement.
+The native flags/wrappers were not changed in the shipped write path. Only SDK
+pacing remains; a proper engine fence is still open. Capture refuses unloaded
+plugins and waits for existing captures instead of joining an in-flight one.
+
+Current runtime: scratch host has
+`scratch/editing-plugins/gate-16/saved/project.bwproject` open and stopped with the
+patched JAR installed. Preserve this fixture. Mutable project remains
+`scratch/editing-details/work/project.bwproject`; resolve live PIDs again.
+Next: nested device chain authoring, plugin catalog/format coverage and routing/
+modulation, then Grid modules/cables/parameters and editable project reconstruction.
+Keep the parameter-capture fence limitation visible in the final verification.
+
 ### Previous verified step: warped audio details
 
 Implemented warped reverse and absolute source-second offsets through forward

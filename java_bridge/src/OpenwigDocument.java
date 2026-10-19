@@ -41,6 +41,45 @@ import org.json.JSONObject;
 
 /** Exact-build song operations, called only from Bitwig's application event queue. */
 public final class OpenwigDocument {
+    private static final java.util.Map<String, JSONObject> pluginStateJobs = new java.util.LinkedHashMap<>();
+
+    private static JSONObject capturePluginState(Object holder) {
+        String loadState = ((Enum<?>) modelGet(holder, "NFl")).name();
+        if (loadState.equals("LOADING") || loadState.equals("QUEUED_FOR_LOADING"))
+            return new JSONObject().put("state", "busy").put("load_state", loadState);
+        if (!loadState.equals("LOADED")) throw new IllegalArgumentException("plugin state capture requires a loaded plugin: " + loadState);
+        if (Boolean.TRUE.equals(modelGet(holder, "iP2")))
+            return new JSONObject().put("state", "busy");
+        String job = java.util.UUID.randomUUID().toString();
+        JSONObject status = new JSONObject().put("job", job).put("state", "running");
+        try {
+            Class<?> type = classForName("com.bitwig.flt.document.core.master.device.OsP");
+            Object callback = java.lang.reflect.Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, (proxy, call, args) -> {
+                if (call.getName().equals("IYM") && args.length == 2) status.put("state", "failed").put("error", String.valueOf(args[1]));
+                else if (call.getName().equals("IYM") || call.getName().equals("jPB")) {
+                    Object file = modelGet(holder, "qP3");
+                    status.put("state", "complete").put("path", file == null ? JSONObject.NULL : ((java.io.File) file).getAbsolutePath())
+                            .put("dirty", modelGet(holder, "dJV"));
+                }
+                else if (call.getName().equals("hashCode")) return System.identityHashCode(proxy);
+                else if (call.getName().equals("equals")) return proxy == args[0];
+                else if (call.getName().equals("toString")) return "OpenwigPluginStateCapture";
+                return null;
+            });
+            if (pluginStateJobs.size() >= 64) {
+                String completed = null;
+                for (String key : pluginStateJobs.keySet()) if (!pluginStateJobs.get(key).getString("state").equals("running")) { completed = key; break; }
+                if (completed == null) throw new IllegalStateException("too many active plugin state jobs");
+                pluginStateJobs.remove(completed);
+            }
+            pluginStateJobs.put(job, status);
+            holder.getClass().getMethod("IYM", type).invoke(holder, callback);
+            return new JSONObject(status.toString());
+        } catch (ReflectiveOperationException failure) {
+            status.put("state", "failed").put("error", failure.toString());
+            throw new IllegalStateException("plugin state capture failed", failure);
+        }
+    }
     private OpenwigDocument() {}
 
     public static Object currentDocument() {
@@ -2342,7 +2381,7 @@ public final class OpenwigDocument {
             case "track.set_monitor" -> updateTrackTarget("monitor", p);
             case "track.set_color" -> updateTrackTarget("color", p);
             case "track.set_send" -> updateTrackTarget("send", p);
-            case "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory",
+            case "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state",
                  "device.set_parameters", "device.get_parameters", "device.rename",
                  "device.set_expanded", "device.delete", "device.list_parameters" ->
                     executeDevice(method, p);
@@ -2358,6 +2397,128 @@ public final class OpenwigDocument {
             Track targetTrack = resolveTrack(project, params);
             String path = params.optString("path", null);
             return switch (method) {
+                case "device.capture_plugin_state" -> {
+                    int index = params.getInt("device");
+                    java.util.List<?> devices = targetTrack.deviceChain().getDevices();
+                    if (index < 0 || index >= devices.size() || !(devices.get(index) instanceof PluginDevice))
+                        throw new IllegalArgumentException("plugin device index required");
+                    yield capturePluginState(modelGet(((ApiObject) devices.get(index)).getTarget(), "Oof"));
+                }
+                case "device.plugin_state_status" -> {
+                    JSONObject status = pluginStateJobs.get(params.getString("job"));
+                    if (status == null) throw new IllegalArgumentException("unknown plugin state job");
+                    yield new JSONObject(status.toString());
+                }
+                case "device.export_plugin_state" -> {
+                    int index = params.getInt("device");
+                    java.util.List<?> devices = targetTrack.deviceChain().getDevices();
+                    if (index < 0 || index >= devices.size() || !(devices.get(index) instanceof Vst3Device))
+                        throw new IllegalArgumentException("state export currently requires a VST3 device");
+                    java.io.File file = new java.io.File(params.getString("file")).getAbsoluteFile();
+                    if (!file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".vstpreset") || file.exists())
+                        throw new IllegalArgumentException("fresh .vstpreset destination required");
+                    String job = java.util.UUID.randomUUID().toString();
+                    JSONObject status = new JSONObject().put("job", job).put("state", "running").put("path", file.getPath());
+                    while (pluginStateJobs.size() >= 64) {
+                        String completed = null;
+                        for (String key : pluginStateJobs.keySet()) if (!pluginStateJobs.get(key).getString("state").equals("running")) { completed = key; break; }
+                        if (completed == null) throw new IllegalStateException("too many active plugin state exports");
+                        pluginStateJobs.remove(completed);
+                    }
+                    try {
+                        java.nio.file.Files.createDirectories(file.getParentFile().toPath());
+                        java.nio.file.Files.createFile(file.toPath());
+                        Class<?> callbackType = classForName("com.bitwig.base.async.rdP");
+                        Object callback = java.lang.reflect.Proxy.newProxyInstance(callbackType.getClassLoader(), new Class<?>[]{callbackType}, (proxy, call, args) -> {
+                            if (call.getName().equals("taskCompleted") || (call.getName().equals("IYM") && call.getParameterTypes()[0] == Object.class))
+                                status.put("state", "complete").put("bytes", file.length());
+                            else if (call.getName().equals("IYM") && args != null && args.length == 1)
+                                status.put("state", "failed").put("error", String.valueOf(args[0]));
+                            else if (call.getName().equals("hashCode")) return System.identityHashCode(proxy);
+                            else if (call.getName().equals("equals")) return proxy == args[0];
+                            else if (call.getName().equals("toString")) return "OpenwigPluginStateExport";
+                            return null;
+                        });
+                        pluginStateJobs.put(job, status);
+                        Object holder = modelGet(((ApiObject) devices.get(index)).getTarget(), "Oof");
+                        holder.getClass().getMethod("IYM", java.io.File.class, callbackType).invoke(holder, file, callback);
+                    } catch (ReflectiveOperationException | java.io.IOException failure) {
+                        status.put("state", "failed").put("error", failure.toString());
+                        throw new IllegalStateException("plugin state export failed", failure);
+                    }
+                    yield new JSONObject(status.toString());
+                }
+                case "device.plugin_parameters" -> {
+                    int index = params.getInt("device");
+                    java.util.List<?> devices = targetTrack.deviceChain().getDevices();
+                    if (index < 0 || index >= devices.size() || !(devices.get(index) instanceof PluginDevice))
+                        throw new IllegalArgumentException("plugin device index required");
+                    Object holder = modelGet(((ApiObject) devices.get(index)).getTarget(), "Oof");
+                    java.util.Map<String, DoubleParameter> available = new java.util.HashMap<>();
+                    try {
+                        java.lang.reflect.Constructor<?> wrapper = classForName("com.bitwig.flt.document.api.document.ApiPluginDeviceParameterAtom")
+                                .getConstructor(classForName("com.bitwig.flt.document.core.master.device.GAN"));
+                        for (Object atom : (java.util.List<?>) modelGet(holder, "HT3"))
+                            available.put(String.valueOf(modelGet(atom, "KF3")), (DoubleParameter) wrapper.newInstance(atom));
+                    } catch (ReflectiveOperationException failure) { throw new IllegalStateException("plugin parameter wrapper failed", failure); }
+                    JSONObject changes = params.optJSONObject("values");
+                    if (changes != null) {
+                        if (!((oZU) project.getTarget()).KF3() || !((oZU) project.getTarget()).va2())
+                            throw new IllegalArgumentException("plugin edits require connected, ready audio");
+                        for (String id : changes.keySet()) {
+                            double value = finiteField(changes, id, -1);
+                            if (!available.containsKey(id) || value < 0 || value > 1)
+                                throw new IllegalArgumentException("unknown resident parameter or value outside 0..1: " + id);
+                        }
+                        DirectAccess.runInUndo(targetTrack.clipTimeline(), () -> {
+                            for (String id : changes.keySet()) {
+                                available.get(id).setValue(changes.getDouble(id) * 100, Unit.PERCENTAGE_OF_RANGE);
+                            }
+                        });
+                    }
+                    JSONObject values = new JSONObject();
+                    for (String id : available.keySet()) {
+                        values.put(id, available.get(id).getValue(Unit.PERCENTAGE_OF_RANGE) / 100);
+                    }
+                    yield new JSONObject().put("values", values).put("state_dirty", modelGet(holder, "dJV"))
+                            .put("load_state", ((Enum<?>) modelGet(holder, "NFl")).name())
+                            .put("available", !available.isEmpty());
+                }
+                case "device.insert_plugin" -> {
+                    String name = params.getString("name");
+                    String format = params.getString("format");
+                    String id = params.getString("id");
+                    if (name.isBlank()) throw new IllegalArgumentException("plugin name required");
+                    com.bitwig.extension.api.project.mixer.PluginPreset preset;
+                    if (format.equals("vst3")) {
+                        if (!id.matches("[0-9a-fA-F]{32}")) throw new IllegalArgumentException("VST3 ID needs 32 hex digits");
+                        preset = project.getFactory().createVst3DevicePreset(name, java.util.HexFormat.of().parseHex(id));
+                    } else throw new IllegalArgumentException("unsupported plugin format");
+                    if (params.has("state")) {
+                        java.io.File source = new java.io.File(params.getString("state"));
+                        if (!source.isFile() || source.length() == 0) throw new IllegalArgumentException("plugin state file required");
+                        if (!format.equals("vst3")) throw new IllegalArgumentException("state import currently requires VST3");
+                        try {
+                            byte[] header;
+                            try (java.io.InputStream stream = new java.io.FileInputStream(source)) { header = stream.readNBytes(48); }
+                            if (header.length < 48 || !new String(header, 0, 4, java.nio.charset.StandardCharsets.US_ASCII).equals("VST3")
+                                    || !new String(header, 8, 32, java.nio.charset.StandardCharsets.US_ASCII).equalsIgnoreCase(id))
+                                throw new IllegalArgumentException("state is not a VST3 preset for the requested class ID");
+                            com.bitwig.extension.api.project.mixer.PluginStateID stateId = project.getFactory().createPluginStateID("vstpreset");
+                            try (java.io.OutputStream stream = project.getFactory().createPluginStateOutput(stateId)) {
+                                java.nio.file.Files.copy(source.toPath(), stream);
+                            }
+                            preset.setPluginStateID(stateId);
+                        } catch (java.io.IOException failure) { throw new IllegalStateException("plugin state import failed", failure); }
+                    }
+                    Device staged = preset.createDeviceInstance();
+                    DeviceChain chain = targetTrack.deviceChain();
+                    int before = chain.getDevices().size();
+                    DirectAccess.runInUndo(targetTrack.clipTimeline(), () -> chain.addDevice(staged));
+                    if (chain.getDevices().size() != before + 1) throw new IllegalStateException("plugin insertion count mismatch");
+                    yield new JSONObject().put("device", before).put("count", before + 1)
+                            .put("data", readDevice(staged, before, path, routingContext(project), deviceOwners(project), atomOwnerIndex(project)));
+                }
                 case "device.count" -> new JSONObject().put("count",
                         targetTrack.deviceChain().getDevices().size());
                 case "device.snapshot" -> new JSONObject().put("devices",

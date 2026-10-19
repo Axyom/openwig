@@ -696,3 +696,32 @@ other-field preservation, copy independence, note insertion/deletion,
 rejection atomicity, warped audio curves/conditions and audible RAW envelope
 timing before and after reopen. Native persistence comparison is exact under
 the existing reader audit's documented numeric/media rules.
+
+## VST3 insertion, parameters and preset transfer (2026-10-19)
+
+`track.insert_plugin(name, plugin_id, state=None)` appends a VST3 using its exact
+32-hex class ID. Optional state must be a VST3 preset with the same header class
+ID. The result includes the sorted device index and initial snapshot; plugin
+loading and resident parameter discovery are asynchronous. This increment does
+not provide a plugin catalog or VST2/CLAP insertion.
+
+`plugin_parameters(index)` reports resident parameter IDs, normalized values,
+native load state and state dirtiness. Missing caches remain explicitly unavailable.
+`set_plugin_parameters(index, {id: value, ...})` validates the whole batch, writes
+0..1 values and captures state for native project copying. **It currently waits
+100 ms before capture.** Immediate native capture can save the previous value;
+its completion callback is not an engine-update fence. This pacing is verified
+on this host with kHs Haas, and is an open limitation for broader plugin coverage.
+
+`export_plugin_state(index, file)` writes current VST3 engine state to a fresh
+`.vstpreset`, waiting for native async completion. `capture_plugin_state(index)`
+captures into Bitwig's state pool so project copies embed the blob; it waits for
+loaded plugins and existing captures. Neither operation overwrites an owner preset.
+
+Gate `tests/live_java_plugins.py --disposable --project <open scratch project>
+--output <fresh directory> [--process-capture <helper> --engine-pid <PID>]`, then
+reopen the saved file and repeat with `--verify`. `scratch/editing-plugins/gate-16/`
+checks nondefault parameters, independent preset restoration, invalid-batch
+atomicity, state header mismatch rejection, existing-file protection, audible
+440 Hz playback, native reopen and matching embedded state hashes. Its only
+reader differences are two stale GUI display strings; numeric values match.
