@@ -105,7 +105,7 @@ Do not equate native snapshot preservation with arbitrary field editing.
      state; read/write parameters and automation; manipulate nested chains.
    - Complete routing and modulation edits, documenting actual format coverage.
      Resident plugin caches may be unavailable; never invent values.
-4. **Launcher and scene editing — done.**
+4. **Launcher and scene editing: done.**
    - Scene name/comment/color edits landed earlier (`update_scene`).
    - Launcher slots landed 2026-10-19: author MIDI/audio slots, arranger-to-slot
      copy, container edits, shared audio-event edits via slot addressing,
