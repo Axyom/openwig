@@ -725,3 +725,25 @@ checks nondefault parameters, independent preset restoration, invalid-batch
 atomicity, state header mismatch rejection, existing-file protection, audible
 440 Hz playback, native reopen and matching embedded state hashes. Its only
 reader differences are two stale GUI display strings; numeric values match.
+
+## Nested device chains (2026-10-19)
+
+`track.chain(device, component_path)` returns a device-only handle. The path is
+copied from `read_device(...)["chains"][...]["component_path"]`; calling `chain`
+on a handle addresses another level. All shared device operations use the
+selected chain, including factory insertion, native parameters and deletion.
+`chain_banks(device)` discovers parallel containers; `create_layer(device,
+component)` appends a native layer and returns its new component address.
+Device indexes remain positional and should be refreshed after structural edits.
+Layer removal/reordering and mixer metadata are not part of this increment.
+
+Example: `track.chain(0, "CONTENTS/CHAIN_LIST/CHAIN0").add_device("Tool")`.
+Poly Grid pre/post chains use `CONTENTS/PRE_FX/Chain` and
+`CONTENTS/POST_FX/Chain`; editing those chains does not edit Grid modules.
+
+`tests/live_java_device_chains.py` covers deep FX Layer authoring, a parallel
+layer, native parameter/name/enable/delete operations, Grid fixed chains,
+invalid-address atomicity, audible -6 dB gain relative to bypass, and native
+save/reopen with zero reader differences. Evidence: `scratch/editing-chains/gate-2/`.
+Nested VST3 methods share the same addressing but have not yet had their own
+plugin live gate.

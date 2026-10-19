@@ -172,6 +172,10 @@ public final class Bootstrap {
                         onDocumentEvent(DirectAccess::clearProject, 120));
                 case "track.read", "clip.read", "device.read" -> {
                     JSONObject params = request.getJSONObject("params");
+                    if (method.equals("device.read") && params.has("chain")) {
+                        response.put("result", onDocumentEvent(() -> DirectAccess.execute(method, params), 120));
+                        break;
+                    }
                     String path = params.getString("path");
                     int index = method.equals("track.read") ? -1 :
                             params.getInt(method.equals("clip.read") ? "clip" : "device");
@@ -200,7 +204,7 @@ public final class Bootstrap {
                 }
                 case "device.count" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 30));
                         break;
@@ -211,7 +215,7 @@ public final class Bootstrap {
                 }
                 case "device.snapshot" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 30).getJSONArray("devices"));
                         break;
@@ -221,7 +225,7 @@ public final class Bootstrap {
                 }
                 case "device.set_enabled" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 30));
                         break;
@@ -236,7 +240,7 @@ public final class Bootstrap {
                 }
                 case "device.insert_factory" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 30));
                         break;
@@ -252,7 +256,7 @@ public final class Bootstrap {
                 }
                 case "device.set_parameters" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 30));
                         break;
@@ -270,7 +274,7 @@ public final class Bootstrap {
                 }
                 case "device.get_parameters" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 30));
                         break;
@@ -288,7 +292,7 @@ public final class Bootstrap {
                 }
                 case "device.rename" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 30));
                         break;
@@ -305,7 +309,7 @@ public final class Bootstrap {
                 }
                 case "device.set_expanded" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 30));
                         break;
@@ -322,7 +326,7 @@ public final class Bootstrap {
                 }
                 case "device.delete" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 30));
                         break;
@@ -337,7 +341,7 @@ public final class Bootstrap {
                 }
                 case "device.list_parameters" -> {
                     JSONObject params = request.optJSONObject("params");
-                    if (params != null && !params.optString("path", "").isBlank()) {
+                    if (params != null && (params.has("chain") || !params.optString("path", "").isBlank())) {
                         response.put("result", onDocumentEvent(
                                 () -> DirectAccess.execute(method, params), 20).getJSONArray("parameters"));
                         break;
@@ -360,7 +364,7 @@ public final class Bootstrap {
                 }
                 case "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger", "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear", "launcher.read", "audio_event.import", "audio_event.update", "audio_event.delete", "note.import", "note.update", "note.delete", "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio", "document.info", "document.list", "document.select", "project.save_copy", "project.duplicate_range", "project.insert_time", "project.delete_range", "project.import_dawproject", "project.set_metadata", "cue_marker.create",
                      "scene.update", "track.create_group", "track.set_solo", "track.set_comment",
-                     "track.set_active", "track.set_destination", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state" -> {
+                     "track.set_active", "track.set_destination", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state", "device.chain_banks", "device.create_layer" -> {
                     JSONObject params = request.optJSONObject("params");
                     long timeout = method.equals("project.save_copy") ? 600
                             : method.equals("project.import_dawproject") ? 300 : 30;

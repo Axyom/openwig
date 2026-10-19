@@ -307,3 +307,17 @@ shape application must offset caller points past that anchor and validate times.
 - Live gate `tests/live_java_plugins.py`, evidence `scratch/editing-plugins/gate-16/`,
   passes with 100 ms SDK pacing before parameter-state capture. Immediate capture
   remains unreliable. See the progress plan for negative cases and removed probes.
+
+## Nested chain authoring, exact 6.1.5 (2026-10-19)
+
+- `ApiDeviceChain(Wju)` protected constructor wraps a native device sequence.
+- Native device `IYM(String, Class)` resolves typed preset identifier paths;
+  `YLB.nY()` returns the chain's `Wju`. Reader component paths are suitable
+  addresses, including FX Layer `CONTENTS/CHAIN_LIST/CHAIN0` and Poly Grid
+  `CONTENTS/PRE_FX/Chain` / `CONTENTS/POST_FX/Chain`.
+- `EhV.NFl()` enumerates parallel nested chains; `AYz` supports layer creation.
+  `ApiParallelNestedDeviceChainContainer(AYz).createChain()` performs native
+  construction/mixer attachment and bank insertion. The wrapper is invoked
+  inside the bridge's document undo transaction.
+- Live gate `scratch/editing-chains/gate-2/`: nested native writes, layer creation,
+  invalid-address atomicity, measured gain, zero reader differences after reopen.

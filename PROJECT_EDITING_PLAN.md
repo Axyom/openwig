@@ -73,6 +73,31 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
   smoke, and all five GitHub CI jobs passed.
 
+## Latest checkpoint: nested device authoring (2026-10-19)
+
+- Implemented chain handles addressed by the reader's `component_path`, recursive
+  device insertion/read/parameter/name/enable/delete operations, bank discovery,
+  and native parallel-layer creation. Device methods now share one Python mixin;
+  nested handles intentionally expose no track or clip mutations.
+- `tests/live_java_device_chains.py` passed authoring and save/reopen on
+  `scratch/editing-chains/gate-2/`: two nested FX Layers, -6 dB Tool processing
+  measured against bypass, another parallel layer, and Poly Grid pre/post chains.
+  Reopened reader comparison has zero differences; reopened audio is audible.
+  Bad chain types, fractional indexes, missing components and bank-as-chain
+  addresses reject without changing the project.
+- Full Python suite: 240 passed. Exact-build JAR built. Plugin increment
+  `ed51bb9` CI is green. This checkpoint is awaiting its own commit/CI.
+- Still pending: layer metadata/mixer/removal/reordering, plugin coverage beyond
+  the existing VST3 gate, routing/modulation edits, Grid module/cable/parameter
+  authoring, editable JSON reconstruction and complete-project verification.
+  The plugin 100 ms state-capture pacing limitation remains open.
+- Runtime: scratch launcher 52732, selected project
+  `scratch/editing-chains/gate-2/saved/project.bwproject`, transport stopped.
+  Current scratch JAR SHA-256
+  `5d7d617362f661d61d51358fd3660432a2340faad3201d597337395efaddaf16`.
+- Next action: commit this tested increment, then extend native chain structure
+  and inspect Grid's module graph using exact-build CFR Java sources.
+
 ## Implementation sequence and progress
 
 Use a separate verified increment for each meaningful operation. Mark an item

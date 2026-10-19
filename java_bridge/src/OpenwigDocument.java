@@ -1047,6 +1047,77 @@ public final class OpenwigDocument {
         return target;
     }
 
+    private static DeviceChain wrapDeviceChain(Object stored) {
+        try {
+            java.lang.reflect.Constructor<?> constructor = classForName("com.bitwig.flt.document.api.document.ApiDeviceChain")
+                    .getDeclaredConstructor(classForName("com.bitwig.flt.document.core.master.device.Wju"));
+            constructor.setAccessible(true);
+            return (DeviceChain) constructor.newInstance(stored);
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("nested device chain wrapper failed", failure); }
+    }
+
+    private static Object deviceComponent(Object owner, String path, Class<?> type) {
+        if (path == null || path.isBlank() || path.contains("..") || path.length() > 2048)
+            throw new IllegalArgumentException("native component path required");
+        try {
+            Object value = owner.getClass().getMethod("IYM", String.class, Class.class).invoke(owner, path, type);
+            if (value == null || !type.isInstance(value)) throw new IllegalArgumentException("component has the wrong kind: " + path);
+            return value;
+        } catch (ReflectiveOperationException failure) { throw new IllegalArgumentException("cannot resolve component: " + path, failure); }
+    }
+
+    private static Track deviceScope(Track track, JSONObject params) {
+        if (!params.has("chain")) return track;
+        JSONArray steps = params.getJSONArray("chain");
+        if (steps.isEmpty()) return track;
+        if (steps.length() > 32) throw new IllegalArgumentException("nested chain depth exceeds 32");
+        DeviceChain chain = track.deviceChain();
+        for (Object value : steps) {
+            JSONObject step = (JSONObject) value;
+            if (!step.keySet().equals(java.util.Set.of("device", "component"))) throw new IllegalArgumentException("chain steps need device/component");
+            Object rawIndex = step.get("device");
+            if (!(rawIndex instanceof Integer)) throw new IllegalArgumentException("nested device index must be an integer");
+            int index = (Integer) rawIndex;
+            if (index < 0 || index >= chain.getDevices().size()) throw new IllegalArgumentException("nested owner device index out of range");
+            Object owner = ((ApiObject) chain.getDevices().get(index)).getTarget();
+            Object layer = deviceComponent(owner, step.getString("component"), classForName("com.bitwig.flt.document.core.master.device.YLB"));
+            Object stored = modelGet(layer, "nY");
+            if (stored == null) throw new IllegalArgumentException("nested component has no device chain");
+            chain = wrapDeviceChain(stored);
+        }
+        DeviceChain selected = chain;
+        return (Track) java.lang.reflect.Proxy.newProxyInstance(Track.class.getClassLoader(), new Class<?>[]{Track.class}, (proxy, method, args) -> {
+            if (method.getName().equals("deviceChain") && method.getParameterCount() == 0) return selected;
+            try { return method.invoke(track, args); }
+            catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
+        });
+    }
+
+    private static JSONArray chainBanks(Object owner) {
+        JSONArray banks = new JSONArray();
+        collectChainBanks(owner, modelGetOrNull(owner, "bhG"), banks, new java.util.IdentityHashMap<>(), 0);
+        if (automationInstance("com.bitwig.flt.document.core.master.device.vgq", owner)) {
+            Object plugin = modelGet(owner, "Oof");
+            collectChainBanks(owner, modelGetOrNull(plugin, "vCL"), banks, new java.util.IdentityHashMap<>(), 0);
+        }
+        return banks;
+    }
+
+    private static void collectChainBanks(Object owner, Object node, JSONArray banks,
+            java.util.IdentityHashMap<Object, Boolean> seen, int depth) {
+        if (node == null || depth > 32 || seen.size() > 10000 || seen.put(node, true) != null) return;
+        if (automationInstance("com.bitwig.flt.document.core.master.device.EhV", node)) {
+            banks.put(new JSONObject().put("component", jsonModelValue(automationIdentifier(owner, node)))
+                    .put("count", ((java.util.List<?>) modelGet(node, "NFl")).size())
+                    .put("can_create_layer", automationInstance("com.bitwig.flt.document.core.master.device.AYz", node)));
+            return;
+        }
+        if (automationInstance("com.bitwig.flt.document.core.master.device.YLB", node)) return;
+        Object children = modelGetOrNull(node, "hMI");
+        if (children instanceof java.util.List<?> list)
+            for (Object child : list) collectChainBanks(owner, child, banks, seen, depth + 1);
+    }
+
     private static NativeDevice nativeDevice(ApiProject project, int trackIndex, int deviceIndex) {
         return nativeDeviceOnTrack(track(project, trackIndex), deviceIndex);
     }
@@ -2381,7 +2452,7 @@ public final class OpenwigDocument {
             case "track.set_monitor" -> updateTrackTarget("monitor", p);
             case "track.set_color" -> updateTrackTarget("color", p);
             case "track.set_send" -> updateTrackTarget("send", p);
-            case "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state",
+            case "device.read", "device.chain_banks", "device.create_layer", "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state",
                  "device.set_parameters", "device.get_parameters", "device.rename",
                  "device.set_expanded", "device.delete", "device.list_parameters" ->
                     executeDevice(method, p);
@@ -2394,9 +2465,31 @@ public final class OpenwigDocument {
     private static JSONObject executeDevice(String method, JSONObject params) {
         ApiProject project = project();
         try {
-            Track targetTrack = resolveTrack(project, params);
+            Track targetTrack = deviceScope(resolveTrack(project, params), params);
             String path = params.optString("path", null);
             return switch (method) {
+                case "device.read", "device.chain_banks", "device.create_layer" -> {
+                    int index = params.getInt("device");
+                    java.util.List<?> members = targetTrack.deviceChain().getDevices();
+                    if (index < 0 || index >= members.size()) throw new IllegalArgumentException("device index out of range");
+                    Device device = (Device) members.get(index);
+                    Object owner = ((ApiObject) device).getTarget();
+                    if (method.equals("device.chain_banks")) yield new JSONObject().put("banks", chainBanks(owner));
+                    if (method.equals("device.create_layer")) {
+                        Object bank = deviceComponent(owner, params.getString("component"), classForName("com.bitwig.flt.document.core.master.device.AYz"));
+                        Object[] created = new Object[1];
+                        DirectAccess.runInUndo(targetTrack.clipTimeline(), () -> {
+                            try {
+                                Object wrapper = classForName("com.bitwig.flt.document.api.document.ApiParallelNestedDeviceChainContainer")
+                                        .getConstructor(classForName("com.bitwig.flt.document.core.master.device.AYz")).newInstance(bank);
+                                created[0] = ((ApiObject) wrapper.getClass().getMethod("createChain").invoke(wrapper)).getTarget();
+                            } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native layer creation failed", failure); }
+                        });
+                        yield new JSONObject().put("component", automationIdentifier(owner, created[0]))
+                                .put("count", ((java.util.List<?>) modelGet(bank, "NFl")).size());
+                    }
+                    yield readDevice(device, index, path, routingContext(project), deviceOwners(project), atomOwnerIndex(project));
+                }
                 case "device.capture_plugin_state" -> {
                     int index = params.getInt("device");
                     java.util.List<?> devices = targetTrack.deviceChain().getDevices();
