@@ -512,9 +512,11 @@ the clip explicitly to expose that content. Overlaps are rejected.
 `track.update_audio_event(clip, index, **changes)` edits `start`, `duration`,
 `source_offset`, `gain_db`, `muted`, `reverse`, `fade_in`, `fade_out`. Event times
 and fades are beats, source offset is seconds, gain is decibels. A gain write
-replaces the existing gain-expression curve with a constant. Source offset and
-reverse currently require RAW audio. Set offsets while forward, then reverse
-in a separate call. The native reverse operation preserves the selected source
+replaces the existing gain-expression curve with a constant. Reverse supports
+RAW and warped audio. RAW offsets require forward audio; warped source-second
+offsets follow the active forward or reversed warp mapping. Change offsets and
+reverse separately. Supplying both `source_offset` and `content_offset` is
+rejected because they address the same position in different units. The native reverse operation preserves the selected source
 window, adjusts playback endpoints and mirrors native expression state.
 
 Both methods return `{"event": sorted_index, "data": event_snapshot}`.
@@ -523,8 +525,8 @@ one event and returns deleted index/remaining count. It leaves the clip containe
 and other events in place; importing into the emptied lane is supported.
 These operations unlink shared content before mutation and run in native undo
 transactions. Invalid ranges/fades/offsets and overlaps are rejected before edits.
-Warp/pitch state writes are described below; warped-event source offsets/reverse
-and general audio expression curves remain pending.
+Warp/pitch state writes are described below. General audio expression curves
+remain pending.
 
 Manual gate: `tests/live_java_audio_events.py --disposable --project <open fixture>
 --output <fresh scratch directory> --render [--tempo 150]`. Reopen its saved file
@@ -548,14 +550,18 @@ checks copied fades and full MIDI/audio persistence as a regression.
   ELASTIQUE_PRO, ELASTIQUE, ELASTIQUE_ECO, ELASTIQUE_SOLO.
 - `warp_markers`: at least two `[local_beat, source_seconds]` pairs, strictly
   increasing in both dimensions, within the source file. RAW-to-warp changes
-  require explicit markers. Reverse mappings are not supported by this writer.
+  require explicit markers. Apply native `reverse=True` to reverse a mapping;
+  replacing a reversed mapping first requires setting it forward.
 - `content_offset`: local beats within the warp mapping. RAW uses source_offset
-  seconds instead. Existing reversed material must be set forward before a new
-  warp mapping is applied.
+  seconds instead. Warped `source_offset` seconds are converted through the
+  active mapping, including reversed maps. Existing reversed material must be
+  set forward before a new warp mapping is applied.
 - `transpose`, `formant`: semitones (-96..96); `pan`: -1..1. These replace their
   respective expression curves with constants. Transpose rejects RAW/REPITCH,
   whose algorithms do not apply the requested independent pitch processing.
 - `preserve_formants`, `preview_onsets`: booleans.
+- `formant_envelope_resolution`: integer 8..512; out-of-range inputs are rejected
+  rather than silently accepting Bitwig's native clamp.
 - `preserve_transients_mode`: OFF/SOFT/HARD; `transient_rate`:
   ONSETS/THIRTYSECOND/SIXTEENTH/EIGHT/QUARTER (EIGHT is the native spelling).
 - `warp_grain_size`: SMALL/NORMAL/LARGE; `warp_tail_mode`: NONE/GRAIN/PINGPONG.
@@ -571,8 +577,7 @@ deletion: removing only a visible track reference left its owning object alive
 and audible. Old tracks then mixed with newly authored fixtures. Deletion now
 removes both visible and owning bank memberships, matching the native Delete
 Tracks sequence for main and effect tracks. No warp-cache workaround or native
-engine disassembly was needed. General audio expression curves, warped-event
-source offsets/reverse, and formant envelope resolution remain pending.
+engine disassembly was needed. General audio expression curves remain pending.
 
 Manual gate: `tests/live_java_warps.py --disposable --project <open fixture>
 --output <fresh directory> --live-render --repeat 3`. Each iteration saves a
@@ -644,3 +649,18 @@ slot loops. Save/reopen produced zero reader differences and the reopened
 slot launched and rendered the tone again. Evidence:
 `scratch/editing-launcher-gate-2/` (`before.json`, `persistence.json`,
 `launch.wav`, `reopened-launch.wav`).
+
+
+## Warped reverse and source-second offsets (2026-10-19)
+
+`tests/live_java_audio_details.py --disposable --project <open scratch file>
+--output <fresh directory> [--process-capture <helper> --engine-pid <PID>]`
+checks a nonlinear three-tone mapping at 150 BPM, native reverse twice restoring
+the original clip, forward/reversed source-second offsets, corrected mapped
+playback endpoints, formant resolution, rejected-edit atomicity, independent
+copies and launcher content addressing. Reopen its saved project, then use
+`--verify` with the same output and capture options. Gate evidence:
+`scratch/editing-details/gate-1/`; native persistence has zero reader differences
+and reopened reversed-offset audio retains the expected 1320/880/440 Hz order.
+`sample_play_stop_seconds` now follows the warped mapping and file bounds instead
+of reporting the inactive RAW stop field on reversed warped events.

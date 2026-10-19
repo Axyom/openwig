@@ -79,7 +79,7 @@ def author(s, out, live_render, capture_options):
     assert abs(expressions["transpose"] - 7) < 1e-6 and expressions["pan"] == -.5 and expressions["formant"] == 2
     before = proof.read()
     for changes in (dict(warp_markers=[[0, 0], [5, 99]]), dict(content_offset=99),
-                    dict(warp_mode="RAW", transpose=7), dict(source_offset=.5)):
+                    dict(warp_mode="RAW", transpose=7), dict(source_offset=99)):
         try:
             proof.update_audio_event(0, 0, **changes)
         except BridgeError:

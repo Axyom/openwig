@@ -1930,6 +1930,26 @@ public final class OpenwigDocument {
         return out.put("expressions", expressions);
     }
 
+    private static JSONArray storedWarpMarkers(Object model) {
+        JSONArray markers = new JSONArray();
+        // The API returns a sanitized copy and can drop stored markers. Read
+        // the original GLs timeline, exactly as the DAWproject exporter does.
+        Object storedWarp = modelGet(model, "p3P");
+        int count = ((Number) modelGet(storedWarp, "WEC")).intValue();
+        try {
+            java.lang.reflect.Method markerAt = storedWarp.getClass().getMethod("Gcr", int.class);
+            markerAt.setAccessible(true);
+            for (int i = 0; i < count; i++) {
+                Object marker = markerAt.invoke(storedWarp, i);
+                markers.put(new JSONObject().put("time", modelGet(marker, "tS"))
+                        .put("content_time", modelGet(marker, "IYM")));
+            }
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("stored warp marker read", failure);
+        }
+        return markers;
+    }
+
     private static JSONObject readAudioEvent(com.bitwig.extension.api.project.timeline.AudioNote event) {
         Object model = ((ApiObject) event).getTarget();
         Object sample = modelGet(model, "xFs");
@@ -1957,21 +1977,11 @@ public final class OpenwigDocument {
                 .put("sample_play_start_seconds", modelGet(model, "IT3"))
                 .put("sample_play_stop_seconds", modelGet(model, "Klm"));
         com.bitwig.extension.api.project.timeline.WarpMarkers warp = event.getWarpEvents();
-        JSONArray markers = new JSONArray();
-        // The API returns a sanitized copy and can drop stored markers. Read
-        // the original GLs timeline, exactly as the DAWproject exporter does.
-        Object storedWarp = modelGet(model, "p3P");
-        int count = ((Number) modelGet(storedWarp, "WEC")).intValue();
-        try {
-            java.lang.reflect.Method markerAt = storedWarp.getClass().getMethod("Gcr", int.class);
-            markerAt.setAccessible(true);
-            for (int i = 0; i < count; i++) {
-                Object marker = markerAt.invoke(storedWarp, i);
-                markers.put(new JSONObject().put("time", modelGet(marker, "tS"))
-                        .put("content_time", modelGet(marker, "IYM")));
-            }
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("stored warp marker read", failure);
+        JSONArray markers = storedWarpMarkers(model);
+        if (!event.getWarpMode().name().equals("RAW")) {
+            double mappedStop = modelDoubleArgument(modelGet(model, "p3P"), "IYM",
+                    ((Number) modelGet(model, "ySK")).doubleValue() + event.getDuration());
+            out.put("sample_play_stop_seconds", Math.max(0, Math.min(event.getAudioFileDurationInSeconds(), mappedStop)));
         }
         out.put("warp_markers", event.getWarpMode().name().equals("RAW") ? new JSONArray() : markers)
                 .put("api_warp_markers_valid", warp.areWarpMarkersValid());
@@ -2864,7 +2874,7 @@ public final class OpenwigDocument {
         JSONObject changes = method.equals("audio_event.delete") ? new JSONObject() : params.getJSONObject("changes");
         java.util.Set<String> allowed = java.util.Set.of("start", "duration", "source_offset", "gain_db", "muted", "reverse", "fade_in", "fade_out",
                 "warp_mode", "warp_markers", "content_offset", "transpose", "formant", "pan",
-                "preserve_formants", "preview_onsets", "preserve_transients_mode", "transient_rate", "warp_grain_size", "warp_tail_mode");
+                "preserve_formants", "preview_onsets", "preserve_transients_mode", "transient_rate", "warp_grain_size", "warp_tail_mode", "formant_envelope_resolution");
         for (String key : changes.keySet()) if (!allowed.contains(key)) throw new IllegalArgumentException("unknown audio event field: " + key);
         for (String key : new String[]{"muted", "reverse", "preserve_formants", "preview_onsets"})
             if (changes.has(key) && !(changes.get(key) instanceof Boolean)) throw new IllegalArgumentException(key + " must be boolean");
@@ -2876,6 +2886,11 @@ public final class OpenwigDocument {
         com.bitwig.extension.api.project.timeline.WarpMode mode = changes.has("warp_mode")
                 ? com.bitwig.extension.api.project.timeline.WarpMode.valueOf(changes.getString("warp_mode")) : existing.getWarpMode();
         double contentOffset = finiteField(changes, "content_offset", 0);
+        double resolution = finiteField(changes, "formant_envelope_resolution", existing.getFormantEnvelopeResolution());
+        if (resolution != Math.rint(resolution) || resolution < 8 || resolution > 512)
+            throw new IllegalArgumentException("formant envelope resolution must be an integer in 8..512");
+        if (changes.has("content_offset") && changes.has("source_offset"))
+            throw new IllegalArgumentException("address the source by either beats or seconds");
         double transpose = finiteField(changes, "transpose", 0), formant = finiteField(changes, "formant", 0), pan = finiteField(changes, "pan", 0);
         if (contentOffset < 0 || pan < -1 || pan > 1 || transpose < -96 || transpose > 96 || formant < -96 || formant > 96)
             throw new IllegalArgumentException("invalid audio processing value");
@@ -2901,11 +2916,18 @@ public final class OpenwigDocument {
             if (!warps.areWarpMarkersValid()) throw new IllegalArgumentException("invalid native warp mapping");
         }
         com.bitwig.extension.api.project.timeline.WarpMarkers stagedWarps = warps;
+        JSONArray mapping = storedWarpMarkers(((ApiObject) existing).getTarget());
+        if (warps != null) {
+            mapping = new JSONArray();
+            for (int j = 0; j < warps.getWarpMarkerCount(); j++) {
+                com.bitwig.extension.api.project.timeline.WarpMarker marker = warps.getWarpMarkerAt(j);
+                mapping.put(new JSONObject().put("time", marker.getBeatTime()).put("content_time", marker.getSeconds()));
+            }
+        }
         if (changes.has("content_offset")) {
-            com.bitwig.extension.api.project.timeline.WarpMarkers mapping = warps == null ? existing.getWarpEvents() : warps;
-            int count = mapping.getWarpMarkerCount();
-            if (count < 2 || contentOffset < mapping.getWarpMarkerAt(0).getBeatTime()
-                    || contentOffset >= mapping.getWarpMarkerAt(count - 1).getBeatTime())
+            int count = mapping.length();
+            if (count < 2 || contentOffset < mapping.getJSONObject(0).getDouble("time")
+                    || contentOffset >= mapping.getJSONObject(count - 1).getDouble("time"))
                 throw new IllegalArgumentException("content offset outside warp mapping");
         }
         com.bitwig.extension.api.project.timeline.PreserveTransientsMode transients = changes.has("preserve_transients_mode")
@@ -2918,15 +2940,30 @@ public final class OpenwigDocument {
                 ? com.bitwig.extension.api.project.timeline.WarpTailMode.valueOf(changes.getString("warp_tail_mode")) : null;
         if (start < 0 || duration <= 0 || !Double.isFinite(start + duration) || fadeIn < 0 || fadeOut < 0 || fadeIn > duration || fadeOut > duration)
             throw new IllegalArgumentException("invalid audio event range/fades");
-        if (changes.has("source_offset") && (offset < 0 || offset >= existing.getAudioFileDurationInSeconds()))
-            throw new IllegalArgumentException("source offset outside audio file");
         boolean reversed = (Boolean) modelGet(modelGet(((ApiObject) existing).getTarget(), "jsk"), "wtf");
+        if (changes.has("source_offset") && (offset < 0 || offset > existing.getAudioFileDurationInSeconds()
+                || (offset == existing.getAudioFileDurationInSeconds() && (!reversed || mode.name().equals("RAW")))))
+            throw new IllegalArgumentException("source offset outside audio file");
         if (reversed && !mode.name().equals("RAW") && (changes.has("warp_mode") || changes.has("warp_markers")))
             throw new IllegalArgumentException("set reversed audio forward before replacing its warp mapping");
-        if ((changes.has("source_offset") || changes.has("reverse")) && !mode.name().equals("RAW"))
-            throw new IllegalArgumentException("source offset/reverse currently require RAW audio");
-        if (changes.has("source_offset") && (reversed || changes.optBoolean("reverse", false)))
-            throw new IllegalArgumentException("set source offset while forward, then reverse in a separate edit");
+        double resolvedOffset = offset;
+        if (changes.has("source_offset") && !mode.name().equals("RAW")) {
+            boolean found = false;
+            for (int j = 1; j < mapping.length(); j++) {
+                JSONObject left = mapping.getJSONObject(j - 1), right = mapping.getJSONObject(j);
+                double from = left.getDouble("content_time"), to = right.getDouble("content_time");
+                if (from != to && offset >= Math.min(from, to) && offset <= Math.max(from, to)) {
+                    resolvedOffset = left.getDouble("time") + (offset - from)
+                            * (right.getDouble("time") - left.getDouble("time")) / (to - from);
+                    if (resolvedOffset >= mapping.getJSONObject(mapping.length() - 1).getDouble("time")) break;
+                    found = true; break;
+                }
+            }
+            if (!found) throw new IllegalArgumentException("source offset outside warp mapping");
+        }
+        final double sourceContentOffset = resolvedOffset;
+        if (changes.has("source_offset") && (changes.has("reverse") || (mode.name().equals("RAW") && reversed)))
+            throw new IllegalArgumentException("change source offset and reverse separately; RAW offsets require forward audio");
         if (changes.has("start") || changes.has("duration")) for (Object member : events) {
             com.bitwig.extension.api.project.timeline.AudioNote other = (com.bitwig.extension.api.project.timeline.AudioNote) member;
             if (((ApiObject) other).getTarget() != ((ApiObject) existing).getTarget()
@@ -2957,13 +2994,14 @@ public final class OpenwigDocument {
                 if (stagedWarps != null) event.setWarpEvents(stagedWarps);
                 if (changes.has("warp_mode")) event.setWarpMode(mode);
                 if (changes.has("content_offset")) invokeModelSetter(raw, "UJq", double.class, contentOffset);
-                if (changes.has("source_offset")) invokeModelSetter(raw, "UJq", double.class, offset);
+                if (changes.has("source_offset")) invokeModelSetter(raw, "UJq", double.class, sourceContentOffset);
                 if (changes.has("gain_db")) event.getGain().setValue(gain, Unit.DECIBEL);
                 if (changes.has("transpose")) event.getTranspose().setValue(transpose, Unit.SEMITONES);
                 if (changes.has("formant")) event.getFormant().setValue(formant, Unit.SEMITONES);
                 if (changes.has("pan")) event.getPan().setValue(pan, Unit.RATIO);
                 if (changes.has("preserve_formants")) event.setPreserveFormants(changes.getBoolean("preserve_formants"));
                 if (changes.has("preview_onsets")) event.setPreviewOnsets(changes.getBoolean("preview_onsets"));
+                if (changes.has("formant_envelope_resolution")) event.setFormantEnvelopeResolution((int) resolution);
                 if (transients != null) event.setPreserveTransientsMode(transients);
                 if (rate != null) event.setTransientRate(rate);
                 if (grain != null) event.setWarpGrainSize(grain);

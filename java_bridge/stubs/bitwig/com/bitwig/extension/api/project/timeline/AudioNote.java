@@ -28,5 +28,6 @@ public interface AudioNote extends EnduringEvent  {
     boolean getPreviewOnsets();
     boolean getPreserveFormants();
     int getFormantEnvelopeResolution();
+    void setFormantEnvelopeResolution(int resolution);
     WarpMarkers getWarpEvents();
 }

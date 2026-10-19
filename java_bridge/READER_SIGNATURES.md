@@ -247,3 +247,23 @@ shape application must offset caller points past that anchor and validate times.
 - `tests/live_java_warps.py --live-render --repeat 3` covers immediate processing
   across repeated saves/clears, nested groups, FX deletion, and absence of old
   fixture tones. Optional engine-PID loopback excludes unrelated applications.
+
+
+### Warped reverse/offsets and formant resolution (6.1.5)
+
+- Native `KoO.IYM(fKr)` handles warped reverse as well as RAW reverse: mirrors
+  expressions and the warp timeline, toggles source direction, and refreshes
+  source state. Reversing twice restores the forward snapshot in the nonlinear
+  three-tone gate. Reverse warp marker source values decrease; use stored GLs
+  points because the public WarpMarkers accessor sanitizes these away.
+- `KoO.UJq(double)` takes warped content beats. Invert the active piecewise warp
+  map for absolute source-second offsets in either direction. Reject positions
+  outside the active mapping and changes combining both coordinate systems or
+  offset/reverse mutations. RAW offsets still require forward audio.
+- Warped source stop is GLs.IYM(content-start + duration), clamped to file bounds;
+  `KoO.Klm()` is the inactive RAW endpoint on these events and can be stale.
+- `AudioNote.setFormantEnvelopeResolution(int)` delegates to BBa.jPB(int), whose
+  exact-build clamp is 8..512. The bridge rejects values outside that interval.
+- Gate `tests/live_java_audio_details.py`, evidence `scratch/editing-details/gate-1/`:
+  live forward/reverse/offset spectra, launcher readback, rejection atomicity,
+  independent source clip, zero persistence differences and reopened DSP.

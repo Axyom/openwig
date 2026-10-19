@@ -98,8 +98,9 @@ Do not equate native snapshot preservation with arbitrary field editing.
      formant/pan and processing settings; save/reopen and reopened pitch proof.
    - Done: immediate stretch/REPITCH/pitch regression traced to orphaned deleted
      tracks; main/FX deletion now removes visible and owning memberships.
-   - Pending: warped-event source offsets/reverse, general expression curves
-     and envelope resolution.
+   - Done: warped-event reverse, forward/reversed source-second offsets, and
+     formant envelope resolution (8..512), including nonlinear mapping and DSP.
+   - Pending: general expression curves and the remaining note controls.
    - Use authored synthetic audio fixtures. Verify timing and audible output,
      media collection, and save/reopen; never use track counts as sole proof.
 3. **Plugins, nested device chains, and routing — pending.**
@@ -136,6 +137,39 @@ Do not equate native snapshot preservation with arbitrary field editing.
      All required checks green, changes pushed, working tree accounted for.
 
 ## Current checkpoint: start here
+
+Active scope confirmed by the owner: finish audio/MIDI details; plugin insertion,
+state/parameters, nested chains and routing/modulation; editable JSON project
+reconstruction; complete-project audible and persistence verification; and Grid
+module/cable/parameter editing. Keep this file current and commit/push each
+verified step. Scene-bank structure remains part of the overall project goal.
+Current work begins with warped audio reverse/source offsets and expression/
+note-property authoring, then proceeds through the remaining areas. This is
+in-progress work; the checkpoints below record completed evidence.
+
+### Latest verified step: warped audio details
+
+Implemented warped reverse and absolute source-second offsets through forward
+and reversed warp maps, validated formant envelope resolution (8..512), and
+corrected warped source-stop readback. Native reverse mirrors both markers and
+expressions; reverse twice restores the original snapshot. Full gate:
+`tests/live_java_audio_details.py`; evidence `scratch/editing-details/gate-1/`.
+Nonlinear three-tone audio at 150 BPM verifies forward, reverse, forward offset,
+and reverse offset; rejected edits are atomic, source copies independent, and
+launcher content addressing works. Save/reopen: zero reader differences and
+1320/880/440 Hz shifted-window order. **208 unit tests passed**.
+
+Runtime: the disposable host currently has
+`scratch/editing-details/gate-1/saved/project.bwproject` open and stopped, with the
+new patched JAR installed. Preserve this evidence; use the separate
+`scratch/editing-details/work/project.bwproject` for the next authoring step.
+Resolve current process IDs again; do not use old PIDs from transcripts. Next:
+expression curves (including auditing RAW expression time units), individual
+note edits and probability/repeat controls, followed by plugins/routing, Grid,
+editable JSON reconstruction and complete-project verification.
+
+### Last completed increment: track ownership fix
+
 
 2026-10-19: the apparent immediate warp/DSP regression was traced to **track
 ownership**, not a missing processing-cache notification. `deleteTrack` removed

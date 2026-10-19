@@ -500,3 +500,28 @@ def test_audio_events_reject_ambiguous_addressing(bridge, clip, slot, tmp_path):
     with pytest.raises(ValueError):
         track.delete_audio_event(clip, 0, slot=slot)
     assert bridge.calls == []
+
+
+def test_warped_reverse_offset_and_resolution_wire_contract(bridge):
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    bridge.calls.clear()
+    track.update_audio_event(0, 0, reverse=True)
+    track.update_audio_event(0, 0, source_offset=2.5, formant_envelope_resolution=256)
+    assert bridge.calls == [
+        ("audio_event.update", {"path": "Audio", "clip": 0, "event": 0, "changes": {"reverse": True}}),
+        ("audio_event.update", {"path": "Audio", "clip": 0, "event": 0,
+                                "changes": {"source_offset": 2.5, "formant_envelope_resolution": 256}}),
+    ]
+
+
+@pytest.mark.parametrize("changes", [
+    dict(formant_envelope_resolution=True), dict(formant_envelope_resolution=7),
+    dict(formant_envelope_resolution=513), dict(formant_envelope_resolution=128.5),
+    dict(source_offset=1, content_offset=1), dict(source_offset=1, reverse=False),
+])
+def test_audio_coordinate_ambiguity_and_resolution_rejected_before_rpc(bridge, changes):
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.update_audio_event(0, 0, **changes)
+    assert bridge.calls == []

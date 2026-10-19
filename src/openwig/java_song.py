@@ -574,8 +574,8 @@ class JavaTrack:
         Address an arranger clip by ``clip`` index or a launcher clip by
         ``slot`` keyword. Fields: start/duration/fade_in/fade_out (local
         beats), source_offset (seconds), gain_db, muted, reverse. Source
-        offset/reverse currently require RAW mode. Set offsets while forward,
-        then reverse separately. Moves reject overlaps and can change event
+        offsets work through forward/reversed warp mappings; RAW offsets require
+        forward audio. Change offsets and reverse in separate calls. Moves reject overlaps and can change event
         indexes. Other clips retain their content. Container duration is
         unchanged.
 
@@ -584,8 +584,8 @@ class JavaTrack:
         preserve_formants, preview_onsets, preserve_transients_mode,
         transient_rate, warp_grain_size, warp_tail_mode. RAW-to-warp changes
         require explicit markers. Transpose requires a pitch-processing mode.
-        These writes persist, but immediate DSP after some mode transitions can
-        remain stale; save/reopen before relying on a processing render.
+        Immediate stretch, REPITCH and semitone changes are live-verified.
+        Formant envelope resolution accepts integers in 8..512.
         """
         target = self._clip_or_slot(clip, changes.pop("slot", None))
         self._clip_index(index)
@@ -598,13 +598,16 @@ class JavaTrack:
             "warp_tail_mode": {"NONE", "GRAIN", "PINGPONG"},
         }
         allowed = {"start", "duration", "fade_in", "fade_out", "source_offset", "gain_db", "muted", "reverse",
-                   "content_offset", "warp_markers", "transpose", "formant", "pan", "preserve_formants", "preview_onsets"} | enums.keys()
+                   "content_offset", "warp_markers", "transpose", "formant", "pan", "preserve_formants", "preview_onsets", "formant_envelope_resolution"} | enums.keys()
         if not changes or changes.keys() - allowed:
             raise ValueError("provide supported audio event changes")
         for key, value in changes.items():
             if key in enums:
                 if not isinstance(value, str) or value not in enums[key]:
                     raise ValueError(f"unsupported {key}")
+            elif key == "formant_envelope_resolution":
+                if type(value) is not int or not 8 <= value <= 512:
+                    raise ValueError("formant_envelope_resolution must be an integer in 8..512")
             elif key == "warp_markers":
                 if not isinstance(value, (list, tuple)) or len(value) < 2:
                     raise ValueError("at least two warp markers required")
@@ -629,7 +632,9 @@ class JavaTrack:
                     raise ValueError("pan must be in -1..1")
                 if key in {"transpose", "formant"} and not -96 <= number <= 96:
                     raise ValueError(f"{key} must be in -96..96 semitones")
-        if "source_offset" in changes and changes.get("reverse"):
+        if "source_offset" in changes and "content_offset" in changes:
+            raise ValueError("address the source by either beats or seconds")
+        if "source_offset" in changes and "reverse" in changes:
             raise ValueError("set source offset while forward, then reverse separately")
         return self.s.b.request("audio_event.update", self._track_params(**target, event=index, changes=changes), timeout=125)
 
