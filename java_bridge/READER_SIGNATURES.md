@@ -267,3 +267,24 @@ shape application must offset caller points past that anchor and validate times.
 - Gate `tests/live_java_audio_details.py`, evidence `scratch/editing-details/gate-1/`:
   live forward/reverse/offset spectra, launcher readback, rejection atomicity,
   independent source clip, zero persistence differences and reopened DSP.
+
+### Note conditions and expression edits (6.1.5)
+
+- `PNT`: chance `Qcu(double)` via public `Note.setChance`, enabled `xeZ(boolean)`;
+  occurrence `IYM(Cff)`/enabled `KF3(boolean)`; recurrence `qFH(int)`/enabled
+  `wtf(boolean)`; repeats `tPX(int)`/enabled `Qcu(boolean)`, curve `Trh(double)`.
+  Content offset is `UJq(double)`. `vuj.Qcu()`/`Gcr(double)` is velocity spread;
+  public `InstrumentNote.setVelocitySpread` delegates to that setter.
+- Public `NoteExpression.setEvents` creates native `IrW`/`GUX` points and converts
+  physical units through `fK`; `GUX.IYM(HWV)` sets interpolation and
+  `GUX.jPB(double)` curvature. Hold curvature is canonicalized to zero.
+  Native expression points use beats for both MIDI and RAW/warped audio;
+  the earlier RAW-seconds label was incorrect (audibly verified at 150 BPM).
+- MIDI `NtT` content supports five expression types; audio `BBa` additionally
+  supports formant but not timbre/pressure. Preflight uses the appropriate
+  detached native event type to reject invalid edits before document mutation.
+- Individual MIDI replacement stages the full merged note, makes the clip
+  content unique (`knw`), removes just the old owned lane event via
+  `IYM(No,false)`, and adds the staged note through `EventTimeline.addEvent`.
+  Gate `tests/live_java_note_details.py` verifies arranger/launcher independence,
+  field/curve preservation, insertion/deletion and native persistence.

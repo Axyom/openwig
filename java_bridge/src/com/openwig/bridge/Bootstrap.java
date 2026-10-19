@@ -358,7 +358,7 @@ public final class Bootstrap {
                     }
                     response.put("result", onDocumentEvent(() -> DirectAccess.trackSnapshot(index)));
                 }
-                case "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger", "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear", "launcher.read", "audio_event.import", "audio_event.update", "audio_event.delete", "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio", "document.info", "document.list", "document.select", "project.save_copy", "project.duplicate_range", "project.insert_time", "project.delete_range", "project.import_dawproject", "project.set_metadata", "cue_marker.create",
+                case "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger", "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear", "launcher.read", "audio_event.import", "audio_event.update", "audio_event.delete", "note.import", "note.update", "note.delete", "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio", "document.info", "document.list", "document.select", "project.save_copy", "project.duplicate_range", "project.insert_time", "project.delete_range", "project.import_dawproject", "project.set_metadata", "cue_marker.create",
                      "scene.update", "track.create_group", "track.set_solo", "track.set_comment",
                      "track.set_active", "track.set_destination" -> {
                     JSONObject params = request.optJSONObject("params");

@@ -87,8 +87,8 @@ Do not equate native snapshot preservation with arbitrary field editing.
    - Implemented: move/resize/trim/mute/name/color/loop/fade and delete existing clips.
    - Implemented: native independent clip copy (same/cross track), split, MIDI
      content replacement/clear, gain/pan/pitch/timbre/pressure linear expressions.
-   - Next: individual event properties, expression shapes and remaining probability
-     controls; continue arbitrary audio-event editing.
+   - Done: individual MIDI import/update/delete, expression shapes/clearing,
+     velocity spread/content offsets, probability/occurrence/recurrence/repeats.
    - Verify clips crossing edit boundaries, nested tracks, effect/master
      automation, markers, invalid input, and save/reopen persistence.
 2. **Audio creation and editing — pending.**
@@ -100,7 +100,8 @@ Do not equate native snapshot preservation with arbitrary field editing.
      tracks; main/FX deletion now removes visible and owning memberships.
    - Done: warped-event reverse, forward/reversed source-second offsets, and
      formant envelope resolution (8..512), including nonlinear mapping and DSP.
-   - Pending: general expression curves and the remaining note controls.
+   - Done: gain/pan/transpose/formant expression curves and shared probability
+     controls, with audible RAW envelope timing and native persistence checks.
    - Use authored synthetic audio fixtures. Verify timing and audible output,
      media collection, and save/reopen; never use track counts as sole proof.
 3. **Plugins, nested device chains, and routing — pending.**
@@ -143,11 +144,44 @@ state/parameters, nested chains and routing/modulation; editable JSON project
 reconstruction; complete-project audible and persistence verification; and Grid
 module/cable/parameter editing. Keep this file current and commit/push each
 verified step. Scene-bank structure remains part of the overall project goal.
-Current work begins with warped audio reverse/source offsets and expression/
-note-property authoring, then proceeds through the remaining areas. This is
+Warped audio details and expression/note-property authoring are verified. Next:
+plugins/routing, Grid, editable JSON reconstruction and full verification. This is
 in-progress work; the checkpoints below record completed evidence.
 
-### Latest verified step: warped audio details
+### Latest verified step: MIDI properties and expression editing
+
+`note.import/update/delete` address arranger and launcher MIDI content, unlink
+shared clips and preserve other notes. Full note dictionaries now author
+velocity spread, content offsets, chance/enabled, occurrence/enabled,
+packed 11-bit recurrence/enabled, signed repeats/enabled and repeat curvature.
+Expression curves accept optional curvature and linear/hold interpolation;
+empty points clear one curve. An individual update patches named curves and
+preserves unspecified curves/properties. MIDI supports gain/pan/transpose/
+timbre/pressure; audio also supports formant, excluding MIDI-only expressions.
+
+RAW expression points are **beats**, even though RAW source offsets are seconds.
+The old reader label was wrong: at 150 BPM the gain jump at point 2 sounds at
+.8 seconds. The gate measures a roughly 15.85 amplitude ratio for -24 dB to
+0 dB, including immediate rendering and native save/reopen. No engine patch.
+
+Permanent gate `tests/live_java_note_details.py`; latest evidence
+`scratch/editing-notes/gate-2/`. Covers five MIDI curves, curved and hold points,
+unrelated-field preservation, independent arranger/launcher copies, note
+insertion/deletion, one-curve clearing, rejected-edit atomicity, RAW gain/pan
+DSP, warped transpose/formant and audio conditions, save/reopen comparison.
+Unit suite: **222 passed**. Exact-build Java build and offline smoke passed;
+controller syntax and whitespace checks passed. Previous increment `89071bc`
+is pushed with all five CI jobs green. Consult Git for this increment's hash.
+
+Runtime: identified disposable host has
+`scratch/editing-notes/gate-2/saved/project.bwproject` open, stopped, patched JAR
+installed. Preserve evidence; use `scratch/editing-details/work/project.bwproject`
+for further destructive authoring. Resolve process IDs afresh. Next concrete
+step: inspect exact-build plugin/factory insertion APIs and nested chain model,
+then implement and live-verify plugin identities/state/parameter edits before
+Grid and editable reconstruction. The full requested scope remains incomplete.
+
+### Previous verified step: warped audio details
 
 Implemented warped reverse and absolute source-second offsets through forward
 and reversed warp maps, validated formant envelope resolution (8..512), and
@@ -159,14 +193,8 @@ and reverse offset; rejected edits are atomic, source copies independent, and
 launcher content addressing works. Save/reopen: zero reader differences and
 1320/880/440 Hz shifted-window order. **208 unit tests passed**.
 
-Runtime: the disposable host currently has
-`scratch/editing-details/gate-1/saved/project.bwproject` open and stopped, with the
-new patched JAR installed. Preserve this evidence; use the separate
-`scratch/editing-details/work/project.bwproject` for the next authoring step.
-Resolve current process IDs again; do not use old PIDs from transcripts. Next:
-expression curves (including auditing RAW expression time units), individual
-note edits and probability/repeat controls, followed by plugins/routing, Grid,
-editable JSON reconstruction and complete-project verification.
+Committed and pushed as `89071bc`; all five CI jobs green. Preserve its saved
+fixture at `scratch/editing-details/gate-1/saved/project.bwproject`.
 
 ### Last completed increment: track ownership fix
 

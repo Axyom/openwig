@@ -1988,12 +1988,18 @@ public final class OpenwigDocument {
         if (event.getWarpMode().name().equals("RAW")) out.put("inactive_warp_markers", markers);
         JSONObject extras = readNoteExtras(model);
         String contentTimeUnit = event.getWarpMode().name().equals("RAW") ? "seconds" : "beats";
-        for (Object expression : extras.getJSONArray("expressions")) {
-            ((JSONObject) expression).put("time_unit", contentTimeUnit);
-        }
+        // Expression timelines use beats even when RAW source offsets use seconds.
         out.put("content_time_unit", contentTimeUnit);
         for (String key : extras.keySet()) out.put(key, extras.get(key));
         return out;
+    }
+
+    private static JSONObject readInstrumentNote(InstrumentNote note) {
+        Object raw = ((ApiObject) note).getTarget();
+        return readNoteExtras(raw).put("channel", note.getChannel()).put("key", note.getKey())
+                .put("start", note.getTime()).put("duration", note.getDuration())
+                .put("on_velocity", note.getOnVelocity()).put("off_velocity", note.getOffVelocity())
+                .put("velocity_spread", modelGet(raw, "Qcu")).put("muted", note.isMuted());
     }
 
     private static JSONObject readClip(Clip clip) {
@@ -2013,14 +2019,7 @@ public final class OpenwigDocument {
             JSONArray notes = new JSONArray();
             for (Object item : noteClip.getContent().getEventTimeline().getEvents()) {
                 InstrumentNote note = (InstrumentNote) item;
-                notes.put(readNoteExtras(((ApiObject) note).getTarget())
-                        .put("channel", note.getChannel())
-                        .put("key", note.getKey())
-                        .put("start", note.getTime())
-                        .put("duration", note.getDuration())
-                        .put("on_velocity", note.getOnVelocity())
-                        .put("off_velocity", note.getOffVelocity())
-                        .put("muted", note.isMuted()));
+                notes.put(readInstrumentNote(note));
             }
             out.put("notes", notes);
         } else if (clip instanceof AudioClip audioClip) {
@@ -2323,7 +2322,7 @@ public final class OpenwigDocument {
             case "project.save_copy" -> saveNativeProjectCopy(p.optString("path", ""));
             case "project.duplicate_range" -> editRange(p, "duplicate");
             case "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger", "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear", "launcher.read" -> editLauncher(method, p);
-            case "audio_event.import", "audio_event.update", "audio_event.delete", "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio" -> editClip(method, p);
+            case "audio_event.import", "audio_event.update", "audio_event.delete", "note.import", "note.update", "note.delete", "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio" -> editClip(method, p);
             case "project.insert_time" -> editRange(p, "insert");
             case "project.delete_range" -> editRange(p, "delete");
             case "project.import_dawproject" -> importDawProject(p.optString("path", ""));
@@ -2680,6 +2679,7 @@ public final class OpenwigDocument {
                 clip = (Clip) members.get(index);
             }
             if (method.startsWith("audio_event.")) return editAudioEvent(project, clip, params, method);
+            if (method.startsWith("note.")) return editNoteEvent(project, clip, params, method);
             if (method.equals("clip.replace_notes")) {
                 if (!(clip instanceof NoteClip)) throw new IllegalArgumentException("MIDI replacement requires a note clip");
                 JSONArray notes = params.getJSONArray("notes");
@@ -2843,6 +2843,74 @@ public final class OpenwigDocument {
         throw new IllegalStateException("clip is not attached to requested timeline");
     }
 
+    private static JSONObject editableNoteData(InstrumentNote note) {
+        JSONObject read = readInstrumentNote(note), data = new JSONObject();
+        for (String name : NOTE_CONDITIONS) data.put(name, read.get(name));
+        for (String name : new String[]{"key", "channel", "start", "duration", "on_velocity", "off_velocity", "velocity_spread", "content_start", "muted"})
+            data.put(name, read.get(name));
+        JSONObject curves = new JSONObject();
+        for (Object item : read.getJSONArray("expressions")) {
+            JSONObject expression = (JSONObject) item;
+            JSONArray points = new JSONArray();
+            for (Object value : expression.getJSONArray("points")) {
+                JSONObject point = (JSONObject) value;
+                points.put(new JSONArray().put(point.getDouble("time")).put(point.getDouble("value"))
+                        .put(point.optDouble("curvature", 0)).put(point.optString("interpolation", "linear")));
+            }
+            curves.put(expression.getString("expression"), new JSONObject()
+                    .put("unit", expression.getString("unit").equals("semitones") ? "SEMITONES" : "RATIO").put("points", points));
+        }
+        return data.put("expressions", curves);
+    }
+
+    private static JSONObject noteLocation(EventTimeline timeline, Object raw) {
+        java.util.List<?> notes = timeline.getEvents();
+        for (int i = 0; i < notes.size(); i++) if (((ApiObject) notes.get(i)).getTarget() == raw)
+            return new JSONObject().put("note", i).put("data", readInstrumentNote((InstrumentNote) notes.get(i)));
+        throw new IllegalStateException("note is not attached to requested content");
+    }
+
+    private static JSONObject editNoteEvent(ApiProject project, Clip clip, JSONObject params, String method) {
+        if (!(clip instanceof NoteClip)) throw new IllegalArgumentException("note edit requires a MIDI clip");
+        EventTimeline current = ((NoteClip) clip).getContent().getEventTimeline();
+        int index = method.equals("note.import") ? -1 : params.getInt("note");
+        if (!method.equals("note.import") && (index < 0 || index >= current.getEvents().size()))
+            throw new IllegalArgumentException("note index out of range");
+        InstrumentNote staged = null;
+        if (!method.equals("note.delete")) {
+            JSONObject data = method.equals("note.import") ? params.getJSONObject("data")
+                    : editableNoteData((InstrumentNote) current.getEvents().get(index));
+            if (method.equals("note.update")) {
+                JSONObject changes = params.getJSONObject("changes");
+                for (String name : changes.keySet()) {
+                    if (name.equals("expressions")) {
+                        JSONObject curves = data.getJSONObject("expressions");
+                        JSONObject updates = changes.getJSONObject(name);
+                        for (String curve : updates.keySet()) curves.put(curve, updates.get(curve));
+                    } else data.put(name, changes.get(name));
+                }
+            }
+            staged = stageInstrumentNote(project.getFactory(), data);
+        }
+        final InstrumentNote replacement = staged;
+        final JSONObject[] result = new JSONObject[1];
+        DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+            modelGet(((ApiObject) clip).getTarget(), "knw");
+            EventTimeline timeline = ((NoteClip) clip).getContent().getEventTimeline();
+            if (!method.equals("note.import")) {
+                Object raw = ((ApiObject) timeline.getEvents().get(index)).getTarget();
+                Object lane = modelGet(raw, "L_");
+                try { lane.getClass().getMethod("IYM", classForName("No"), boolean.class).invoke(lane, raw, false); }
+                catch (ReflectiveOperationException failure) { throw new IllegalStateException("native note removal failed", failure); }
+            }
+            if (replacement != null) {
+                timeline.addEvent(replacement);
+                result[0] = noteLocation(timeline, ((ApiObject) replacement).getTarget());
+            } else result[0] = new JSONObject().put("deleted", index).put("count", timeline.getEvents().size());
+        });
+        return result[0];
+    }
+
     private static JSONObject editAudioEvent(ApiProject project, Clip clip, JSONObject params, String method) {
         if (!(clip instanceof AudioClip)) throw new IllegalArgumentException("audio event requires an audio clip");
         if (method.equals("audio_event.import")) {
@@ -2874,7 +2942,8 @@ public final class OpenwigDocument {
         JSONObject changes = method.equals("audio_event.delete") ? new JSONObject() : params.getJSONObject("changes");
         java.util.Set<String> allowed = java.util.Set.of("start", "duration", "source_offset", "gain_db", "muted", "reverse", "fade_in", "fade_out",
                 "warp_mode", "warp_markers", "content_offset", "transpose", "formant", "pan",
-                "preserve_formants", "preview_onsets", "preserve_transients_mode", "transient_rate", "warp_grain_size", "warp_tail_mode", "formant_envelope_resolution");
+                "preserve_formants", "preview_onsets", "preserve_transients_mode", "transient_rate", "warp_grain_size", "warp_tail_mode", "formant_envelope_resolution", "expressions",
+                "chance", "chance_enabled", "occurrence", "occurrence_enabled", "recurrence", "recurrence_enabled", "repeat_count", "repeat_curve", "repeat_enabled");
         for (String key : changes.keySet()) if (!allowed.contains(key)) throw new IllegalArgumentException("unknown audio event field: " + key);
         for (String key : new String[]{"muted", "reverse", "preserve_formants", "preview_onsets"})
             if (changes.has(key) && !(changes.get(key) instanceof Boolean)) throw new IllegalArgumentException(key + " must be boolean");
@@ -2970,6 +3039,19 @@ public final class OpenwigDocument {
                     && start < other.getTime() + other.getDuration() - 1e-6 && start + duration > other.getTime() + 1e-6)
                 throw new IllegalArgumentException("audio event edit overlaps existing material");
         }
+        com.bitwig.extension.api.project.timeline.AudioNote stagedConditions = project.getFactory().createAudioNote(
+                0, 1, project.getFactory().createSampleReferenceForLocalFile(existing.getAudioFile()));
+        applyNoteConditions(stagedConditions, changes);
+        if (changes.has("expressions")) {
+            JSONObject curves = changes.getJSONObject("expressions");
+            for (String field : new String[]{"gain", "pan", "transpose", "formant"}) {
+                if (curves.has(field) && changes.has(field.equals("gain") ? "gain_db" : field))
+                    throw new IllegalArgumentException("expression and constant both supplied for " + field);
+            }
+            if (curves.has("transpose") && (mode.name().equals("RAW") || mode.name().equals("REPITCH")))
+                throw new IllegalArgumentException("transpose expression requires a pitch-processing warp mode");
+            writeExpressions(project.getFactory(), stagedConditions, curves, true);
+        }
         final JSONObject[] result = new JSONObject[1];
         DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
             modelGet(((ApiObject) clip).getTarget(), "knw");
@@ -3013,6 +3095,8 @@ public final class OpenwigDocument {
                     Object selection = modelGet(modelGet(modelGet(project.getTarget(), "qVp"), "TcG"), "tY1");
                     raw.getClass().getMethod("IYM", classForName("fKr")).invoke(raw, modelGet(selection, "gn_"));
                 }
+                applyNoteConditions(event, changes);
+                if (changes.has("expressions")) writeExpressions(project.getFactory(), event, changes.getJSONObject("expressions"), true);
                 result[0] = audioEventLocation(timeline, raw);
             } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native audio event edit failed", failure); }
         });
@@ -3186,54 +3270,104 @@ public final class OpenwigDocument {
         return event;
     }
 
-    private static InstrumentNote stageInstrumentNote(Factory factory, JSONObject data) {
-        java.util.Set<String> fields = java.util.Set.of("key", "channel", "start", "duration", "on_velocity",
-                "off_velocity", "muted", "chance", "expressions");
-        for (String key : data.keySet()) if (!fields.contains(key)) throw new IllegalArgumentException("unknown note field: " + key);
-        double key = finiteField(data, "key", -1), channel = finiteField(data, "channel", 0);
-        double start = finiteField(data, "start", 0), duration = finiteField(data, "duration", -1);
-        double on = finiteField(data, "on_velocity", .8), off = finiteField(data, "off_velocity", .5);
-        double chance = finiteField(data, "chance", 1);
-        if (key != Math.rint(key) || key < 0 || key > 127 || channel != Math.rint(channel) || channel < 0 || channel > 15
-                || start < 0 || duration <= 0 || !Double.isFinite(start + duration)
-                || on < 0 || on > 1 || off < 0 || off > 1 || chance < 0 || chance > 1)
-            throw new IllegalArgumentException("invalid note key/channel/time/velocity/chance");
-        if (data.has("muted") && !(data.get("muted") instanceof Boolean)) throw new IllegalArgumentException("note muted must be boolean");
-        JSONObject expressions = data.optJSONObject("expressions");
-        if (data.has("expressions") && expressions == null) throw new IllegalArgumentException("expressions must be an object");
-        // Stage all notes and curves off-document; reject the complete request
-        // before replacing any existing content.
-        InstrumentNote note = factory.createInstrumentNote((int) channel, (int) key, start, duration, on, off);
-        note.setIsMuted(data.optBoolean("muted", false));
-        note.setChance(chance);
-        if (expressions != null) for (String name : expressions.keySet()) {
+    private static final java.util.Set<String> NOTE_CONDITIONS = java.util.Set.of("chance", "chance_enabled",
+            "occurrence", "occurrence_enabled", "recurrence", "recurrence_enabled", "repeat_count", "repeat_curve", "repeat_enabled");
+
+    private static void applyNoteConditions(com.bitwig.extension.api.project.timeline.Note note, JSONObject data) {
+        Object raw = ((ApiObject) note).getTarget();
+        for (String name : new String[]{"chance_enabled", "occurrence_enabled", "recurrence_enabled", "repeat_enabled"}) {
+            if (!data.has(name)) continue;
+            if (!(data.get(name) instanceof Boolean)) throw new IllegalArgumentException(name + " must be boolean");
+            String setter = switch (name) { case "chance_enabled" -> "xeZ"; case "occurrence_enabled" -> "KF3";
+                case "recurrence_enabled" -> "wtf"; default -> "Qcu"; };
+            invokeModelSetter(raw, setter, boolean.class, data.getBoolean(name));
+        }
+        if (data.has("chance")) {
+            double value = finiteField(data, "chance", 1);
+            if (value < 0 || value > 1) throw new IllegalArgumentException("chance must be in 0..1");
+            note.setChance(value);
+        }
+        if (data.has("occurrence")) invokeModelSetter(raw, "IYM", classForName("Cff"), namedNativeEnum("Cff", data.getString("occurrence")));
+        for (String name : new String[]{"recurrence", "repeat_count"}) {
+            if (!data.has(name)) continue;
+            double value = finiteField(data, name, 0);
+            if (value != Math.rint(value) || (name.equals("recurrence") ? value < 0 || value > 2047 : value < -127 || value > 127))
+                throw new IllegalArgumentException("invalid " + name);
+            invokeModelSetter(raw, name.equals("recurrence") ? "qFH" : "tPX", int.class, (int) value);
+        }
+        if (data.has("repeat_curve")) {
+            double value = finiteField(data, "repeat_curve", 0);
+            if (value < -1 || value > 1) throw new IllegalArgumentException("repeat curve must be in -1..1");
+            invokeModelSetter(raw, "Trh", double.class, value);
+        }
+    }
+
+    private static void writeExpressions(Factory factory, com.bitwig.extension.api.project.timeline.Note note, JSONObject expressions, boolean audio) {
+        if (expressions == null) throw new IllegalArgumentException("expressions must be an object");
+        for (String name : expressions.keySet()) {
             com.bitwig.extension.api.project.timeline.NoteExpression expression = switch (name) {
-                case "gain" -> note.getGain();
-                case "pan" -> note.getPan();
+                case "gain" -> note.getGain(); case "pan" -> note.getPan();
                 case "transpose" -> note.getTranspose();
-                case "timbre" -> note.getTimbre();
-                case "pressure" -> note.getPressure();
-                default -> throw new IllegalArgumentException("unknown MIDI expression: " + name);
+                case "formant" -> { if (!audio) throw new IllegalArgumentException("MIDI has no formant expression"); yield note.getFormant(); }
+                case "timbre" -> { if (audio) throw new IllegalArgumentException("audio has no timbre expression"); yield ((InstrumentNote) note).getTimbre(); }
+                case "pressure" -> { if (audio) throw new IllegalArgumentException("audio has no pressure expression"); yield ((InstrumentNote) note).getPressure(); }
+                default -> throw new IllegalArgumentException("unknown expression: " + name);
             };
             JSONObject curve = expressions.getJSONObject(name);
             for (String field : curve.keySet()) if (!java.util.Set.of("unit", "points").contains(field))
                 throw new IllegalArgumentException("unknown expression field: " + field);
             Unit unit = Unit.valueOf(curve.getString("unit"));
             JSONArray points = curve.getJSONArray("points");
-            if (points.length() == 0) throw new IllegalArgumentException("expression points required");
+            if (points.length() > 4096) throw new IllegalArgumentException("too many expression points");
             AutomationEvents events = factory.createDoubleAutomationEvents(unit);
-            double last = -1;
+            double previous = -1;
             for (int j = 0; j < points.length(); j++) {
                 JSONArray point = points.getJSONArray(j);
-                if (point.length() != 2) throw new IllegalArgumentException("expression points need beat and value");
-                double time = point.getDouble(0), value = point.getDouble(1);
-                if (!Double.isFinite(time) || !Double.isFinite(value) || time < 0 || time > duration || time <= last)
-                    throw new IllegalArgumentException("expression beats must increase within note duration");
-                events.addPoint(time, value);
-                last = time;
+                if (point.length() < 2 || point.length() > 4) throw new IllegalArgumentException("expression point needs time,value,curvature?,interpolation?");
+                double time = point.getDouble(0), value = point.getDouble(1), curvature = point.optDouble(2, 0);
+                String mode = point.optString(3, "linear");
+                if (!Double.isFinite(time) || !Double.isFinite(value) || !Double.isFinite(curvature) || time < 0 || time <= previous
+                        || curvature < -1 || curvature > 1 || (!mode.equals("linear") && !mode.equals("hold")))
+                    throw new IllegalArgumentException("invalid expression point");
+                events.addPoint(time, value); previous = time;
             }
             expression.setEvents(events, unit);
+            Object content = modelGet(((ApiObject) note).getTarget(), "smZ");
+            Object selected = null;
+            for (Object timeline : (java.util.List<?>) modelGet(content, "CZR"))
+                if (((Enum<?>) modelGet(timeline, "bXk")).name().equalsIgnoreCase(name)) selected = timeline;
+            if (selected == null) throw new IllegalStateException("expression timeline missing");
+            java.util.List<?> stored = (java.util.List<?>) modelGet(selected, "IYM");
+            if (stored.size() != points.length()) throw new IllegalStateException("expression point count mismatch");
+            for (int j = 0; j < points.length(); j++) {
+                JSONArray input = points.getJSONArray(j);
+                GUX point = (GUX) stored.get(j);
+                boolean hold = input.optString(3, "linear").equals("hold");
+                point.IYM(hold ? HWV.IYM : HWV.jPB);
+                point.jPB(hold ? 0 : input.optDouble(2, 0));
+            }
         }
+    }
+
+    private static InstrumentNote stageInstrumentNote(Factory factory, JSONObject data) {
+        java.util.Set<String> fields = new java.util.HashSet<>(NOTE_CONDITIONS);
+        fields.addAll(java.util.Set.of("key", "channel", "start", "duration", "on_velocity", "off_velocity", "velocity_spread", "content_start", "muted", "expressions"));
+        for (String key : data.keySet()) if (!fields.contains(key)) throw new IllegalArgumentException("unknown note field: " + key);
+        double key = finiteField(data, "key", -1), channel = finiteField(data, "channel", 0);
+        double start = finiteField(data, "start", 0), duration = finiteField(data, "duration", -1);
+        double on = finiteField(data, "on_velocity", .8), off = finiteField(data, "off_velocity", .5);
+        double spread = finiteField(data, "velocity_spread", 0), offset = finiteField(data, "content_start", 0);
+        if (key != Math.rint(key) || key < 0 || key > 127 || channel != Math.rint(channel) || channel < 0 || channel > 15
+                || start < 0 || duration <= 0 || !Double.isFinite(start + duration) || offset < 0
+                || on < 0 || on > 1 || off < 0 || off > 1 || spread < 0 || spread > 1)
+            throw new IllegalArgumentException("invalid note key/channel/time/velocity/spread/offset");
+        if (data.has("muted") && !(data.get("muted") instanceof Boolean)) throw new IllegalArgumentException("note muted must be boolean");
+        InstrumentNote note = factory.createInstrumentNote((int) channel, (int) key, start, duration, on, off);
+        note.setIsMuted(data.optBoolean("muted", false));
+        note.setVelocitySpread(spread);
+        invokeModelSetter(((ApiObject) note).getTarget(), "UJq", double.class, offset);
+        applyNoteConditions(note, data);
+        if (data.has("expressions")) writeExpressions(factory, note, data.getJSONObject("expressions"), false);
         return note;
     }
 

@@ -1,5 +1,5 @@
 package com.bitwig.extension.api.project.timeline;
-public interface AudioNote extends EnduringEvent  {
+public interface AudioNote extends Note  {
     boolean isMuted();
     void setIsMuted(boolean muted);
     void setFadeInTime(double beats);

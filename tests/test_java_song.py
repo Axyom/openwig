@@ -58,7 +58,7 @@ class FakeJavaBridge:
             return {"path": params["path"], "method": method}
         if method == "automation.enumerate":
             return []
-        if method in {"clip.update", "clip.delete", "clip.import_audio", "clip.copy", "clip.split", "clip.replace_notes", "audio_event.import", "audio_event.update", "audio_event.delete"}:
+        if method in {"clip.update", "clip.delete", "clip.import_audio", "clip.copy", "clip.split", "clip.replace_notes", "audio_event.import", "audio_event.update", "audio_event.delete", "note.import", "note.update", "note.delete"}:
             return params
         if method in {"launcher.read", "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger",
                       "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear"}:
@@ -153,9 +153,8 @@ def test_native_clip_copy_split_and_note_replacement_contract(bridge):
     {"key": 60, "duration": 1, "on_velocity": float("nan")},
     {"key": 60, "duration": 1, "muted": 1}, {"key": 60, "duration": 1, "unknown": 0},
     {"key": 60, "duration": 1, "expressions": {"unknown": {}}},
-    {"key": 60, "duration": 1, "expressions": {"pressure": {"unit": "PERCENTAGE_OF_RANGE", "points": []}}},
     {"key": 60, "duration": 1, "expressions": {"pressure": {"unit": "PERCENTAGE_OF_RANGE", "points": [[1, .2], [0, .3]]}}},
-    {"key": 60, "duration": 1, "expressions": {"pressure": {"unit": "PERCENTAGE_OF_RANGE", "points": [[2, .2]]}}},
+    {"key": 60, "duration": 1, "expressions": {"pressure": {"unit": "PERCENTAGE_OF_RANGE", "points": [[-1, .2]]}}},
 ])
 def test_note_replacement_validates_all_notes_before_rpc(bridge, note):
     track = JavaSong(bridge=bridge).track_at("MIDI")
@@ -163,6 +162,57 @@ def test_note_replacement_validates_all_notes_before_rpc(bridge, note):
     with pytest.raises(ValueError):
         track.replace_notes(0, [{"key": 60, "duration": 1}, note])
     assert bridge.calls == []
+
+
+def test_individual_note_edits_and_expression_shapes(bridge):
+    track = JavaSong(bridge=bridge).track_at("MIDI")
+    curve = {"gain": {"unit": "DECIBEL", "points": [[0, -6, .3], [2, 0, 0, "hold"]]}}
+    changes = dict(velocity_spread=.2, content_start=.25, chance=.4, chance_enabled=False,
+                   occurrence="FILL", occurrence_enabled=True, recurrence=42, recurrence_enabled=True,
+                   repeat_count=-3, repeat_curve=.2, repeat_enabled=True, expressions=curve)
+    bridge.calls.clear()
+    track.update_note(0, 1, **changes)
+    track.import_note(slot=2, data={"key": 60, "duration": 2})
+    track.delete_note(slot=2, index=3)
+    assert bridge.calls == [
+        ("note.update", {"path": "MIDI", "clip": 0, "note": 1, "changes": changes}),
+        ("note.import", {"path": "MIDI", "slot": 2, "data": {"key": 60, "duration": 2}}),
+        ("note.delete", {"path": "MIDI", "slot": 2, "note": 3}),
+    ]
+
+
+@pytest.mark.parametrize("changes", [
+    {}, {"key": 128}, {"velocity_spread": -1}, {"content_start": -1},
+    {"chance_enabled": 1}, {"occurrence": "UNKNOWN"}, {"recurrence": 2048},
+    {"repeat_count": -128}, {"repeat_curve": float("nan")},
+    {"expressions": {"gain": {"unit": "RATIO", "points": [[0, 1, 2]]}}},
+    {"expressions": {"gain": {"unit": "RATIO", "points": [[0, 1, 0, "bezier"]]}}},
+    {"expressions": {"formant": {"unit": "SEMITONES", "points": [[0, 1]]}}},
+])
+def test_note_update_validation_before_rpc(bridge, changes):
+    track = JavaSong(bridge=bridge).track_at("MIDI")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.update_note(0, **changes)
+    assert bridge.calls == []
+
+
+def test_expression_clear_and_trimmed_content_coordinates(bridge):
+    track = JavaSong(bridge=bridge).track_at("MIDI")
+    # Curves may extend past a trimmed note's visible duration.
+    curves = {"gain": {"unit": "RATIO", "points": []},
+              "pressure": {"unit": "RATIO", "points": [[0, 0], [8, 1]]}}
+    track.replace_notes(0, [{"key": 60, "duration": 1, "content_start": 2, "expressions": curves}])
+    assert bridge.calls[-1][1]["notes"][0]["expressions"] == curves
+
+
+def test_audio_expression_and_probability_wire_contract(bridge):
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    changes = dict(expressions={"formant": {"unit": "SEMITONES", "points": [[0, 2], [2, -1]]}},
+                   chance_enabled=True, chance=.7, recurrence=42, repeat_enabled=False)
+    bridge.calls.clear()
+    track.update_audio_event(slot=1, **changes)
+    assert bridge.calls == [("audio_event.update", {"path": "Audio", "slot": 1, "event": 0, "changes": changes})]
 
 
 def test_copy_split_reject_invalid_arguments_without_rpc(bridge):

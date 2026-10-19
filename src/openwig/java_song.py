@@ -474,12 +474,63 @@ class JavaTrack:
             raise ValueError("beat must be nonnegative")
         return self.s.b.request("clip.split", self._track_params(clip=index, beat=beat), timeout=125)
 
+    _conditions = {"chance", "chance_enabled", "occurrence", "occurrence_enabled",
+                   "recurrence", "recurrence_enabled", "repeat_count", "repeat_curve", "repeat_enabled"}
+
+    @classmethod
+    def _validate_conditions(cls, data):
+        for key in cls._conditions & data.keys():
+            value = data[key]
+            if key.endswith("_enabled"):
+                if type(value) is not bool:
+                    raise ValueError(f"{key} must be boolean")
+            elif key == "occurrence":
+                if not isinstance(value, str) or value not in {"ALWAYS", "FIRST", "NOT_FIRST", "PREV", "NOT_PREV", "PREV_KEY",
+                                 "NOT_PREV_KEY", "PREV_CHANNEL", "NOT_PREV_CHANNEL", "FILL", "NOT_FILL"}:
+                    raise ValueError("unsupported occurrence")
+            elif key in {"recurrence", "repeat_count"}:
+                low, high = (0, 2047) if key == "recurrence" else (-127, 127)
+                if type(value) is not int or not low <= value <= high:
+                    raise ValueError(f"{key} must be an integer in {low}..{high}")
+            else:
+                low = 0 if key == "chance" else -1
+                if not low <= cls._clip_number(value, key) <= 1:
+                    raise ValueError(f"{key} must be in {low}..1")
+
+    @classmethod
+    def _validate_expressions(cls, expressions, *, audio=False):
+        names = {"gain", "pan", "transpose"}
+        if audio:
+            names.add("formant")
+        else:
+            names |= {"timbre", "pressure"}
+        if not isinstance(expressions, dict) or expressions.keys() - names:
+            raise ValueError("unsupported expressions")
+        for curve in expressions.values():
+            if not isinstance(curve, dict) or curve.keys() != {"unit", "points"} or not isinstance(curve["unit"], str):
+                raise ValueError("expression requires unit and points")
+            if not isinstance(curve["points"], (list, tuple)) or len(curve["points"]) > 4096:
+                raise ValueError("expression needs at most 4096 points")
+            last = -1.
+            for point in curve["points"]:
+                if not isinstance(point, (list, tuple)) or not 2 <= len(point) <= 4:
+                    raise ValueError("expression point needs beat, value, optional curvature/interpolation")
+                beat = cls._clip_number(point[0], "expression beat")
+                cls._clip_number(point[1], "expression value")
+                if beat < 0 or beat <= last:
+                    raise ValueError("expression beats must be nonnegative and increasing")
+                if len(point) > 2 and not -1 <= cls._clip_number(point[2], "curvature") <= 1:
+                    raise ValueError("curvature must be in -1..1")
+                if len(point) > 3 and point[3] not in {"linear", "hold"}:
+                    raise ValueError("interpolation must be linear or hold")
+                last = beat
+
     @classmethod
     def _note_payload(cls, notes) -> list:
         import copy
         payload = copy.deepcopy(list(notes))
         allowed = {"key", "channel", "start", "duration", "on_velocity",
-                   "off_velocity", "muted", "chance", "expressions"}
+                   "off_velocity", "muted", "expressions", "velocity_spread", "content_start"} | cls._conditions
         for note in payload:
             if not isinstance(note, dict) or note.keys() - allowed or not {"key", "duration"} <= note.keys():
                 raise ValueError("notes require key/duration and supported fields")
@@ -491,28 +542,15 @@ class JavaTrack:
             start = cls._clip_number(note.get("start", 0), "start")
             if duration <= 0 or start < 0:
                 raise ValueError("note start must be nonnegative and duration positive")
-            for key in ("on_velocity", "off_velocity", "chance"):
+            for key in ("on_velocity", "off_velocity", "velocity_spread"):
                 if key in note and not 0 <= cls._clip_number(note[key], key) <= 1:
                     raise ValueError(f"{key} must be in 0..1")
             if "muted" in note and type(note["muted"]) is not bool:
                 raise ValueError("muted must be boolean")
-            expressions = note.get("expressions", {})
-            if not isinstance(expressions, dict) or expressions.keys() - {"gain", "pan", "transpose", "timbre", "pressure"}:
-                raise ValueError("unsupported MIDI expressions")
-            for curve in expressions.values():
-                if not isinstance(curve, dict) or curve.keys() != {"unit", "points"} or not isinstance(curve["unit"], str):
-                    raise ValueError("expression requires unit and points")
-                if not isinstance(curve["points"], (list, tuple)) or not curve["points"]:
-                    raise ValueError("expression points required")
-                last = -1.
-                for point in curve["points"]:
-                    if not isinstance(point, (list, tuple)) or len(point) != 2:
-                        raise ValueError("expression points require beat and value")
-                    beat = cls._clip_number(point[0], "expression beat")
-                    cls._clip_number(point[1], "expression value")
-                    if not 0 <= beat <= duration or beat <= last:
-                        raise ValueError("expression beats must increase within note duration")
-                    last = beat
+            if "content_start" in note and cls._clip_number(note["content_start"], "content_start") < 0:
+                raise ValueError("content_start must be nonnegative")
+            cls._validate_conditions(note)
+            cls._validate_expressions(note.get("expressions", {}))
         return payload
 
     def replace_notes(self, index: int, notes) -> dict:
@@ -522,8 +560,8 @@ class JavaTrack:
         Optional: ``channel`` (0..15), ``start`` (local beats), ``on_velocity``,
         ``off_velocity``, ``muted``, ``chance``. Defaults: 0, 0, .8, .5, False, 1.
         Optional ``expressions`` maps gain/pan/transpose/timbre/pressure to
-        ``{"unit": BitwigUnitName, "points": [[local_beat, value], ...]}``.
-        Curves are linear; beats increase within note duration. Replacement
+        ``{"unit": BitwigUnitName, "points": [[content_beat, value, curvature?, interpolation?], ...]}``.
+        Empty points clear a curve. Points increase in content beats. Replacement
         unlinks shared content and preserves the clip container's settings.
         """
         self._clip_index(index)
@@ -551,6 +589,34 @@ class JavaTrack:
         if (clip is None) == (slot is None):
             raise ValueError("address exactly one clip index or launcher slot")
         return {"clip": cls._clip_index(clip)} if slot is None else {"slot": cls._slot_index(slot)}
+
+    def import_note(self, clip: int | None = None, *, data: dict, slot: int | None = None) -> dict:
+        """Add a MIDI note dictionary, addressed by arranger clip or launcher slot."""
+        target = self._clip_or_slot(clip, slot)
+        payload = self._note_payload([data])[0]
+        return self.s.b.request("note.import", self._track_params(**target, data=payload), timeout=125)
+
+    def update_note(self, clip: int | None = None, index: int = 0, **changes) -> dict:
+        """Edit one note, preserving its other properties and expression curves.
+
+        Supports replace_notes fields, plus velocity_spread (0..1), content_start
+        (beats), chance/occurrence/recurrence/repeat controls and their enabled
+        flags. Recurrence is Bitwig's packed 11-bit mask: period minus one in
+        bits 0..2, enabled iterations in bits 3..10. Repeat count is -127..127;
+        repeat_curve is -1..1. Returns the updated sorted note index and data.
+        """
+        target = self._clip_or_slot(clip, changes.pop("slot", None))
+        if not changes:
+            raise ValueError("provide note changes")
+        self._note_payload([{"key": 0, "duration": 1, **changes}])
+        return self.s.b.request("note.update", self._track_params(
+            **target, note=self._clip_index(index), changes=changes), timeout=125)
+
+    def delete_note(self, clip: int | None = None, index: int = 0, *, slot: int | None = None) -> dict:
+        """Delete one MIDI note, retaining the clip and its remaining notes."""
+        target = self._clip_or_slot(clip, slot)
+        return self.s.b.request("note.delete", self._track_params(
+            **target, note=self._clip_index(index)), timeout=125)
 
     def import_audio_event(self, clip: int | None = None, file=None, *, start: float = 0,
                            duration: float | None = None, source_offset: float = 0,
@@ -586,6 +652,10 @@ class JavaTrack:
         require explicit markers. Transpose requires a pitch-processing mode.
         Immediate stretch, REPITCH and semitone changes are live-verified.
         Formant envelope resolution accepts integers in 8..512.
+        Expressions maps gain/pan/transpose/formant to unit/points dictionaries;
+        points use content beats even in RAW mode, with optional curvature and
+        linear/hold interpolation. Empty points clear that curve. Probability
+        and repeat fields match update_note. Unspecified curves are retained.
         """
         target = self._clip_or_slot(clip, changes.pop("slot", None))
         self._clip_index(index)
@@ -598,11 +668,15 @@ class JavaTrack:
             "warp_tail_mode": {"NONE", "GRAIN", "PINGPONG"},
         }
         allowed = {"start", "duration", "fade_in", "fade_out", "source_offset", "gain_db", "muted", "reverse",
-                   "content_offset", "warp_markers", "transpose", "formant", "pan", "preserve_formants", "preview_onsets", "formant_envelope_resolution"} | enums.keys()
+                   "content_offset", "warp_markers", "transpose", "formant", "pan", "preserve_formants", "preview_onsets", "formant_envelope_resolution", "expressions"} | enums.keys() | self._conditions
         if not changes or changes.keys() - allowed:
             raise ValueError("provide supported audio event changes")
         for key, value in changes.items():
-            if key in enums:
+            if key in self._conditions:
+                self._validate_conditions({key: value})
+            elif key == "expressions":
+                self._validate_expressions(value, audio=True)
+            elif key in enums:
                 if not isinstance(value, str) or value not in enums[key]:
                     raise ValueError(f"unsupported {key}")
             elif key == "formant_envelope_resolution":

@@ -664,3 +664,35 @@ copies and launcher content addressing. Reopen its saved project, then use
 and reopened reversed-offset audio retains the expected 1320/880/440 Hz order.
 `sample_play_stop_seconds` now follows the warped mapping and file bounds instead
 of reporting the inactive RAW stop field on reversed warped events.
+
+## Individual notes, conditions and expression curves (2026-10-19)
+
+`JavaTrack.import_note(clip, data=...)`, `update_note(clip, index, **changes)`
+and `delete_note(clip, index)` edit one MIDI event. Use `slot=` instead of `clip`
+for launcher content. Edits make shared content independent and return the
+updated sorted index/data; deletion returns the remaining count.
+
+Note dictionaries additionally support `velocity_spread` (0..1), `content_start`
+(beats), `chance` (0..1), `occurrence` (the native named enum), `recurrence`
+(packed integer 0..2047), `repeat_count` (-127..127), `repeat_curve` (-1..1),
+and `chance_enabled/occurrence_enabled/recurrence_enabled/repeat_enabled`.
+Recurrence packs period-minus-one in bits 0..2 and enabled iterations in bits
+3..10. These condition fields also work on `update_audio_event`.
+
+`expressions` maps a name to `{"unit": "DECIBEL", "points": [[0, -6, .3],
+[2, 0, 0, "hold"]]}`. Points are `[content_beat, value, curvature?, interpolation?]`,
+strictly increasing, with curvature -1..1 and interpolation `linear`/`hold`.
+Empty points clear a curve. Updating one named curve preserves the others.
+MIDI supports gain/pan/transpose/timbre/pressure; audio supports gain/pan/
+transpose/formant (transpose needs a pitch-processing warp mode).
+Expression points use **beats even in RAW audio**; RAW source offsets still
+use seconds. Curves can extend past a trimmed note's visible duration.
+
+Manual gate: `tests/live_java_note_details.py --disposable --project <scratch
+file> --output <directory> [--process-capture <helper> --engine-pid <PID>]`.
+Reopen the saved file and rerun with `--verify`. Evidence in
+`scratch/editing-notes/gate-2/` covers all five MIDI curves, shapes, clearing,
+other-field preservation, copy independence, note insertion/deletion,
+rejection atomicity, warped audio curves/conditions and audible RAW envelope
+timing before and after reopen. Native persistence comparison is exact under
+the existing reader audit's documented numeric/media rules.
