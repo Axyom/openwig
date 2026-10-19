@@ -94,8 +94,10 @@ Do not equate native snapshot preservation with arbitrary field editing.
 2. **Audio creation and editing — pending.**
    - Implemented: local RAW sample import, source offsets, container/event fades,
      event import/move/resize/gain/mute/reverse/exact deletion and empty-lane reuse.
-   - Pending: warped-event offsets/reverse, pitch,
-     stretch/warp settings and markers, event replacement/deletion.
+   - Implemented state authoring: warp modes/markers/content offset, pitch,
+     formant/pan and processing settings; save/reopen and reopened pitch proof.
+   - Pending: reliable immediate DSP mode transitions, warped-event source
+     offsets/reverse, general expression curves and envelope resolution.
    - Use authored synthetic audio fixtures. Verify timing and audible output,
      media collection, and save/reopen; never use track counts as sole proof.
 3. **Plugins, nested device chains, and routing — pending.**
@@ -126,6 +128,62 @@ Do not equate native snapshot preservation with arbitrary field editing.
      All required checks green, changes pushed, working tree accounted for.
 
 ## Current checkpoint: start here
+
+Latest increment: `update_audio_event` now authors warp modes, explicit beat-to-
+source-second markers, warped content offsets, transpose/formant/pan constants,
+formant preservation, onset preview, transient mode/rate, grain size and tail
+mode. All ten mode names were read back live. Markers and settings are staged
+and validated before mutation; invalid ranges, enums, EOF mappings, RAW pitch
+and unsupported combinations fail explicitly. RAW-to-warp requires markers.
+Source-offset/reverse still require RAW; reversed material must first be made
+forward before replacing its warp mapping. General curves and envelope
+resolution remain pending.
+
+**Verified scope and open DSP gap:** state writes persist correctly and render
+correctly after native save/reopen. Immediate live mode/pitch transitions can
+still use inconsistent old processing state, especially on copied clips and
+after cycling modes. Do not mark audio editing complete or promise reliable
+immediate DSP. `tests/live_java_warps.py --live-render` deliberately retains
+this known failing regression. Mutation without that
+flag verifies state authoring, and `--verify --render` verifies the reopened
+snapshot. Ordinary `--render` requires `--verify`, making the distinction explicit.
+
+Final gate: `scratch/editing-warp-final-gate/`. At 150 BPM, markers
+[[0,0],[5,1],[7.5,3]] stretch the first source second over two arrangement seconds
+and the remaining two source seconds over one. Probes observed pitch-preserving
+440/880 Hz, REPITCH 220/1760 Hz, and seven-semitone shift approximately 660/1316 Hz
+(expected 659.255/1318.510; FFT tolerance 8 Hz). Final reopened fixture includes
+an independent additional clip carrying nondefault processing settings and has
+**zero reader differences** across three audio clips/events, with main shifted
+playback again 660/1316 Hz. See persistence.json and reopened-pitch.json/WAV.
+No owner material was used.
+
+179 unit tests, exact-build Java build/JAR protocol smoke, controller syntax and
+whitespace checks passed. Previous `4711a5e`/`a3ed1b0` CI should be rechecked.
+This increment is ready to commit/push; record its commit/CI afterward.
+
+**Investigation evidence for the next agent:** failed immediate-playback WAVs
+and JSON reports remain in `scratch/editing-warp-public-gate{,-2,-3,-4}/`.
+Saving/reloading exactly a failing snapshot in
+`scratch/editing-warp-copy-diagnostic/` preserved all reader data and corrected
+its playback. Removing the muted source or setting its volume to zero did not
+fix immediate playback. Native `KoO.JTi()` (source-cache refresh), `fv_()` (content
+invalidation), and replacing events with fresh native identities did not make
+all transitions reliable. These unsuccessful code workarounds were removed;
+do not claim they fixed it. Fresh exact-build CFR sources include
+ApiModificationProcessor, KoO/pUn/Tc, BBa/BOt, MjL and yMP under
+`scratch/decomp/editing/`. `KoO.JTi -> BBa.QmZ -> yMP.kxC -> e2n.tY1` refreshes
+source state; `KoO.fv_` calls `MjL.UqY/IxG`. Actual native audio graph/processing
+invalidation still needs investigation.
+
+Current scratch project: `scratch/editing-warp-final-gate/saved/project.bwproject`,
+stopped. Last observed scratch launcher PID 4960; re-identify before process work.
+No live sessions remain running. Next: close the immediate DSP gap or make
+independent progress on plugins/nested routing and launcher, while retaining
+this gap in the completion audit. Grid and documented JSON reconstruction are
+still pending. The overall goal remains active and incomplete.
+
+### Previous RAW audio-event increment
 
 Latest increment: public `JavaTrack.import_audio_event`, `update_audio_event`,
 and `delete_audio_event`, plus an important copied-audio playback correction.
@@ -323,6 +381,15 @@ New interface sources under `scratch/decomp/editing/`:
   use `NoteExpression.setValue(value, Unit)` or `setEvents(AutomationEvents, Unit)`.
 
 ## Known issues and comparison pitfalls
+
+- **RAW expression time labels need an audit before JSON reconstruction.**
+  A two-second RAW event reversed at 120 BPM stored a gain point at time 4;
+  at 150 BPM it was time 5, while the reader labels RAW expression time as
+  seconds. This suggests native stored beats need conversion or a corrected
+  time-unit label. Constant-value playback does not establish curve timing.
+  Check the exact exporter/model time converters and add a time-varying audible
+  gate; do not silently reuse these labels in the editable JSON schema.
+
 
 - **Resolved: nonzero-start automation.** Bitwig inserts an implicit beat-zero
   anchor. The writer now preserves it, offsets caller points, and validates their

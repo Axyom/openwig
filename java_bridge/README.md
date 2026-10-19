@@ -449,8 +449,8 @@ Start/duration are beats, source offset is seconds, gain is decibels. Default
 duration maps the remaining source seconds through the native project tempo
 map. Returns `{"clip": sorted_index, "data": clip_snapshot}`. Rejects overlaps,
 nonfinite values, unavailable sources and offsets beyond the source end.
-Pitch, reverse and arbitrary audio-event edits remain pending; no verified
-pitch control is exposed in this increment.
+Audio event editing, reverse and warp/pitch state authoring are described below;
+immediate processing transitions still have an explicit runtime limitation.
 
 Manual evidence: `tests/live_java_clips.py --disposable --project <open-fixture>
 --output <fresh-directory> [--render]`. Reopen its saved project, then run with
@@ -489,8 +489,8 @@ to `{"unit": "<Bitwig Unit name>", "points": [[beat, value], ...]}`.
 Points interpolate linearly, have increasing local beats within note duration,
 and use explicit units. For example pressure `PERCENTAGE_OF_RANGE` values
 20..80 store .2...8; transpose `SEMITONES` 0..7; gain `DECIBEL` -6..0.
-This writes MIDI pitch expression, distinct from the still-unverified audio
-pitch processing. Recurrence/repeat/occurrence controls and arbitrary curve
+This writes MIDI pitch expression; audio pitch state authoring and its runtime
+limitation are described below. Recurrence/repeat/occurrence controls and arbitrary curve
 shapes are not yet exposed by note replacement. Unknown fields fail explicitly.
 All notes/expressions are staged off-document before replacement, so malformed
 later notes cannot erase earlier content.
@@ -523,8 +523,8 @@ one event and returns deleted index/remaining count. It leaves the clip containe
 and other events in place; importing into the emptied lane is supported.
 These operations unlink shared content before mutation and run in native undo
 transactions. Invalid ranges/fades/offsets and overlaps are rejected before edits.
-Warp writes, warped-event offsets/reverse, audio pitch and general audio
-expression curves remain pending.
+Warp/pitch state writes are described below; warped-event source offsets/reverse
+and general audio expression curves remain pending.
 
 Manual gate: `tests/live_java_audio_events.py --disposable --project <open fixture>
 --output <fresh scratch directory> --render [--tempo 150]`. Reopen its saved file
@@ -539,3 +539,45 @@ make-unique. This fixes inconsistent first playback that metadata-only copy
 checks missed. The source's explicit fade-in time/gain/curve are restored after
 the callback initializes automatic defaults. The existing native content gate
 checks copied fades and full MIDI/audio persistence as a regression.
+
+## Warp and audio-processing state authoring
+
+`update_audio_event` also accepts:
+
+- `warp_mode`: RAW, STRETCH, STRETCH_HD, REPITCH, SLICE, CYCLIC,
+  ELASTIQUE_PRO, ELASTIQUE, ELASTIQUE_ECO, ELASTIQUE_SOLO.
+- `warp_markers`: at least two `[local_beat, source_seconds]` pairs, strictly
+  increasing in both dimensions, within the source file. RAW-to-warp changes
+  require explicit markers. Reverse mappings are not supported by this writer.
+- `content_offset`: local beats within the warp mapping. RAW uses source_offset
+  seconds instead. Existing reversed material must be set forward before a new
+  warp mapping is applied.
+- `transpose`, `formant`: semitones (-96..96); `pan`: -1..1. These replace their
+  respective expression curves with constants. Transpose rejects RAW/REPITCH,
+  whose algorithms do not apply the requested independent pitch processing.
+- `preserve_formants`, `preview_onsets`: booleans.
+- `preserve_transients_mode`: OFF/SOFT/HARD; `transient_rate`:
+  ONSETS/THIRTYSECOND/SIXTEENTH/EIGHT/QUARTER (EIGHT is the native spelling).
+- `warp_grain_size`: SMALL/NORMAL/LARGE; `warp_tail_mode`: NONE/GRAIN/PINGPONG.
+  DSP effects of processing settings depend on the chosen algorithm.
+
+Example: `track.update_audio_event(0, 0, warp_mode="ELASTIQUE_PRO",
+warp_markers=[[0, 0], [5, 1], [7.5, 3]], content_offset=0, transpose=7,
+preserve_formants=False)`.
+
+**Runtime limitation:** these state writes persist and produce verified pitch
+and warp behavior after saving/reopening. Immediate playback after some mode
+transitions can retain inconsistent processing state, including on copied clips.
+Save/reopen before relying on the processing render. This remains an open parity
+gap; the Java bridge does not claim complete live audio editing. General audio
+expression curves, warped-event source offsets/reverse, and formant envelope
+resolution are also pending.
+
+Manual gate: `tests/live_java_warps.py --disposable --project <open fixture>
+--output <fresh directory>`, then reopen the saved file and use `--verify --render`.
+`--live-render` explicitly exercises the unresolved immediate-playback regression.
+At 150 BPM the authored synthetic source verified pitch-preserving stretch,
+REPITCH rate-dependent pitch, and a seven-semitone shift after reopen. The saved
+fixture preserves nondefault processing settings with zero reader differences.
+All ten mode names were read back; this is not a separate audible certification
+of every algorithm and every settings combination.

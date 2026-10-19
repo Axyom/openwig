@@ -551,22 +551,57 @@ class JavaTrack:
         require RAW mode. Set offsets while forward, then reverse separately.
         Moves reject overlaps and can change event indexes. Other clips retain
         their content. Container duration is unchanged.
+
+        Processing fields: warp_mode, warp_markers ([[beat, source_seconds],
+        ...]), content_offset (beats), transpose/formant (semitones), pan (-1..1),
+        preserve_formants, preview_onsets, preserve_transients_mode,
+        transient_rate, warp_grain_size, warp_tail_mode. RAW-to-warp changes
+        require explicit markers. Transpose requires a pitch-processing mode.
+        These writes persist, but immediate DSP after some mode transitions can
+        remain stale; save/reopen before relying on a processing render.
         """
         self._clip_index(clip)
         self._clip_index(index)
-        allowed = {"start", "duration", "fade_in", "fade_out", "source_offset", "gain_db", "muted", "reverse"}
+        enums = {
+            "warp_mode": {"RAW", "STRETCH", "STRETCH_HD", "REPITCH", "SLICE", "CYCLIC",
+                          "ELASTIQUE_PRO", "ELASTIQUE", "ELASTIQUE_ECO", "ELASTIQUE_SOLO"},
+            "preserve_transients_mode": {"OFF", "SOFT", "HARD"},
+            "transient_rate": {"ONSETS", "THIRTYSECOND", "SIXTEENTH", "EIGHT", "QUARTER"},
+            "warp_grain_size": {"SMALL", "NORMAL", "LARGE"},
+            "warp_tail_mode": {"NONE", "GRAIN", "PINGPONG"},
+        }
+        allowed = {"start", "duration", "fade_in", "fade_out", "source_offset", "gain_db", "muted", "reverse",
+                   "content_offset", "warp_markers", "transpose", "formant", "pan", "preserve_formants", "preview_onsets"} | enums.keys()
         if not changes or changes.keys() - allowed:
             raise ValueError("provide supported audio event changes")
         for key, value in changes.items():
-            if key in {"muted", "reverse"}:
+            if key in enums:
+                if not isinstance(value, str) or value not in enums[key]:
+                    raise ValueError(f"unsupported {key}")
+            elif key == "warp_markers":
+                if not isinstance(value, (list, tuple)) or len(value) < 2:
+                    raise ValueError("at least two warp markers required")
+                last_beat = last_second = -1.
+                for point in value:
+                    if not isinstance(point, (list, tuple)) or len(point) != 2:
+                        raise ValueError("warp markers need beat and source seconds")
+                    beat, second = (self._clip_number(v, "warp marker") for v in point)
+                    if beat < 0 or second < 0 or beat <= last_beat or second <= last_second:
+                        raise ValueError("warp marker beats and seconds must increase")
+                    last_beat, last_second = beat, second
+            elif key in {"muted", "reverse", "preserve_formants", "preview_onsets"}:
                 if type(value) is not bool:
                     raise ValueError(f"{key} must be boolean")
             else:
                 number = self._clip_number(value, key)
                 if key == "duration" and number <= 0:
                     raise ValueError("duration must be positive")
-                if key in {"start", "source_offset", "fade_in", "fade_out"} and number < 0:
+                if key in {"start", "source_offset", "content_offset", "fade_in", "fade_out"} and number < 0:
                     raise ValueError(f"{key} must be nonnegative")
+                if key == "pan" and not -1 <= number <= 1:
+                    raise ValueError("pan must be in -1..1")
+                if key in {"transpose", "formant"} and not -96 <= number <= 96:
+                    raise ValueError(f"{key} must be in -96..96 semitones")
         if "source_offset" in changes and changes.get("reverse"):
             raise ValueError("set source offset while forward, then reverse separately")
         return self.s.b.request("audio_event.update", self._track_params(clip=clip, event=index, changes=changes), timeout=125)

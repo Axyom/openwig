@@ -212,3 +212,22 @@ shape application must offset caller points past that anchor and validate times.
   automatic fade-in defaults. Restore source fade-in time, native `tDS()` gain
   via `HT3(double)`, and `wtf()` curve via `KF3(xEd)` after finalization.
   Live copied fade/content persistence and forward/reverse audio tests pass.
+
+### Warp/processing state writes (6.1.5; immediate DSP gap remains)
+
+- `Factory.createWarpEvents()` / `WarpMarkers.addWarpEvent(beat,seconds)` stage
+  explicit mappings; validate native areWarpMarkersValid before attaching.
+  `AudioNote.setWarpEvents/setWarpMode` apply mappings/mode. Warped native
+  `KoO.UJq(double)` takes content beats; RAW uses seconds. Explicit content
+  offsets are checked against marker bounds.
+- `getTranspose/getFormant/getPan().setValue` accept SEMITONES/SEMITONES/RATIO.
+  AudioNote also exposes setters for preserve-formants, preview-onsets,
+  transient preservation/rate, grain size and tail mode. Runtime enum valueOf
+  uses the actual host enum (compile stubs need no copied native implementation).
+- Native state readbacks cover all ten modes and nondefault settings; persistence
+  and reopened shifted audio pass. **Immediate live processing remains unreliable**
+  after some mode transitions. The failing regression is preserved separately
+  from the save/reopen gate; no successful runtime-cache fix is claimed.
+- Inspected refresh paths `KoO.JTi -> BBa.QmZ -> yMP.kxC -> e2n.tY1` and
+  `KoO.fv_ -> MjL.UqY/IxG`, plus fresh event identities, did not resolve all
+  transitions. They were removed rather than shipping speculative fixes.

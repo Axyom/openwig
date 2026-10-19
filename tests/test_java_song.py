@@ -218,6 +218,33 @@ def test_invalid_audio_event_indexes_rejected_without_rpc(bridge, clip, index):
     assert bridge.calls == []
 
 
+def test_warp_processing_wire_contract(bridge):
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    changes = dict(warp_mode="ELASTIQUE_PRO", warp_markers=[[0, 0], [5, 1], [7.5, 3]],
+                   content_offset=0, transpose=7, formant=2, pan=-.5,
+                   preserve_formants=False, preview_onsets=True,
+                   preserve_transients_mode="HARD", transient_rate="QUARTER",
+                   warp_grain_size="LARGE", warp_tail_mode="GRAIN")
+    bridge.calls.clear()
+    track.update_audio_event(0, 1, **changes)
+    assert bridge.calls == [("audio_event.update", {"path": "Audio", "clip": 0, "event": 1, "changes": changes})]
+
+
+@pytest.mark.parametrize("changes", [dict(warp_mode="bad"), dict(warp_mode=1),
+    dict(warp_markers=[]), dict(warp_markers=[[0, 0]]),
+    dict(warp_markers=[[0, 0], [0, 1]]), dict(warp_markers=[[0, 1], [2, .5]]),
+    dict(warp_markers=[[0, 0], [2, float("nan")]]), dict(warp_markers=[[0, 0, 1], [2, 3]]),
+    dict(transpose=100), dict(formant=float("inf")), dict(pan=2),
+    dict(preserve_formants=1), dict(preview_onsets="yes"), dict(content_offset=-1),
+    dict(transient_rate="EIGHTH"), dict(warp_grain_size="huge"), dict(warp_tail_mode="BAD")])
+def test_invalid_warp_changes_rejected_without_rpc(bridge, changes):
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.update_audio_event(0, 0, **changes)
+    assert bridge.calls == []
+
+
 def test_dump_sends_read_only_project_dump(bridge):
     song = JavaSong(bridge=bridge)
     result = song.dump()

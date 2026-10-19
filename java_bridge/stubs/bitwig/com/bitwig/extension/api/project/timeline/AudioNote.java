@@ -5,6 +5,16 @@ public interface AudioNote extends EnduringEvent  {
     void setFadeInTime(double beats);
     void setFadeOutTime(double beats);
     void setWarpMode(WarpMode mode);
+    void setWarpEvents(WarpMarkers markers);
+    void setPreserveFormants(boolean preserve);
+    void setPreviewOnsets(boolean preview);
+    void setPreserveTransientsMode(PreserveTransientsMode mode);
+    void setTransientRate(TransientRate rate);
+    void setWarpGrainSize(WarpGrainSize size);
+    void setWarpTailMode(WarpTailMode mode);
+    NoteExpression getTranspose();
+    NoteExpression getFormant();
+    NoteExpression getPan();
     NoteExpression getGain();
     java.io.File getAudioFile();
     int getSampleRate();

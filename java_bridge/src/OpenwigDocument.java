@@ -2839,21 +2839,68 @@ public final class OpenwigDocument {
         if (index < 0 || index >= events.size()) throw new IllegalArgumentException("audio event index out of range");
         com.bitwig.extension.api.project.timeline.AudioNote existing = (com.bitwig.extension.api.project.timeline.AudioNote) events.get(index);
         JSONObject changes = method.equals("audio_event.delete") ? new JSONObject() : params.getJSONObject("changes");
-        java.util.Set<String> allowed = java.util.Set.of("start", "duration", "source_offset", "gain_db", "muted", "reverse", "fade_in", "fade_out");
+        java.util.Set<String> allowed = java.util.Set.of("start", "duration", "source_offset", "gain_db", "muted", "reverse", "fade_in", "fade_out",
+                "warp_mode", "warp_markers", "content_offset", "transpose", "formant", "pan",
+                "preserve_formants", "preview_onsets", "preserve_transients_mode", "transient_rate", "warp_grain_size", "warp_tail_mode");
         for (String key : changes.keySet()) if (!allowed.contains(key)) throw new IllegalArgumentException("unknown audio event field: " + key);
-        for (String key : new String[]{"muted", "reverse"})
+        for (String key : new String[]{"muted", "reverse", "preserve_formants", "preview_onsets"})
             if (changes.has(key) && !(changes.get(key) instanceof Boolean)) throw new IllegalArgumentException(key + " must be boolean");
         double start = finiteField(changes, "start", existing.getTime());
         double duration = finiteField(changes, "duration", existing.getDuration());
         double fadeIn = finiteField(changes, "fade_in", ((Number) modelGet(((ApiObject) existing).getTarget(), "dM_")).doubleValue());
         double fadeOut = finiteField(changes, "fade_out", ((Number) modelGet(((ApiObject) existing).getTarget(), "KF3")).doubleValue());
         double offset = finiteField(changes, "source_offset", 0), gain = finiteField(changes, "gain_db", 0);
+        com.bitwig.extension.api.project.timeline.WarpMode mode = changes.has("warp_mode")
+                ? com.bitwig.extension.api.project.timeline.WarpMode.valueOf(changes.getString("warp_mode")) : existing.getWarpMode();
+        double contentOffset = finiteField(changes, "content_offset", 0);
+        double transpose = finiteField(changes, "transpose", 0), formant = finiteField(changes, "formant", 0), pan = finiteField(changes, "pan", 0);
+        if (contentOffset < 0 || pan < -1 || pan > 1 || transpose < -96 || transpose > 96 || formant < -96 || formant > 96)
+            throw new IllegalArgumentException("invalid audio processing value");
+        if (changes.has("transpose") && (mode.name().equals("RAW") || mode.name().equals("REPITCH")))
+            throw new IllegalArgumentException("transpose requires a pitch-processing warp mode");
+        if (changes.has("content_offset") && mode.name().equals("RAW")) throw new IllegalArgumentException("RAW uses source_offset seconds");
+        if (changes.has("warp_mode") && !mode.name().equals("RAW") && existing.getWarpMode().name().equals("RAW") && !changes.has("warp_markers"))
+            throw new IllegalArgumentException("switching from RAW requires explicit warp markers");
+        com.bitwig.extension.api.project.timeline.WarpMarkers warps = null;
+        if (changes.has("warp_markers")) {
+            JSONArray points = changes.getJSONArray("warp_markers");
+            if (points.length() < 2) throw new IllegalArgumentException("at least two warp markers required");
+            warps = project.getFactory().createWarpEvents();
+            double lastBeat = -1, lastSecond = -1;
+            for (int j = 0; j < points.length(); j++) {
+                JSONArray point = points.getJSONArray(j);
+                if (point.length() != 2) throw new IllegalArgumentException("warp markers need beat and source seconds");
+                double beat = point.getDouble(0), second = point.getDouble(1);
+                if (!Double.isFinite(beat) || !Double.isFinite(second) || beat < 0 || second < 0 || beat <= lastBeat || second <= lastSecond
+                        || second > existing.getAudioFileDurationInSeconds()) throw new IllegalArgumentException("warp markers must increase within the source file");
+                warps.addWarpEvent(beat, second); lastBeat = beat; lastSecond = second;
+            }
+            if (!warps.areWarpMarkersValid()) throw new IllegalArgumentException("invalid native warp mapping");
+        }
+        com.bitwig.extension.api.project.timeline.WarpMarkers stagedWarps = warps;
+        if (changes.has("content_offset")) {
+            com.bitwig.extension.api.project.timeline.WarpMarkers mapping = warps == null ? existing.getWarpEvents() : warps;
+            int count = mapping.getWarpMarkerCount();
+            if (count < 2 || contentOffset < mapping.getWarpMarkerAt(0).getBeatTime()
+                    || contentOffset >= mapping.getWarpMarkerAt(count - 1).getBeatTime())
+                throw new IllegalArgumentException("content offset outside warp mapping");
+        }
+        com.bitwig.extension.api.project.timeline.PreserveTransientsMode transients = changes.has("preserve_transients_mode")
+                ? com.bitwig.extension.api.project.timeline.PreserveTransientsMode.valueOf(changes.getString("preserve_transients_mode")) : null;
+        com.bitwig.extension.api.project.timeline.TransientRate rate = changes.has("transient_rate")
+                ? com.bitwig.extension.api.project.timeline.TransientRate.valueOf(changes.getString("transient_rate")) : null;
+        com.bitwig.extension.api.project.timeline.WarpGrainSize grain = changes.has("warp_grain_size")
+                ? com.bitwig.extension.api.project.timeline.WarpGrainSize.valueOf(changes.getString("warp_grain_size")) : null;
+        com.bitwig.extension.api.project.timeline.WarpTailMode tail = changes.has("warp_tail_mode")
+                ? com.bitwig.extension.api.project.timeline.WarpTailMode.valueOf(changes.getString("warp_tail_mode")) : null;
         if (start < 0 || duration <= 0 || !Double.isFinite(start + duration) || fadeIn < 0 || fadeOut < 0 || fadeIn > duration || fadeOut > duration)
             throw new IllegalArgumentException("invalid audio event range/fades");
         if (changes.has("source_offset") && (offset < 0 || offset >= existing.getAudioFileDurationInSeconds()))
             throw new IllegalArgumentException("source offset outside audio file");
         boolean reversed = (Boolean) modelGet(modelGet(((ApiObject) existing).getTarget(), "jsk"), "wtf");
-        if ((changes.has("source_offset") || changes.has("reverse")) && !existing.getWarpMode().name().equals("RAW"))
+        if (reversed && !mode.name().equals("RAW") && (changes.has("warp_mode") || changes.has("warp_markers")))
+            throw new IllegalArgumentException("set reversed audio forward before replacing its warp mapping");
+        if ((changes.has("source_offset") || changes.has("reverse")) && !mode.name().equals("RAW"))
             throw new IllegalArgumentException("source offset/reverse currently require RAW audio");
         if (changes.has("source_offset") && (reversed || changes.optBoolean("reverse", false)))
             throw new IllegalArgumentException("set source offset while forward, then reverse in a separate edit");
@@ -2884,8 +2931,20 @@ public final class OpenwigDocument {
                     return;
                 }
                 if (reposition) { event.setTime(start); event.setDuration(duration); timeline.addEvent(event); }
+                if (stagedWarps != null) event.setWarpEvents(stagedWarps);
+                if (changes.has("warp_mode")) event.setWarpMode(mode);
+                if (changes.has("content_offset")) invokeModelSetter(raw, "UJq", double.class, contentOffset);
                 if (changes.has("source_offset")) invokeModelSetter(raw, "UJq", double.class, offset);
                 if (changes.has("gain_db")) event.getGain().setValue(gain, Unit.DECIBEL);
+                if (changes.has("transpose")) event.getTranspose().setValue(transpose, Unit.SEMITONES);
+                if (changes.has("formant")) event.getFormant().setValue(formant, Unit.SEMITONES);
+                if (changes.has("pan")) event.getPan().setValue(pan, Unit.RATIO);
+                if (changes.has("preserve_formants")) event.setPreserveFormants(changes.getBoolean("preserve_formants"));
+                if (changes.has("preview_onsets")) event.setPreviewOnsets(changes.getBoolean("preview_onsets"));
+                if (transients != null) event.setPreserveTransientsMode(transients);
+                if (rate != null) event.setTransientRate(rate);
+                if (grain != null) event.setWarpGrainSize(grain);
+                if (tail != null) event.setWarpTailMode(tail);
                 if (changes.has("muted")) event.setIsMuted(changes.getBoolean("muted"));
                 if (changes.has("fade_in")) event.setFadeInTime(fadeIn);
                 if (changes.has("fade_out")) event.setFadeOutTime(fadeOut);
