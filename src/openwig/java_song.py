@@ -395,22 +395,24 @@ class JavaTrack:
         return index
 
     @staticmethod
+    def _slot_index(slot: int) -> int:
+        if type(slot) is not int or slot < 0:
+            raise ValueError("slot index must be a nonnegative integer")
+        return slot
+
+    @staticmethod
     def _clip_number(value, key: str) -> float:
         import math
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise ValueError(f"{key} must be a finite number")
         return float(value)
 
-    def update_clip(self, index: int, **changes) -> dict:
-        """Edit an arranger clip; times and fades are beats.
-
-        Moving clips changes their sorted indexes. Overlapping another clip is
-        rejected. Resizing trims the container, preserving its content events.
-        Color is snapped to Bitwig's palette. Returns the updated clip data.
-        """
-        self._clip_index(index)
+    @classmethod
+    def _validate_clip_changes(cls, changes: dict, *, launcher: bool) -> None:
         allowed = {"start", "duration", "name", "muted", "loop", "loop_start",
                    "loop_duration", "play_start_offset", "color", "fade_in", "fade_out"}
+        if launcher:
+            allowed -= {"start"}
         if not changes or changes.keys() - allowed:
             raise ValueError("provide supported clip changes")
         for key, value in changes.items():
@@ -421,11 +423,21 @@ class JavaTrack:
                 if not isinstance(value, str):
                     raise ValueError(f"{key} must be a string")
             else:
-                number = self._clip_number(value, key)
+                number = cls._clip_number(value, key)
                 if key in {"duration", "loop_duration"} and number <= 0:
                     raise ValueError(f"{key} must be positive")
                 if key in {"start", "fade_in", "fade_out"} and number < 0:
                     raise ValueError(f"{key} must be nonnegative")
+
+    def update_clip(self, index: int, **changes) -> dict:
+        """Edit an arranger clip; times and fades are beats.
+
+        Moving clips changes their sorted indexes. Overlapping another clip is
+        rejected. Resizing trims the container, preserving its content events.
+        Color is snapped to Bitwig's palette. Returns the updated clip data.
+        """
+        self._clip_index(index)
+        self._validate_clip_changes(changes, launcher=False)
         return self.s.b.request("clip.update", self._track_params(clip=index, changes=changes))
 
     def delete_clip(self, index: int) -> dict:
@@ -462,19 +474,9 @@ class JavaTrack:
             raise ValueError("beat must be nonnegative")
         return self.s.b.request("clip.split", self._track_params(clip=index, beat=beat), timeout=125)
 
-    def replace_notes(self, index: int, notes) -> dict:
-        """Replace a MIDI clip's content with note dictionaries; [] clears it.
-
-        Required fields: ``key`` (0..127), ``duration`` (positive beats).
-        Optional: ``channel`` (0..15), ``start`` (local beats), ``on_velocity``,
-        ``off_velocity``, ``muted``, ``chance``. Defaults: 0, 0, .8, .5, False, 1.
-        Optional ``expressions`` maps gain/pan/transpose/timbre/pressure to
-        ``{"unit": BitwigUnitName, "points": [[local_beat, value], ...]}``.
-        Curves are linear; beats increase within note duration. Replacement
-        unlinks shared content and preserves the clip container's settings.
-        """
+    @classmethod
+    def _note_payload(cls, notes) -> list:
         import copy
-        self._clip_index(index)
         payload = copy.deepcopy(list(notes))
         allowed = {"key", "channel", "start", "duration", "on_velocity",
                    "off_velocity", "muted", "chance", "expressions"}
@@ -485,12 +487,12 @@ class JavaTrack:
                 value = note.get(key, 0)
                 if type(value) is not int or not 0 <= value <= limit:
                     raise ValueError(f"{key} must be an integer in 0..{limit}")
-            duration = self._clip_number(note["duration"], "duration")
-            start = self._clip_number(note.get("start", 0), "start")
+            duration = cls._clip_number(note["duration"], "duration")
+            start = cls._clip_number(note.get("start", 0), "start")
             if duration <= 0 or start < 0:
                 raise ValueError("note start must be nonnegative and duration positive")
             for key in ("on_velocity", "off_velocity", "chance"):
-                if key in note and not 0 <= self._clip_number(note[key], key) <= 1:
+                if key in note and not 0 <= cls._clip_number(note[key], key) <= 1:
                     raise ValueError(f"{key} must be in 0..1")
             if "muted" in note and type(note["muted"]) is not bool:
                 raise ValueError("muted must be boolean")
@@ -506,11 +508,26 @@ class JavaTrack:
                 for point in curve["points"]:
                     if not isinstance(point, (list, tuple)) or len(point) != 2:
                         raise ValueError("expression points require beat and value")
-                    beat = self._clip_number(point[0], "expression beat")
-                    self._clip_number(point[1], "expression value")
+                    beat = cls._clip_number(point[0], "expression beat")
+                    cls._clip_number(point[1], "expression value")
                     if not 0 <= beat <= duration or beat <= last:
                         raise ValueError("expression beats must increase within note duration")
                     last = beat
+        return payload
+
+    def replace_notes(self, index: int, notes) -> dict:
+        """Replace a MIDI clip's content with note dictionaries; [] clears it.
+
+        Required fields: ``key`` (0..127), ``duration`` (positive beats).
+        Optional: ``channel`` (0..15), ``start`` (local beats), ``on_velocity``,
+        ``off_velocity``, ``muted``, ``chance``. Defaults: 0, 0, .8, .5, False, 1.
+        Optional ``expressions`` maps gain/pan/transpose/timbre/pressure to
+        ``{"unit": BitwigUnitName, "points": [[local_beat, value], ...]}``.
+        Curves are linear; beats increase within note duration. Replacement
+        unlinks shared content and preserves the clip container's settings.
+        """
+        self._clip_index(index)
+        payload = self._note_payload(notes)
         return self.s.b.request("clip.replace_notes", self._track_params(clip=index, notes=payload), timeout=125)
 
     def import_audio(self, file, *, start: float = 0, duration: float | None = None,
@@ -529,28 +546,38 @@ class JavaTrack:
             params["name"] = name
         return self.s.b.request("clip.import_audio", self._track_params(**params), timeout=125)
 
-    def import_audio_event(self, clip: int, file, *, start: float = 0,
+    @classmethod
+    def _clip_or_slot(cls, clip, slot) -> dict:
+        if (clip is None) == (slot is None):
+            raise ValueError("address exactly one clip index or launcher slot")
+        return {"clip": cls._clip_index(clip)} if slot is None else {"slot": cls._slot_index(slot)}
+
+    def import_audio_event(self, clip: int | None = None, file=None, *, start: float = 0,
                            duration: float | None = None, source_offset: float = 0,
-                           gain_db: float = 0) -> dict:
+                           gain_db: float = 0, slot: int | None = None) -> dict:
         """Add RAW audio to an existing audio clip; returns event index and data.
 
-        Start/duration are local content beats, source_offset is seconds.
-        Default duration follows source remainder at the first arranger position
-        (clip start + local start - clip play offset). Overlaps are rejected;
-        the container is not automatically extended. Content becomes independent.
+        Address an arranger clip by ``clip`` index or a launcher clip by
+        ``slot`` index. Start/duration are local content beats, source_offset
+        is seconds. Default duration follows source remainder at the first
+        arranger position (clip start + local start - clip play offset);
+        launcher clips always start at zero. Overlaps are rejected; the
+        container is not automatically extended. Content becomes independent.
         """
-        self._clip_index(clip)
+        target = self._clip_or_slot(clip, slot)
         params = self._audio_source_params(file, start, duration, source_offset, gain_db)
-        return self.s.b.request("audio_event.import", self._track_params(clip=clip, **params), timeout=125)
+        return self.s.b.request("audio_event.import", self._track_params(**target, **params), timeout=125)
 
-    def update_audio_event(self, clip: int, index: int, **changes) -> dict:
+    def update_audio_event(self, clip: int | None = None, index: int = 0, **changes) -> dict:
         """Edit an audio event; returns its sorted index and updated data.
 
-        Fields: start/duration/fade_in/fade_out (local beats), source_offset
-        (seconds), gain_db, muted, reverse. Source offset/reverse currently
-        require RAW mode. Set offsets while forward, then reverse separately.
-        Moves reject overlaps and can change event indexes. Other clips retain
-        their content. Container duration is unchanged.
+        Address an arranger clip by ``clip`` index or a launcher clip by
+        ``slot`` keyword. Fields: start/duration/fade_in/fade_out (local
+        beats), source_offset (seconds), gain_db, muted, reverse. Source
+        offset/reverse currently require RAW mode. Set offsets while forward,
+        then reverse separately. Moves reject overlaps and can change event
+        indexes. Other clips retain their content. Container duration is
+        unchanged.
 
         Processing fields: warp_mode, warp_markers ([[beat, source_seconds],
         ...]), content_offset (beats), transpose/formant (semitones), pan (-1..1),
@@ -560,7 +587,7 @@ class JavaTrack:
         These writes persist, but immediate DSP after some mode transitions can
         remain stale; save/reopen before relying on a processing render.
         """
-        self._clip_index(clip)
+        target = self._clip_or_slot(clip, changes.pop("slot", None))
         self._clip_index(index)
         enums = {
             "warp_mode": {"RAW", "STRETCH", "STRETCH_HD", "REPITCH", "SLICE", "CYCLIC",
@@ -604,12 +631,177 @@ class JavaTrack:
                     raise ValueError(f"{key} must be in -96..96 semitones")
         if "source_offset" in changes and changes.get("reverse"):
             raise ValueError("set source offset while forward, then reverse separately")
-        return self.s.b.request("audio_event.update", self._track_params(clip=clip, event=index, changes=changes), timeout=125)
+        return self.s.b.request("audio_event.update", self._track_params(**target, event=index, changes=changes), timeout=125)
 
-    def delete_audio_event(self, clip: int, index: int) -> dict:
-        """Remove exactly one event; keep other events and the clip container."""
+    def delete_audio_event(self, clip: int | None = None, index: int = 0, *, slot: int | None = None) -> dict:
+        """Remove exactly one event; keep other events and the clip container.
+
+        Address an arranger clip by ``clip`` index or a launcher clip by ``slot``.
+        """
+        target = self._clip_or_slot(clip, slot)
         return self.s.b.request("audio_event.delete", self._track_params(
-            clip=self._clip_index(clip), event=self._clip_index(index)), timeout=125)
+            **target, event=self._clip_index(index)), timeout=125)
+
+    @staticmethod
+    def _launcher_flags(has_stop, replace: bool = False) -> dict:
+        flags = {}
+        if has_stop is not None:
+            if type(has_stop) is not bool:
+                raise ValueError("has_stop must be boolean")
+            flags["has_stop"] = has_stop
+        if type(replace) is not bool:
+            raise ValueError("replace must be boolean")
+        if replace:
+            flags["replace"] = True
+        return flags
+
+    def read_launcher_slot(self, slot: int) -> dict:
+        """Read one launcher slot: stop button, clip data, playing/queued."""
+        return self.s.b.request("launcher.read", self._track_params(slot=self._slot_index(slot)))
+
+    def put_launcher_notes(self, slot: int, notes, duration: float, *,
+                           name: str = "", loop: bool = True,
+                           has_stop: bool | None = None, replace: bool = False) -> dict:
+        """Author a MIDI clip in a launcher slot; notes use replace_notes fields.
+
+        The clip spans ``duration`` beats and loops its full length unless
+        ``loop`` is false. Occupied slots need ``replace=True``. Slots are
+        created on demand within the project's scene bank. Returns the slot
+        snapshot including the clip and its launch settings.
+        """
+        if type(loop) is not bool:
+            raise ValueError("loop must be boolean")
+        if not isinstance(name, str):
+            raise ValueError("name must be a string")
+        duration = self._clip_number(duration, "duration")
+        if duration <= 0:
+            raise ValueError("duration must be positive")
+        params = self._track_params(slot=self._slot_index(slot), notes=self._note_payload(notes),
+                                    duration=duration, loop=loop, **self._launcher_flags(has_stop, replace))
+        if name:
+            params["name"] = name
+        return self.s.b.request("launcher.put_notes", params, timeout=125)
+
+    def import_launcher_audio(self, slot: int, file, *,
+                              duration: float | None = None, source_offset: float = 0,
+                              gain_db: float = 0, name: str | None = None,
+                              loop: bool = True, has_stop: bool | None = None,
+                              replace: bool = False) -> dict:
+        """Author an audio clip in a launcher slot from a local RAW file.
+
+        The clip spans the event and loops its full length unless ``loop``
+        is false. Occupied slots need ``replace=True``. Returns the slot
+        snapshot including the clip and its launch settings.
+        """
+        if type(loop) is not bool:
+            raise ValueError("loop must be boolean")
+        if name is not None and not isinstance(name, str):
+            raise ValueError("name must be a string")
+        params = self._audio_source_params(file, 0, duration, source_offset, gain_db)
+        params.update(self._track_params(slot=self._slot_index(slot), loop=loop,
+                                         **self._launcher_flags(has_stop, replace)))
+        if name is not None:
+            params["name"] = name
+        return self.s.b.request("launcher.import_audio", params, timeout=125)
+
+    def copy_arranger_to_launcher(self, slot: int, clip: int, *,
+                                  has_stop: bool | None = None, replace: bool = False) -> dict:
+        """Copy an arranger clip of this track into a launcher slot.
+
+        Native settings and content are preserved and made independent.
+        Occupied slots need ``replace=True``. Returns the slot snapshot.
+        """
+        return self.s.b.request("launcher.copy_arranger", self._track_params(
+            slot=self._slot_index(slot), clip=self._clip_index(clip),
+            **self._launcher_flags(has_stop, replace)), timeout=125)
+
+    def clear_launcher_slot(self, slot: int, *, has_stop: bool | None = None) -> dict:
+        """Remove a slot's clip (and optionally set its stop button).
+
+        Uses Bitwig's native nullable slot setter; the public API wrapper
+        rejects clearing. Returns the slot snapshot.
+        """
+        return self.s.b.request("launcher.clear", self._track_params(
+            slot=self._slot_index(slot), **self._launcher_flags(has_stop)), timeout=125)
+
+    def update_launcher_clip(self, slot: int, **changes) -> dict:
+        """Edit a launcher clip's container; same fields as update_clip.
+
+        Launcher clips have no arranger start; ``duration`` resizes the clip.
+        Content edits use the audio-event methods with ``slot=`` or
+        replace-notes staging. Returns the updated clip data.
+        """
+        self._slot_index(slot)
+        self._validate_clip_changes(changes, launcher=True)
+        return self.s.b.request("clip.update", self._track_params(slot=slot, changes=changes), timeout=125)
+
+    def delete_launcher_clip(self, slot: int) -> dict:
+        """Remove a launcher clip, keeping the slot and its stop button."""
+        return self.s.b.request("clip.delete", self._track_params(slot=self._slot_index(slot)), timeout=125)
+
+    def update_launch_settings(self, slot: int, **changes) -> dict:
+        """Edit a launcher clip's launch settings; returns the slot snapshot.
+
+        ``launch_quantization``: DEFAULT, OFF, BARS_8, BARS_4, BARS_2, BAR,
+        HALF, QUARTER, EIGHT, SIXTEENTH. ``launch_mode``: DEFAULT, FROM_START,
+        CONTINUE_OR_FROM_START, CONTINUE_OR_SYNCED, SYNCED. ``next_action``:
+        STOP, RETURN_TO_ARRANGEMENT, RETURN_TO_PREVIOUS_CLIP, PLAY_NEXT,
+        PLAY_PREVIOUS, PLAY_FIRST, PLAY_LAST, PLAY_RANDOM, PLAY_OTHER,
+        ROUND_ROBIN plus their ``_IN_BLOCK``/``_IN_PREVIOUS_BLOCK``/
+        ``_IN_NEXT_BLOCK``/``_IN_OTHER_BLOCK`` variants where offered.
+        ``next_action_time`` is nonnegative beats; the two booleans are
+        ``use_loop_start_as_quantization_reference`` and ``has_stop``.
+        """
+        self._slot_index(slot)
+        enums = {
+            "launch_quantization": {"DEFAULT", "OFF", "BARS_8", "BARS_4", "BARS_2", "BAR",
+                                    "HALF", "QUARTER", "EIGHT", "SIXTEENTH"},
+            "launch_mode": {"DEFAULT", "FROM_START", "CONTINUE_OR_FROM_START",
+                            "CONTINUE_OR_SYNCED", "SYNCED"},
+            "next_action": {"STOP", "RETURN_TO_ARRANGEMENT", "RETURN_TO_PREVIOUS_CLIP",
+                            "PLAY_NEXT", "PLAY_PREVIOUS", "PLAY_FIRST", "PLAY_LAST",
+                            "PLAY_RANDOM", "PLAY_OTHER", "ROUND_ROBIN",
+                            "PLAY_FIRST_IN_BLOCK", "PLAY_LAST_IN_BLOCK", "PLAY_RANDOM_IN_BLOCK",
+                            "PLAY_OTHER_IN_BLOCK", "ROUND_ROBIN_IN_BLOCK",
+                            "PLAY_FIRST_IN_PREVIOUS_BLOCK", "PLAY_RANDOM_IN_PREVIOUS_BLOCK",
+                            "PLAY_FIRST_IN_NEXT_BLOCK", "PLAY_RANDOM_IN_NEXT_BLOCK",
+                            "PLAY_FIRST_IN_OTHER_BLOCK", "PLAY_RANDOM_IN_OTHER_BLOCK"},
+        }
+        allowed = set(enums) | {"next_action_time", "use_loop_start_as_quantization_reference", "has_stop"}
+        if not changes or changes.keys() - allowed:
+            raise ValueError("provide supported launch settings")
+        for key, value in changes.items():
+            if key in enums:
+                if not isinstance(value, str) or value not in enums[key]:
+                    raise ValueError(f"unsupported {key}")
+            elif key == "next_action_time":
+                if self._clip_number(value, key) < 0:
+                    raise ValueError("next_action_time must be nonnegative")
+            elif type(value) is not bool:
+                raise ValueError(f"{key} must be boolean")
+        return self.s.b.request("launcher.settings", self._track_params(slot=slot, changes=changes), timeout=125)
+
+    def launch_slot(self, slot: int) -> dict:
+        """Trigger a launcher slot like Bitwig's own launch button.
+
+        Honors the clip's launch quantization; empty slots with a stop button
+        stop the track. Returns the slot snapshot after the request.
+        """
+        return self.s.b.request("launcher.launch", self._track_params(slot=self._slot_index(slot)))
+
+    def stop_launcher(self, *, immediate: bool = False) -> dict:
+        """Stop this track's launcher playback, all slots at once.
+
+        ``immediate`` ignores the track's stop quantization. Transport and
+        other tracks are untouched.
+        """
+        if type(immediate) is not bool:
+            raise ValueError("immediate must be boolean")
+        return self.s.b.request("launcher.stop", self._track_params(immediate=immediate))
+
+    def return_to_arranger(self) -> dict:
+        """End launcher playback; the track resumes its arranger clips."""
+        return self.s.b.request("launcher.return_to_arranger", self._track_params())
 
     @classmethod
     def _audio_source_params(cls, file, start, duration, source_offset, gain_db):

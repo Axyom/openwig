@@ -105,10 +105,16 @@ Do not equate native snapshot preservation with arbitrary field editing.
      state; read/write parameters and automation; manipulate nested chains.
    - Complete routing and modulation edits, documenting actual format coverage.
      Resident plugin caches may be unavailable; never invent values.
-4. **Launcher and scene editing — pending.**
-   - Create/replace/delete filled slots, launch/stop behavior, scene edits,
-     note/audio content, launch settings, save/reopen tests.
-   - Slot getters can CREATE missing slots; validate bounds before discovery.
+4. **Launcher and scene editing — done.**
+   - Scene name/comment/color edits landed earlier (`update_scene`).
+   - Launcher slots landed 2026-10-19: author MIDI/audio slots, arranger-to-slot
+     copy, container edits, shared audio-event edits via slot addressing,
+     clear/delete with stop-button control, launch settings, launch/stop/
+     return-to-arranger playback, occupied-slot/enum/range rejection, and
+     save/reopen persistence with audible relaunch. Gate:
+     `tests/live_java_launcher.py`; evidence `scratch/editing-launcher-gate-2/`.
+   - Slot creation stays bounded by the project scene bank (out-of-range
+     indexes are rejected); the reader already guards `clipSlot` growth.
 5. **Grid graph and modulation editing — pending research.**
    - Existing reader exposes stored atoms, not module/cable topology.
    - Inspect native serialization/model operations with CFR and a deliberately
@@ -129,7 +135,56 @@ Do not equate native snapshot preservation with arbitrary field editing.
 
 ## Current checkpoint: start here
 
-Latest increment: `update_audio_event` now authors warp modes, explicit beat-to-
+Latest increment (2026-10-19): launcher clip slots are live-verified end to
+end. `JavaTrack` now exposes `read_launcher_slot`, `put_launcher_notes`,
+`import_launcher_audio`, `copy_arranger_to_launcher`, `clear_launcher_slot`,
+`update_launcher_clip`, `delete_launcher_clip`, `update_launch_settings`,
+`launch_slot`, `stop_launcher`, and `return_to_arranger`; the audio-event
+methods accept `slot=` addressing for shared content edits on slot clips.
+Java side: `launcher.*` methods plus slot-aware `clip.*`/`audio_event.*` in
+`OpenwigDocument`, routed through `Bootstrap`. Clearing uses the native
+nullable slot setter (`yk.jPB(XEQ)`) because the public `ClipSlot.setClip(null)`
+wrapper throws. Launch is the same `fmH.jPB(boolean, boolean)` entry Bitwig's
+controller API uses; launch settings read/write through `OkK`
+(`sGy`/`yi1`/`CaN`/`ncg` and `IYM(RXG)`/`jPB(xSr)`/`IYM(bP)`/`p3P(double)`),
+verified against fresh exact-build CFR sources in `scratch/decomp/editing/`.
+
+**Headless audio-engine requirement:** a freshly launched hidden Bitwig can
+start with its audio engine disconnected; slots then silently refuse to launch
+(`zE1.IYM` no-ops unless the track is engine-ready) and transport cannot play.
+`document.audio_status`/`document.activate_audio` connect it. The gate
+activates before any launch; future playback tests should too.
+
+Final gate: `scratch/editing-launcher-gate-2/`. The 120 BPM gate authored a
+MIDI slot with full launch settings, an audio slot from a synthetic 440 Hz
+tone, and an arranger copy; verified occupied-slot rejection and atomicity,
+arranger-source independence, shared audio-event edit via slot addressing
+(-6 dB gain expression), container resize, clear/delete with stop-button
+control, out-of-range slot rejection, launch -> playing, stop, and
+return-to-arranger states, plus an audible 440 Hz render while the slot
+loops. Save/reopen: **zero reader differences** (`persistence.json`), all
+launch settings and slot content intact, and the reopened slot launched and
+rendered the tone again (`reopened-launch.wav`, 440.0 Hz). No owner material
+was used. `scratch/editing-launcher-gate/` holds the earlier ad-hoc evidence.
+
+195 unit tests (launcher wire contract plus rejection coverage added),
+exact-build Java build, JAR/protocol smoke, controller syntax and whitespace
+checks passed. CI status for this increment's commit to recheck after push.
+
+Still open from the warp increment: the immediate-DSP gap (below),
+plugins/nested routing (milestone 3), Grid (5) and documented JSON
+reconstruction (6). Scene-bank editing (add/remove/reorder scenes) was not
+part of this increment; only scene metadata edits exist.
+
+Current scratch project: `scratch/editing-launcher-gate-2/saved/project.bwproject`,
+stopped, with the disposable host copy in `.../work/`. No live sessions remain
+running and the live-root jar is restored to the original; one dead 24 K
+`BitwigStudioApp.exe` zombie (PID 20784) ignores kills but holds no ports or
+files. Re-identify processes before any process work.
+
+### Previous warp increment
+
+`update_audio_event` authors warp modes, explicit beat-to-
 source-second markers, warped content offsets, transpose/formant/pan constants,
 formant preservation, onset preview, transient mode/rate, grain size and tail
 mode. All ten mode names were read back live. Markers and settings are staged
@@ -159,10 +214,8 @@ playback again 660/1316 Hz. See persistence.json and reopened-pitch.json/WAV.
 No owner material was used.
 
 179 unit tests, exact-build Java build/JAR protocol smoke, controller syntax and
-whitespace checks passed. Previous `4711a5e`/`a3ed1b0` CI are green.
-This increment is committed/pushed as **`6a3c2b3`** on `codex/java-bridge-615`.
-Its run was not visible in the first post-push listing; recheck Actions for this
-SHA. The implementation working tree is clean.
+whitespace checks passed. Committed/pushed as **`6a3c2b3`** on
+`codex/java-bridge-615`; its CI run plus `4711a5e`/`a3ed1b0` were green.
 
 **Investigation evidence for the next agent:** failed immediate-playback WAVs
 and JSON reports remain in `scratch/editing-warp-public-gate{,-2,-3,-4}/`.
@@ -178,12 +231,11 @@ ApiModificationProcessor, KoO/pUn/Tc, BBa/BOt, MjL and yMP under
 source state; `KoO.fv_` calls `MjL.UqY/IxG`. Actual native audio graph/processing
 invalidation still needs investigation.
 
-Current scratch project: `scratch/editing-warp-final-gate/saved/project.bwproject`,
-stopped. Last observed scratch launcher PID 4960; re-identify before process work.
-No live sessions remain running. Next: close the immediate DSP gap or make
-independent progress on plugins/nested routing and launcher, while retaining
-this gap in the completion audit. Grid and documented JSON reconstruction are
-still pending. The overall goal remains active and incomplete.
+The warp gate's evidence and saved fixture remain in
+`scratch/editing-warp-final-gate/`, preserved. Next: close the immediate DSP
+gap or continue with plugins/nested routing, Grid and JSON reconstruction,
+retaining the gap in the completion audit. The overall goal remains active
+and incomplete.
 
 ### Previous RAW audio-event increment
 

@@ -1982,7 +1982,7 @@ public final class OpenwigDocument {
 
     private static JSONObject readClip(Clip clip) {
         Color color = clip.getColor();
-        JSONObject out = new JSONObject()
+        JSONObject out = new JSONObject().put("launch_settings", launchSettings(clip))
                 .put("name", clip.getTitle())
                 .put("start", clip.getTime())
                 .put("duration", clip.getDuration())
@@ -2306,6 +2306,7 @@ public final class OpenwigDocument {
             case "document.select" -> selectDocument(p.optString("path", ""));
             case "project.save_copy" -> saveNativeProjectCopy(p.optString("path", ""));
             case "project.duplicate_range" -> editRange(p, "duplicate");
+            case "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger", "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear", "launcher.read" -> editLauncher(method, p);
             case "audio_event.import", "audio_event.update", "audio_event.delete", "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio" -> editClip(method, p);
             case "project.insert_time" -> editRange(p, "insert");
             case "project.delete_range" -> editRange(p, "delete");
@@ -2650,10 +2651,18 @@ public final class OpenwigDocument {
                     if (((ApiObject) members.get(j)).getTarget() == ((ApiObject) clip).getTarget()) index = j;
                 return new JSONObject().put("clip", index).put("data", readClip(clip));
             }
-            int index = params.getInt("clip");
+            boolean launcher = params.has("slot");
+            int index = params.getInt(launcher ? "slot" : "clip");
             java.util.List<?> members = timeline.getEvents();
-            if (index < 0 || index >= members.size()) throw new IllegalArgumentException("clip index out of range");
-            Clip clip = (Clip) members.get(index);
+            Clip clip;
+            if (launcher) {
+                com.bitwig.extension.api.project.timeline.ClipSlot slot = launcherSlot(project, track, index, false);
+                clip = slot == null ? null : slot.getClip();
+                if (clip == null) throw new IllegalArgumentException("launcher slot is empty");
+            } else {
+                if (index < 0 || index >= members.size()) throw new IllegalArgumentException("clip index out of range");
+                clip = (Clip) members.get(index);
+            }
             if (method.startsWith("audio_event.")) return editAudioEvent(project, clip, params, method);
             if (method.equals("clip.replace_notes")) {
                 if (!(clip instanceof NoteClip)) throw new IllegalArgumentException("MIDI replacement requires a note clip");
@@ -2718,6 +2727,7 @@ public final class OpenwigDocument {
                 }
             }
             if (method.equals("clip.split")) {
+                if (launcher) throw new IllegalArgumentException("split requires an arranger clip");
                 double beat = finiteField(params, "beat", Double.NaN);
                 if (beat <= clip.getTime() + 1e-6 || beat >= clip.getTime() + clip.getDuration() - 1e-6)
                     throw new IllegalArgumentException("split must be strictly inside the clip");
@@ -2743,6 +2753,11 @@ public final class OpenwigDocument {
                 }
             }
             if (method.equals("clip.delete")) {
+                if (launcher) {
+                    DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(),
+                            () -> invokeModelSetter(((ApiObject) launcherSlot(project, track, index, false)).getTarget(), "jPB", classForName("XEQ"), null));
+                    return launcherSnapshot(launcherSlot(project, track, index, false), index);
+                }
                 DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(),
                         () -> timeline.clearTime(clip.getTime(), clip.getTime() + clip.getDuration()));
                 return new JSONObject().put("deleted", index).put("count", timeline.getEvents().size());
@@ -2771,8 +2786,9 @@ public final class OpenwigDocument {
             if (fadeIn < 0 || fadeOut < 0 || fadeIn > duration || fadeOut > duration)
                 throw new IllegalArgumentException("fades must fit within the clip duration");
             Color color = changes.has("color") ? parseColor(changes) : null;
-            noClipOverlap(timeline, clip, start, duration);
-            boolean reposition = start != clip.getTime() || duration != clip.getDuration();
+            if (launcher && changes.has("start")) throw new IllegalArgumentException("launcher clips have no arranger start");
+            if (!launcher) noClipOverlap(timeline, clip, start, duration);
+            boolean reposition = !launcher && (start != clip.getTime() || duration != clip.getDuration());
             DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
                 if (reposition) {
                     try {
@@ -2792,6 +2808,7 @@ public final class OpenwigDocument {
                 if (changes.has("loop_start")) clip.setLoopStart(loopStart);
                 if (changes.has("loop_duration")) clip.setLoopDuration(loopDuration);
                 if (changes.has("play_start_offset")) clip.setPlayStartOffset(offset);
+                if (launcher && changes.has("duration")) clip.setDuration(duration);
                 if (changes.has("fade_in")) ((AudioClip) clip).setFadeInTime(fadeIn);
                 if (changes.has("fade_out")) ((AudioClip) clip).setFadeOutTime(fadeOut);
                 if (reposition) timeline.addEvent(clip);
@@ -2956,6 +2973,143 @@ public final class OpenwigDocument {
             } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native audio event edit failed", failure); }
         });
         return result[0];
+    }
+
+    private static com.bitwig.extension.api.project.timeline.ClipSlot launcherSlot(ApiProject project, Track track, int index, boolean create) {
+        int scenes = ((Number) modelGet(modelGet(project.getTarget(), "Qjx"), "ce_")).intValue();
+        if (index < 0 || index >= scenes) throw new IllegalArgumentException("slot index outside project scene bank");
+        int slots = ((Number) modelGet(((ApiObject) track).getTarget(), "ce_")).intValue();
+        if (!create && index >= slots) return null;
+        return track.clipSlot(index);
+    }
+
+    private static JSONObject launcherSnapshot(com.bitwig.extension.api.project.timeline.ClipSlot slot, int index) {
+        Clip clip = slot == null ? null : slot.getClip();
+        return new JSONObject().put("slot", index).put("has_stop", slot != null && slot.hasStopButton())
+                .put("clip", clip == null ? JSONObject.NULL : readClip(clip))
+                .put("playing", clip != null && (Boolean) modelGet(((ApiObject) clip).getTarget(), "TEI"))
+                .put("queued", clip != null && (Boolean) modelGet(((ApiObject) clip).getTarget(), "Vgk"));
+    }
+
+    private static Object namedNativeEnum(String type, String name) {
+        try { return classForName(type).getMethod("valueOf", String.class).invoke(null, name); }
+        catch (ReflectiveOperationException failure) { throw new IllegalArgumentException("unsupported " + type + " value: " + name, failure); }
+    }
+
+    private static JSONObject launchSettings(Clip clip) {
+        Object raw = ((ApiObject) clip).getTarget();
+        return new JSONObject().put("launch_quantization", ((Enum<?>) modelGet(raw, "sGy")).name())
+                .put("launch_mode", ((Enum<?>) modelGet(raw, "yi1")).name())
+                .put("next_action", ((Enum<?>) modelGet(raw, "CaN")).name())
+                .put("next_action_time", modelGet(raw, "ncg"))
+                .put("use_loop_start_as_quantization_reference", clip.useLoopStartAsQuantizationReference());
+    }
+
+    private static JSONObject editLauncher(String method, JSONObject params) {
+        ApiProject project = project();
+        try {
+            Track track = resolveTrack(project, params);
+            if (method.equals("launcher.stop") || method.equals("launcher.return_to_arranger")) {
+                Object raw = ((ApiObject) track).getTarget();
+                try {
+                    if (method.equals("launcher.stop")) {
+                        if (params.has("immediate") && !(params.get("immediate") instanceof Boolean)) throw new IllegalArgumentException("immediate must be boolean");
+                        Object quantization = namedNativeEnum("RXG", params.optBoolean("immediate", false) ? "OFF" : "DEFAULT");
+                        raw.getClass().getMethod("IYM", classForName("RXG"), boolean.class, int.class).invoke(raw, quantization, false, -1);
+                    } else modelGet(raw, "Sxv");
+                } catch (ReflectiveOperationException failure) { throw new IllegalStateException("launcher playback command failed", failure); }
+                return new JSONObject().put("requested", method);
+            }
+            int index = params.getInt("slot");
+            com.bitwig.extension.api.project.timeline.ClipSlot existing = launcherSlot(project, track, index, false);
+            if (method.equals("launcher.read")) return launcherSnapshot(existing, index);
+            if (method.equals("launcher.launch")) {
+                if (existing == null) throw new IllegalArgumentException("launcher slot does not exist");
+                try { ((ApiObject) existing).getTarget().getClass().getMethod("jPB", boolean.class, boolean.class)
+                        .invoke(((ApiObject) existing).getTarget(), true, false); }
+                catch (ReflectiveOperationException failure) { throw new IllegalStateException("native launcher trigger failed", failure); }
+                return launcherSnapshot(existing, index);
+            }
+            if (method.equals("launcher.settings")) {
+                if (existing == null || existing.getClip() == null) throw new IllegalArgumentException("launcher slot is empty");
+                JSONObject changes = params.getJSONObject("changes");
+                java.util.Set<String> allowed = java.util.Set.of("launch_quantization", "launch_mode", "next_action", "next_action_time",
+                        "use_loop_start_as_quantization_reference", "has_stop");
+                for (String key : changes.keySet()) if (!allowed.contains(key)) throw new IllegalArgumentException("unknown launch setting: " + key);
+                for (String key : new String[]{"has_stop", "use_loop_start_as_quantization_reference"})
+                    if (changes.has(key) && !(changes.get(key) instanceof Boolean)) throw new IllegalArgumentException(key + " must be boolean");
+                Object quantization = changes.has("launch_quantization") ? namedNativeEnum("RXG", changes.getString("launch_quantization")) : null;
+                Object mode = changes.has("launch_mode") ? namedNativeEnum("xSr", changes.getString("launch_mode")) : null;
+                Object action = changes.has("next_action") ? namedNativeEnum("bP", changes.getString("next_action")) : null;
+                double time = finiteField(changes, "next_action_time", 0);
+                if (time < 0) throw new IllegalArgumentException("next action time must be nonnegative");
+                Clip clip = existing.getClip();
+                Object raw = ((ApiObject) clip).getTarget();
+                DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                    if (quantization != null) invokeModelSetter(raw, "IYM", classForName("RXG"), quantization);
+                    if (mode != null) invokeModelSetter(raw, "jPB", classForName("xSr"), mode);
+                    if (action != null) invokeModelSetter(raw, "IYM", classForName("bP"), action);
+                    if (changes.has("next_action_time")) invokeModelSetter(raw, "p3P", double.class, time);
+                    if (changes.has("use_loop_start_as_quantization_reference")) clip.setUseLoopStartAsQuantizationReference(changes.getBoolean("use_loop_start_as_quantization_reference"));
+                    if (changes.has("has_stop")) existing.setHasStopButton(changes.getBoolean("has_stop"));
+                });
+                return launcherSnapshot(existing, index);
+            }
+            if (params.has("has_stop") && !(params.get("has_stop") instanceof Boolean)) throw new IllegalArgumentException("has_stop must be boolean");
+            if (method.equals("launcher.clear")) {
+                if (existing != null || params.has("has_stop")) DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                    com.bitwig.extension.api.project.timeline.ClipSlot slot = existing == null ? launcherSlot(project, track, index, true) : existing;
+                    invokeModelSetter(((ApiObject) slot).getTarget(), "jPB", classForName("XEQ"), null);
+                    if (params.has("has_stop")) slot.setHasStopButton(params.getBoolean("has_stop"));
+                });
+                return launcherSnapshot(launcherSlot(project, track, index, false), index);
+            }
+            if (params.has("replace") && !(params.get("replace") instanceof Boolean)) throw new IllegalArgumentException("replace must be boolean");
+            if (existing != null && existing.getClip() != null && !params.optBoolean("replace", false))
+                throw new IllegalArgumentException("launcher slot is occupied; explicit replace required");
+            Clip staged;
+            if (method.equals("launcher.copy_arranger")) {
+                int clipIndex = params.getInt("clip");
+                java.util.List<?> clips = track.clipTimeline().getEvents();
+                if (clipIndex < 0 || clipIndex >= clips.size()) throw new IllegalArgumentException("clip index out of range");
+                Clip source = (Clip) clips.get(clipIndex);
+                Object raw = modelGet(((ApiObject) source).getTarget(), "VxG");
+                try {
+                    classForName("com.bitwig.ramona.core.nvG").getMethod("IYM", classForName("com.bitwig.ramona.core.kX1")).invoke(null, raw);
+                    staged = (Clip) classForName(source instanceof AudioClip ? "com.bitwig.flt.document.api.document.ApiAudioNoteClipEvent"
+                            : "com.bitwig.flt.document.api.document.ApiInstrumentNoteClipEvent")
+                            .getConstructor(classForName(source instanceof AudioClip ? "ukL" : "ME2")).newInstance(raw);
+                } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native launcher copy failed", failure); }
+                staged.setTime(0);
+            } else if (method.equals("launcher.put_notes")) {
+                double duration = finiteField(params, "duration", -1);
+                if (duration <= 0) throw new IllegalArgumentException("positive clip duration required");
+                if (params.has("loop") && !(params.get("loop") instanceof Boolean)) throw new IllegalArgumentException("loop must be boolean");
+                NoteClip clip = project.getFactory().createNoteClip(true);
+                clip.setTime(0); clip.setDuration(duration); clip.setLoopDuration(duration);
+                clip.setIsLoopEnabled(params.optBoolean("loop", true));
+                clip.setTitle(params.optString("name", ""));
+                JSONArray notes = params.getJSONArray("notes");
+                for (int i = 0; i < notes.length(); i++) clip.getContent().getEventTimeline().addEvent(stageInstrumentNote(project.getFactory(), notes.getJSONObject(i)));
+                staged = clip;
+            } else if (method.equals("launcher.import_audio")) {
+                com.bitwig.extension.api.project.timeline.AudioNote event = stageAudioEvent(project, params, 0);
+                if (params.has("loop") && !(params.get("loop") instanceof Boolean)) throw new IllegalArgumentException("loop must be boolean");
+                AudioClip clip = project.getFactory().createAudioClip(true);
+                clip.setTime(0); clip.setDuration(event.getDuration()); clip.setLoopDuration(event.getDuration());
+                clip.setIsLoopEnabled(params.optBoolean("loop", true));
+                clip.setTitle(params.optString("name", new java.io.File(params.getString("file")).getName()));
+                clip.getContent().getEventTimeline().addEvent(event);
+                staged = clip;
+            } else throw new IllegalArgumentException("unsupported launcher operation");
+            DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                com.bitwig.extension.api.project.timeline.ClipSlot slot = launcherSlot(project, track, index, true);
+                slot.setClip(staged);
+                modelGet(((ApiObject) staged).getTarget(), "knw");
+                if (params.has("has_stop")) slot.setHasStopButton(params.getBoolean("has_stop"));
+            });
+            return launcherSnapshot(launcherSlot(project, track, index, false), index);
+        } finally { project.dispose(); }
     }
 
     private static JSONObject audioEventLocation(EventTimeline timeline, Object raw) {

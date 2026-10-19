@@ -581,3 +581,49 @@ REPITCH rate-dependent pitch, and a seven-semitone shift after reopen. The saved
 fixture preserves nondefault processing settings with zero reader differences.
 All ten mode names were read back; this is not a separate audible certification
 of every algorithm and every settings combination.
+
+## Launcher clip slots (2026-10-19)
+
+Live-verified launcher surface on a disposable synthetic project:
+
+- `track.read_launcher_slot(slot)` returns the stop button, full clip data
+  (including launch settings), and runtime `playing`/`queued` state.
+- `track.put_launcher_notes(slot, notes, duration, name, loop, has_stop,
+  replace)` authors a MIDI clip; note dictionaries match `replace_notes`.
+  `track.import_launcher_audio(slot, file, ...)` authors a RAW audio clip.
+  `track.copy_arranger_to_launcher(slot, clip, ...)` copies an arranger clip
+  of the same track into a slot, preserving native settings and making
+  content independent. Occupied slots require `replace=True`; rejected
+  writes leave the slot untouched.
+- `track.update_launch_settings(slot, ...)` writes `launch_quantization`
+  (DEFAULT/OFF/BARS_8..SIXTEENTH), `launch_mode` (DEFAULT/FROM_START/
+  CONTINUE_OR_FROM_START/CONTINUE_OR_SYNCED/SYNCED), `next_action` (STOP,
+  RETURN_TO_ARRANGEMENT, PLAY_* and block variants), `next_action_time`,
+  `use_loop_start_as_quantization_reference`, and the slot's `has_stop`.
+  Settings are readable through every clip reader (`launch_settings`).
+- `track.update_launcher_clip(slot, **changes)` and
+  `delete_launcher_clip(slot)` address slot clips through the arranger clip
+  operations; launcher clips have no arranger `start`. The audio-event
+  methods accept `slot=` instead of a clip index for shared content edits.
+- `track.launch_slot(slot)` triggers a launch, `stop_launcher(immediate=)`
+  stops the track's launcher playback, and `return_to_arranger()` ends it.
+  Clearing uses Bitwig's native nullable slot setter because the public API
+  wrapper's `setClip(null)` throws.
+
+Playback needs the audio engine connected: headless launches can start with
+it disconnected, in which case slots refuse to launch and transport cannot
+play (tracks stay engine-inactive). `document.audio_status` /
+`document.activate_audio` connect it; the gate activates before launching.
+
+Manual gate: `tests/live_java_launcher.py --disposable --project <open
+fixture> --output <fresh directory> [--render]`, then reopen the saved file
+and rerun with `--verify --render`. The 120 BPM gate authored a MIDI slot
+with launch settings, an audio slot from a synthetic 440 Hz tone, and an
+arranger copy; it verified occupied-slot rejection, atomicity, content
+independence, shared audio-event edits through slot addressing, container
+resize, clear/delete with stop-button control, out-of-range slot rejection,
+launch/stop/return playback states, and an audible 440 Hz render while the
+slot loops. Save/reopen produced zero reader differences and the reopened
+slot launched and rendered the tone again. Evidence:
+`scratch/editing-launcher-gate-2/` (`before.json`, `persistence.json`,
+`launch.wav`, `reopened-launch.wav`).

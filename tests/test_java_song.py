@@ -60,6 +60,9 @@ class FakeJavaBridge:
             return []
         if method in {"clip.update", "clip.delete", "clip.import_audio", "clip.copy", "clip.split", "clip.replace_notes", "audio_event.import", "audio_event.update", "audio_event.delete"}:
             return params
+        if method in {"launcher.read", "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger",
+                      "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear"}:
+            return params
         raise AssertionError(f"unexpected request: {method}")
 
 
@@ -410,3 +413,90 @@ def test_empty_time_insertion_and_delete_range(bridge):
         with pytest.raises(ValueError):
             song.delete_range(start, end)
     assert len(bridge.calls) == 2
+
+
+def test_launcher_wire_contract(bridge, tmp_path):
+    track = JavaSong(bridge=bridge).track_at("Launcher/MIDI")
+    notes = [dict(key=60, duration=2)]
+    source = tmp_path / "tone.wav"
+    source.write_bytes(b"fixture")
+    bridge.calls.clear()
+    track.read_launcher_slot(3)
+    track.put_launcher_notes(2, notes, 4, name="Loop", has_stop=False)
+    track.put_launcher_notes(2, notes, 4, replace=True)
+    track.import_launcher_audio(1, source, gain_db=-3)
+    track.copy_arranger_to_launcher(0, clip=1)
+    track.clear_launcher_slot(2, has_stop=False)
+    track.update_launcher_clip(2, duration=8, muted=True)
+    track.delete_launcher_clip(2)
+    track.update_launch_settings(2, launch_quantization="BAR", next_action="PLAY_NEXT")
+    track.launch_slot(2)
+    track.stop_launcher(immediate=True)
+    track.return_to_arranger()
+    track.import_audio_event(None, source, slot=1)
+    track.update_audio_event(None, 0, slot=1, muted=True)
+    track.delete_audio_event(None, 0, slot=1)
+    assert bridge.calls == [
+        ("launcher.read", {"path": "Launcher/MIDI", "slot": 3}),
+        ("launcher.put_notes", {"path": "Launcher/MIDI", "slot": 2, "notes": notes,
+                                "duration": 4.0, "loop": True, "has_stop": False, "name": "Loop"}),
+        ("launcher.put_notes", {"path": "Launcher/MIDI", "slot": 2, "notes": notes,
+                                "duration": 4.0, "loop": True, "replace": True}),
+        ("launcher.import_audio", {"path": "Launcher/MIDI", "slot": 1, "file": str(source.resolve()),
+                                   "start": 0, "source_offset": 0, "gain_db": -3, "loop": True}),
+        ("launcher.copy_arranger", {"path": "Launcher/MIDI", "slot": 0, "clip": 1}),
+        ("launcher.clear", {"path": "Launcher/MIDI", "slot": 2, "has_stop": False}),
+        ("clip.update", {"path": "Launcher/MIDI", "slot": 2, "changes": {"duration": 8, "muted": True}}),
+        ("clip.delete", {"path": "Launcher/MIDI", "slot": 2}),
+        ("launcher.settings", {"path": "Launcher/MIDI", "slot": 2,
+                               "changes": {"launch_quantization": "BAR", "next_action": "PLAY_NEXT"}}),
+        ("launcher.launch", {"path": "Launcher/MIDI", "slot": 2}),
+        ("launcher.stop", {"path": "Launcher/MIDI", "immediate": True}),
+        ("launcher.return_to_arranger", {"path": "Launcher/MIDI"}),
+        ("audio_event.import", {"path": "Launcher/MIDI", "slot": 1, "file": str(source.resolve()),
+                                "start": 0, "source_offset": 0, "gain_db": 0}),
+        ("audio_event.update", {"path": "Launcher/MIDI", "slot": 1, "event": 0, "changes": {"muted": True}}),
+        ("audio_event.delete", {"path": "Launcher/MIDI", "slot": 1, "event": 0}),
+    ]
+
+
+@pytest.mark.parametrize("call", [
+    lambda t: t.read_launcher_slot(-1),
+    lambda t: t.put_launcher_notes(0, [{"key": 60, "duration": 1}], 0),
+    lambda t: t.put_launcher_notes(0, [{"key": 60}], 4),
+    lambda t: t.put_launcher_notes(0, [{"key": 60, "duration": 1}], 4, loop="yes"),
+    lambda t: t.put_launcher_notes(0, [{"key": 60, "duration": 1}], 4, replace="yes"),
+    lambda t: t.import_launcher_audio(0, "missing.wav"),
+    lambda t: t.copy_arranger_to_launcher(0, -2),
+    lambda t: t.clear_launcher_slot(0, has_stop=1),
+    lambda t: t.update_launcher_clip(0, start=4),
+    lambda t: t.update_launch_settings(0, launch_quantization="NOPE"),
+    lambda t: t.update_launch_settings(0, launch_mode="NOPE"),
+    lambda t: t.update_launch_settings(0, next_action="NOPE"),
+    lambda t: t.update_launch_settings(0, next_action_time=-1),
+    lambda t: t.update_launch_settings(0, has_stop="yes"),
+    lambda t: t.update_launch_settings(0, unknown=1),
+    lambda t: t.launch_slot(True),
+    lambda t: t.stop_launcher(immediate=1),
+])
+def test_invalid_launcher_calls_rejected_without_rpc(bridge, call):
+    track = JavaSong(bridge=bridge).track_at("Launcher/MIDI")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        call(track)
+    assert bridge.calls == []
+
+
+@pytest.mark.parametrize("clip,slot", [(0, 0), (None, None)])
+def test_audio_events_reject_ambiguous_addressing(bridge, clip, slot, tmp_path):
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    source = tmp_path / "tone.wav"
+    source.write_bytes(b"fixture")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        track.import_audio_event(clip, source, slot=slot)
+    with pytest.raises(ValueError):
+        track.update_audio_event(clip, 0, slot=slot, muted=True)
+    with pytest.raises(ValueError):
+        track.delete_audio_event(clip, 0, slot=slot)
+    assert bridge.calls == []

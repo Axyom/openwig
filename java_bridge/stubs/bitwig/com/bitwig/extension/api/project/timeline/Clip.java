@@ -18,4 +18,6 @@ public interface Clip extends EnduringEvent, Titled {
     double getLoopStart();
     double getLoopDuration();
     double getPlayStartOffset();
+    void setUseLoopStartAsQuantizationReference(boolean enabled);
+    boolean useLoopStartAsQuantizationReference();
 }
