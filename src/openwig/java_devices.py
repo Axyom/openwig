@@ -180,6 +180,48 @@ class JavaDeviceMethods:
         """Address an existing nested chain by its reader component_path."""
         return JavaDeviceChain(self, device, component)
 
+    def read_grid(self, device: int = 0) -> dict:
+        """Read module UUIDs, component addresses, positions, ports and cables."""
+        return self.s.b.request("device.grid_read", self._track_params(
+            device=self._clip_index(device)), timeout=125)
+
+    @staticmethod
+    def _grid_position(x, y):
+        if any(type(v) is not int or abs(v) > 1000000 for v in (x, y)):
+            raise ValueError("Grid coordinates must be integers within +/-1000000")
+
+    def add_grid_module(self, device: int, module_id: str, x: int, y: int) -> dict:
+        """Insert a factory module by UUID; rejects occupied grid cells."""
+        from uuid import UUID
+        try:
+            module_id = str(UUID(module_id))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError("Grid module UUID required") from error
+        self._grid_position(x, y)
+        return self.s.b.request("device.grid_add", self._track_params(
+            device=self._clip_index(device), module_id=module_id, x=x, y=y), timeout=125)
+
+    def move_grid_module(self, device: int, component: str, x: int, y: int) -> dict:
+        """Move one module to unoccupied grid cells."""
+        JavaDeviceChain._component(component)
+        self._grid_position(x, y)
+        return self.s.b.request("device.grid_move", self._track_params(
+            device=self._clip_index(device), component=component, x=x, y=y))
+
+    def delete_grid_module(self, device: int, component: str) -> dict:
+        """Delete one module with native cable cleanup; refresh positional addresses."""
+        JavaDeviceChain._component(component)
+        return self.s.b.request("device.grid_delete", self._track_params(
+            device=self._clip_index(device), component=component))
+
+    def connect_grid(self, device: int, input: str, output: str | None) -> dict:
+        """Connect a module output to an input; None disconnects that input."""
+        JavaDeviceChain._component(input)
+        if output is not None:
+            JavaDeviceChain._component(output)
+        return self.s.b.request("device.grid_connect", self._track_params(
+            device=self._clip_index(device), input=input, output=output))
+
     def chain_banks(self, device: int) -> list[dict]:
         """Discover parallel chain containers and their layer-creation support."""
         return self.s.b.request("device.chain_banks", self._track_params(

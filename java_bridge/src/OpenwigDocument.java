@@ -613,6 +613,12 @@ public final class OpenwigDocument {
                 }
             }
             result.put("parameters", available).put("values", values);
+            Object contents = modelGet(target, "bhG");
+            Object modules = modelGetOrNull(contents, "hMI");
+            if (modules instanceof java.util.List<?> children)
+                for (Object child : children)
+                    if (automationInstance("com.bitwig.flt.document.core.master.device.ruo", child))
+                        result.put("grid", readGrid(nativeDevice));
         } else if (device instanceof PluginDevice) {
             Class<?> clap = classForName("com.bitwig.flt.document.core.master.device.cq");
             if (clap != null && clap.isInstance(target)) result.put("kind", "clap");
@@ -1093,6 +1099,109 @@ public final class OpenwigDocument {
         });
     }
 
+    private static JSONObject readGrid(NativeDevice device) {
+        Object owner = ((ApiObject) device).getTarget();
+        Object grid = deviceComponent(owner, "CONTENTS/MODULES", classForName("com.bitwig.flt.document.core.master.device.ruo"));
+        JSONArray modules = new JSONArray();
+        for (Object module : (java.util.List<?>) modelGet(grid, "Klm")) {
+            Object definition = modelGet(module, "dsw");
+            JSONArray inputs = new JSONArray(), outputs = new JSONArray();
+            try (java.util.stream.Stream<?> atoms = (java.util.stream.Stream<?>) modelGet(module, "wGq")) {
+                for (Object atom : atoms.toList()) {
+                    boolean input = automationInstance("com.bitwig.flt.document.core.master.device.BIC", atom);
+                    boolean output = automationInstance("com.bitwig.flt.document.core.master.device.oil", atom);
+                    if (!input && !output) continue;
+                    JSONObject port = new JSONObject().put("component", automationIdentifier(owner, atom));
+                    if (input) {
+                        Object source = modelGet(atom, "xFs");
+                        port.put("source", source == null ? JSONObject.NULL : automationIdentifier(owner, source));
+                    }
+                    (input ? inputs : outputs).put(port);
+                }
+            }
+            modules.put(new JSONObject().put("component", automationIdentifier(owner, module))
+                    .put("module_id", modelGet(definition, "KF3").toString())
+                    .put("name", modelGet(module, "HT3"))
+                    .put("x", modelGet(module, "AOA")).put("y", modelGet(module, "KF3"))
+                    .put("width", modelGet(module, "ap")).put("height", modelGet(module, "XK"))
+                    .put("inputs", inputs).put("outputs", outputs));
+        }
+        return new JSONObject().put("modules", modules);
+    }
+
+    private static int gridCoordinate(JSONObject params, String key) {
+        Object value = params.get(key);
+        if (!(value instanceof Integer n) || Math.abs((long) n) > 1000000)
+            throw new IllegalArgumentException(key + " must be an integer within +/-1000000");
+        return (Integer) value;
+    }
+
+    private static void gridPosition(Object grid, Object module, int x, int y) {
+        int width = ((Number) modelGet(module, "ap")).intValue(), height = ((Number) modelGet(module, "XK")).intValue();
+        for (Object other : (java.util.List<?>) modelGet(grid, "Klm")) {
+            if (other == module) continue;
+            int ox = ((Number) modelGet(other, "AOA")).intValue(), oy = ((Number) modelGet(other, "KF3")).intValue();
+            int ow = ((Number) modelGet(other, "ap")).intValue(), oh = ((Number) modelGet(other, "XK")).intValue();
+            if (x < ox + ow && x + width > ox && y < oy + oh && y + height > oy)
+                throw new IllegalArgumentException("module position overlaps another module");
+        }
+    }
+
+    private static JSONObject executeGrid(String method, Track track, JSONObject params) {
+        NativeDevice device = nativeDeviceOnTrack(track, params.getInt("device"));
+        Object owner = ((ApiObject) device).getTarget();
+        Class<?> gridClass = classForName("com.bitwig.flt.document.core.master.device.ruo");
+        Class<?> moduleClass = classForName("com.bitwig.flt.document.core.master.device.zpF");
+        Object grid = deviceComponent(owner, "CONTENTS/MODULES", gridClass);
+        try {
+            if (method.equals("device.grid_add")) {
+                if (((java.util.List<?>) modelGet(grid, "Klm")).size() >= 4096) throw new IllegalArgumentException("Grid module limit exceeded");
+                java.util.UUID id = java.util.UUID.fromString(params.getString("module_id"));
+                int x = gridCoordinate(params, "x"), y = gridCoordinate(params, "y");
+                Object module = moduleClass.getMethod("tDS", java.util.UUID.class).invoke(null, id);
+                gridPosition(grid, module, x, y);
+                java.util.List<?> before = new java.util.ArrayList<>((java.util.List<?>) modelGet(grid, "Klm"));
+                // Match the GUI's cloned-content insertion and its own undo operation.
+                gridClass.getMethod("jPB", java.util.Collection.class, int.class, int.class, boolean.class,
+                        classForName("com.bitwig.base.async.F3z"))
+                        .invoke(grid, java.util.List.of(module), x, y, true, null);
+                Object inserted = ((java.util.List<?>) modelGet(grid, "Klm")).stream().filter(candidate -> !before.contains(candidate)).findFirst()
+                        .orElseThrow(() -> new IllegalStateException("Grid module insertion did not add a module"));
+                return new JSONObject().put("component", automationIdentifier(owner, inserted)).put("grid", readGrid(device));
+            }
+            if (method.equals("device.grid_connect")) {
+                if (!params.has("output")) throw new IllegalArgumentException("output required (null disconnects)");
+                String inputPath = params.getString("input");
+                if (!inputPath.startsWith("CONTENTS/MODULES/")) throw new IllegalArgumentException("Grid input required");
+                Object input = deviceComponent(owner, inputPath, classForName("com.bitwig.flt.document.core.master.device.BIC"));
+                Object output = null;
+                if (!params.isNull("output")) {
+                    String outputPath = params.getString("output");
+                    if (!outputPath.startsWith("CONTENTS/MODULES/")) throw new IllegalArgumentException("Grid output required");
+                    output = deviceComponent(owner, outputPath, classForName("com.bitwig.flt.document.core.master.device.oil"));
+                }
+                // BIC's public edit entry handles cable graph notifications and undo.
+                invokeModelSetter(input, "IYM", classForName("Mdm"), output);
+                return readGrid(device);
+            }
+            String component = params.getString("component");
+            Object module = deviceComponent(owner, component, moduleClass);
+            if (!((java.util.List<?>) modelGet(grid, "Klm")).contains(module)) throw new IllegalArgumentException("module outside selected grid");
+            if (method.equals("device.grid_move")) {
+                int x = gridCoordinate(params, "x"), y = gridCoordinate(params, "y");
+                gridPosition(grid, module, x, y);
+                DirectAccess.runInUndo(track.clipTimeline(), () -> {
+                    invokeModelSetter(module, "Gcr", int.class, x);
+                    invokeModelSetter(module, "a1y", int.class, y);
+                });
+            } else if (method.equals("device.grid_delete")) {
+                // Native deletion cleans up attached cables and owns its undo transaction.
+                invokeModelSetter(grid, "IYM", java.util.List.class, java.util.List.of(module));
+            } else throw new IllegalArgumentException("unsupported Grid operation");
+            return readGrid(device);
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native Grid operation failed", failure); }
+    }
+
     private static JSONArray chainBanks(Object owner) {
         JSONArray banks = new JSONArray();
         collectChainBanks(owner, modelGetOrNull(owner, "bhG"), banks, new java.util.IdentityHashMap<>(), 0);
@@ -1535,6 +1644,11 @@ public final class OpenwigDocument {
                 || (bool != null && bool.isInstance(node))
                 || (indexed != null && indexed.isInstance(node))) {
             found.add(node);
+            return;
+        }
+        if (automationInstance("com.bitwig.flt.document.core.master.device.ruo", node)) {
+            for (Object module : (java.util.List<?>) modelGet(node, "Klm"))
+                walkAtoms(modelGet(module, "dsw"), depth + 1, seen, found, decimal, bool, indexed);
             return;
         }
         try {
@@ -2452,7 +2566,7 @@ public final class OpenwigDocument {
             case "track.set_monitor" -> updateTrackTarget("monitor", p);
             case "track.set_color" -> updateTrackTarget("color", p);
             case "track.set_send" -> updateTrackTarget("send", p);
-            case "device.read", "device.chain_banks", "device.create_layer", "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state",
+            case "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect", "device.grid_read", "device.read", "device.chain_banks", "device.create_layer", "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state",
                  "device.set_parameters", "device.get_parameters", "device.rename",
                  "device.set_expanded", "device.delete", "device.list_parameters" ->
                     executeDevice(method, p);
@@ -2468,12 +2582,14 @@ public final class OpenwigDocument {
             Track targetTrack = deviceScope(resolveTrack(project, params), params);
             String path = params.optString("path", null);
             return switch (method) {
-                case "device.read", "device.chain_banks", "device.create_layer" -> {
+                case "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect" -> executeGrid(method, targetTrack, params);
+                case "device.grid_read", "device.read", "device.chain_banks", "device.create_layer" -> {
                     int index = params.getInt("device");
                     java.util.List<?> members = targetTrack.deviceChain().getDevices();
                     if (index < 0 || index >= members.size()) throw new IllegalArgumentException("device index out of range");
                     Device device = (Device) members.get(index);
                     Object owner = ((ApiObject) device).getTarget();
+                    if (method.equals("device.grid_read")) yield readGrid((NativeDevice) device);
                     if (method.equals("device.chain_banks")) yield new JSONObject().put("banks", chainBanks(owner));
                     if (method.equals("device.create_layer")) {
                         Object bank = deviceComponent(owner, params.getString("component"), classForName("com.bitwig.flt.document.core.master.device.AYz"));

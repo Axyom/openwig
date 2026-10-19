@@ -364,7 +364,7 @@ public final class Bootstrap {
                 }
                 case "launcher.settings", "launcher.launch", "launcher.stop", "launcher.return_to_arranger", "launcher.put_notes", "launcher.import_audio", "launcher.copy_arranger", "launcher.clear", "launcher.read", "audio_event.import", "audio_event.update", "audio_event.delete", "note.import", "note.update", "note.delete", "clip.replace_notes", "clip.copy", "clip.split", "clip.update", "clip.delete", "clip.import_audio", "document.info", "document.list", "document.select", "project.save_copy", "project.duplicate_range", "project.insert_time", "project.delete_range", "project.import_dawproject", "project.set_metadata", "cue_marker.create",
                      "scene.update", "track.create_group", "track.set_solo", "track.set_comment",
-                     "track.set_active", "track.set_destination", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state", "device.chain_banks", "device.create_layer" -> {
+                     "track.set_active", "track.set_destination", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state", "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect", "device.grid_read", "device.chain_banks", "device.create_layer" -> {
                     JSONObject params = request.optJSONObject("params");
                     long timeout = method.equals("project.save_copy") ? 600
                             : method.equals("project.import_dawproject") ? 300 : 30;

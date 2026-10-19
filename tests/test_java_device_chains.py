@@ -7,7 +7,7 @@ from test_java_song import FakeJavaBridge
 
 class ChainBridge(FakeJavaBridge):
     def request(self, method, params=None, timeout=None):
-        if method == "device.set_parameters":
+        if method == "device.set_parameters" or method.startswith("device.grid_"):
             self.calls.append((method, params))
             return params
         return super().request(method, params, timeout)
@@ -53,3 +53,42 @@ def test_chain_depth_limit():
         track = track.chain(0, "CONTENTS/FX/Chain")
     with pytest.raises(ValueError, match="depth"):
         track.chain(0, "CONTENTS/FX/Chain")
+
+
+def test_grid_operations_preserve_nested_address():
+    bridge = ChainBridge()
+    chain = JavaSong(bridge=bridge).track_at("Audio").chain(0, "CONTENTS/FX/Chain")
+    module = "CONTENTS/MODULES/0"
+    module_id = "df0a08cc-68b4-4fb2-a662-05cb09745e37"
+    bridge.calls.clear()
+    chain.read_grid(1)
+    chain.add_grid_module(1, module_id, -4, 0)
+    chain.move_grid_module(1, module, 0, 0)
+    chain.connect_grid(1, module + "/CONTENTS/IN", None)
+    chain.delete_grid_module(1, module)
+    base = {"path": "Audio", "chain": [{"device": 0, "component": "CONTENTS/FX/Chain"}], "device": 1}
+    assert bridge.calls == [
+        ("device.grid_read", base),
+        ("device.grid_add", {**base, "module_id": module_id, "x": -4, "y": 0}),
+        ("device.grid_move", {**base, "component": module, "x": 0, "y": 0}),
+        ("device.grid_connect", {**base, "input": module + "/CONTENTS/IN", "output": None}),
+        ("device.grid_delete", {**base, "component": module})]
+
+
+@pytest.mark.parametrize("call", [
+    lambda t: t.add_grid_module(0, "invalid", 0, 0),
+    lambda t: t.add_grid_module(0, None, 0, 0),
+    lambda t: t.move_grid_module(0, "CONTENTS/MODULES/0", True, 0),
+    lambda t: t.move_grid_module(0, "CONTENTS/MODULES/0", .5, 0),
+    lambda t: t.move_grid_module(0, "CONTENTS/MODULES/0", 1000001, 0),
+    lambda t: t.connect_grid(0, "", None),
+    lambda t: t.connect_grid(0, "CONTENTS/MODULES/0/CONTENTS/IN", "../OUT"),
+    lambda t: t.delete_grid_module(-1, "CONTENTS/MODULES/0"),
+])
+def test_invalid_grid_calls_reject_before_rpc(call):
+    bridge = ChainBridge()
+    track = JavaSong(bridge=bridge).track_at("Audio")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        call(track)
+    assert not bridge.calls

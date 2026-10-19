@@ -321,3 +321,23 @@ shape application must offset caller points past that anchor and validate times.
   inside the bridge's document undo transaction.
 - Live gate `scratch/editing-chains/gate-2/`: nested native writes, layer creation,
   invalid-address atomicity, measured gain, zero reader differences after reopen.
+
+## Grid graph model, exact 6.1.5 (2026-10-19)
+
+- `CONTENTS/MODULES` is native `...master.device.ruo`; `Klm()` lists `zpF` modules.
+  `zpF.dsw()` is the HzI contents, `HzI.KF3()` the factory module UUID;
+  `zpF.HT3()` name, `AOA()/KF3()` x/y, `ap()/XK()` width/height.
+- `zpF.wGq()` streams component atoms. `BIC` is an input, `oil` an output;
+  `BIC.xFs()` returns its connected output. Owner `IYM(BIp)` gives full paths.
+- `zpF.tDS(UUID)` loads a module. `ruo.jPB(Collection,int,int,boolean,F3z)`
+  inserts and owns undo; clone=true matches GUI insertion, then resolve the new
+  attached module instead of returning the detached source's address.
+- `KaT.IYM(List)` deletes with native cable cleanup and its own undo transaction.
+  Position writes are `Gcr(int)`/`a1y(int)` inside bridge undo.
+- `BIC.IYM(Mdm)` is the public cable edit; `oil` implements Mdm. Null disconnects.
+  Its override opens/finalizes native undo and publishes graph notifications.
+- Module contents must be traversed explicitly from ruo.Klm()/zpF.dsw() for
+  parameter discovery; the ordinary hMI-only walk misses them. Existing
+  ApiNativeDevice parameter wrappers resolve full module paths.
+- Fixed-pitch gate passed; immediate note-tracked pitch remains an open regression.
+  See PROJECT_EDITING_PLAN.md and scratch/editing-grid/ diagnostics.

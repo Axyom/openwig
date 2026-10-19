@@ -747,3 +747,32 @@ invalid-address atomicity, audible -6 dB gain relative to bypass, and native
 save/reopen with zero reader differences. Evidence: `scratch/editing-chains/gate-2/`.
 Nested VST3 methods share the same addressing but have not yet had their own
 plugin live gate.
+
+## Grid modules, cables and parameters (2026-10-19)
+
+`read_grid(device=0)` returns modules with factory `module_id` UUID, positional
+`component` address, name, x/y/width/height, inputs (including connected `source`)
+and outputs. These also appear under `read_device(...)["grid"]`.
+`add_grid_module(device, module_id, x, y)`, `move_grid_module(device, component,
+x, y)`, `delete_grid_module(device, component)` and `connect_grid(device, input,
+output)` edit the native graph; `output=None` disconnects. Refresh addresses after
+deletion. Creation uses factory UUIDs, obtainable from existing module reads;
+there is no public module catalog yet. Coordinates must be integers within
++/-1000000; occupied cells reject, and the bridge bounds insertion at 4096 modules.
+
+`list_parameters(device)` includes `MODULES/0/CONTENTS/...` paths. Pass those
+names to `parameters`/`get_parameters`, with explicit native units as needed.
+Example: `track.parameters(0, unit="RATIO", **{"MODULES/0/CONTENTS/PITCH": 2})`.
+
+Manual gate `tests/live_java_grid.py` uses the usual --project/--output/--disposable
+and process-capture arguments, then --verify after reopening its saved project.
+`scratch/editing-grid/gate-3/` verifies a rebuilt Union/ADSR/Audio Out graph,
+positions, cable cleanup, invalid edits, audible fixed-pitch C4/C5, disconnect
+silence and zero reader differences after reopen. 249 Python tests pass.
+
+**Open limitation:** live note-tracked oscillator pitch can be wrong after an
+in-session parameter edit, although the saved document and reopened sound are
+correct. The gate's `--note-tracking` option retains this failing regression.
+The default passing gate explicitly disables KEYTRACK. Save/reopen before
+trusting note-tracked Grid renders; do not infer reliable live note tracking
+from the fixed-pitch gate. This is separate from the resolved orphan-track warp bug.

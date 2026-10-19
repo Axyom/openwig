@@ -73,30 +73,37 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
   smoke, and all five GitHub CI jobs passed.
 
-## Latest checkpoint: nested device authoring (2026-10-19)
+## Latest checkpoint: Grid graph authoring (2026-10-19)
 
-- Implemented chain handles addressed by the reader's `component_path`, recursive
-  device insertion/read/parameter/name/enable/delete operations, bank discovery,
-  and native parallel-layer creation. Device methods now share one Python mixin;
-  nested handles intentionally expose no track or clip mutations.
-- `tests/live_java_device_chains.py` passed authoring and save/reopen on
-  `scratch/editing-chains/gate-2/`: two nested FX Layers, -6 dB Tool processing
-  measured against bypass, another parallel layer, and Poly Grid pre/post chains.
-  Reopened reader comparison has zero differences; reopened audio is audible.
-  Bad chain types, fractional indexes, missing components and bank-as-chain
-  addresses reject without changing the project.
-- Full Python suite: 240 passed. Exact-build JAR built. Plugin increment
-  `ed51bb9` CI is green. This checkpoint is awaiting its own commit/CI.
-- Still pending: layer metadata/mixer/removal/reordering, plugin coverage beyond
-  the existing VST3 gate, routing/modulation edits, Grid module/cable/parameter
-  authoring, editable JSON reconstruction and complete-project verification.
-  The plugin 100 ms state-capture pacing limitation remains open.
-- Runtime: scratch launcher 52732, selected project
-  `scratch/editing-chains/gate-2/saved/project.bwproject`, transport stopped.
-  Current scratch JAR SHA-256
-  `5d7d617362f661d61d51358fd3660432a2340faad3201d597337395efaddaf16`.
-- Next action: commit this tested increment, then extend native chain structure
-  and inspect Grid's module graph using exact-build CFR Java sources.
+- Nested chains landed as `f116e4d`, CI 5/5 green. Gate evidence remains
+  `scratch/editing-chains/gate-2/`, zero reader differences and measured -6 dB.
+- Grid now has module/port/cable reads, UUID factory insertion, position edits,
+  native module deletion/cable cleanup, connect/disconnect, and module parameter
+  discovery/editing through the existing native parameter methods. Deep device
+  snapshots include `grid` and module parameter paths. GUI-style insertion clones
+  module content; native insertion/deletion/cable entries own their undo actions.
+- `tests/live_java_grid.py` default gate passed in `scratch/editing-grid/gate-3/`:
+  delete factory patch, rebuild Union/ADSR/Audio Out by UUID, edit positions and
+  parameters, C4 -> C5 frequency doubling with KEYTRACK=false, disconnect silence,
+  attached cable cleanup, rejection atomicity, native save/reopen with zero reader
+  differences and audible reopened C5. Python suite: 249 passed.
+- **Open Grid live note-tracking regression:** with KEYTRACK=true and MIDI key 69,
+  first playback is 440 Hz, but after in-session oscillator pitch edits, output
+  can be a different note (gate-1: ~1109 Hz for requested 880; gate-2: ~784).
+  Saving/reopening the exact failing snapshot restores 880 Hz. Fixed-pitch mode
+  gives stable C4/C5 and correct ratio writes. Explicit neutral MIDI transpose,
+  KEYTRACK toggling and cloned-content insertion did not fix note-tracked DSP.
+  `--note-tracking` keeps the failing gate available; do not claim this is fixed.
+  Evidence: gate-1, gate-2, pitch-diagnostic/reopened.wav, fixed-pitch-probe WAVs.
+- Still pending: layer metadata/mixer/removal/reordering, routing/modulation,
+  Grid note-tracked immediate playback, editable JSON reconstruction and complete
+  project verification. VST3 state capture still uses documented 100 ms pacing.
+- Runtime: scratch launcher 59828, project
+  `scratch/editing-grid/gate-3/saved/project.bwproject`, stopped. Scratch JAR
+  `6070cf423150783fa5540ea3b250d8aee38ad797e9f33812cec5cb8dfe4fda5c`.
+  Current code adds input guards after that build; rebuild before next restart.
+- Next action: finish checks/commit this bounded Grid increment, then isolate
+  note tracking versus general MIDI playback before further schema work.
 
 ## Implementation sequence and progress
 
