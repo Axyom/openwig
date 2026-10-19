@@ -159,8 +159,10 @@ playback again 660/1316 Hz. See persistence.json and reopened-pitch.json/WAV.
 No owner material was used.
 
 179 unit tests, exact-build Java build/JAR protocol smoke, controller syntax and
-whitespace checks passed. Previous `4711a5e`/`a3ed1b0` CI should be rechecked.
-This increment is ready to commit/push; record its commit/CI afterward.
+whitespace checks passed. Previous `4711a5e`/`a3ed1b0` CI are green.
+This increment is committed/pushed as **`6a3c2b3`** on `codex/java-bridge-615`.
+Its run was not visible in the first post-push listing; recheck Actions for this
+SHA. The implementation working tree is clean.
 
 **Investigation evidence for the next agent:** failed immediate-playback WAVs
 and JSON reports remain in `scratch/editing-warp-public-gate{,-2,-3,-4}/`.
