@@ -73,7 +73,38 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
   smoke, and all five GitHub CI jobs passed.
 
-## Latest checkpoint: parallel layer controls (2026-10-19)
+## Latest checkpoint: scene-bank structure (2026-10-19)
+
+- `JavaSong.scenes()`, `insert_scene(index=None)`, `delete_scene(index)`,
+  `move_scene(index, destination)`; methods `scene.snapshot/insert/delete/move`.
+  Native calls on the root `master.Yko`: `Gcr(int,obl)` "Insert Scene",
+  `IYM(int[])` "Delete Scenes", public `hhU.IYM(int[],int)` -> `Kkl.Gcr`
+  "Reorder Scenes" (destination is an insertion point, hence `dest+1` when
+  moving down). Each owns its undo action and propagates to every track bank.
+  CFR sources: `scratch/decomp/scenes/`. `update_scene` now validates index,
+  field names/types and colors before writing, never grows the bank, and wraps
+  its edits in one undo transaction.
+- Gate `tests/live_java_scenes.py` passed in `scratch/editing-scenes/gate-3/`:
+  emptied bank (all banks incl. group children and FX read zero slots), append
+  three rows, insert/move/delete with content and stop-button preservation,
+  moved row audible (880 Hz 0.0233, 440 Hz 0.0002), deleted-row absence,
+  remaining row audible (440 Hz 0.0233), seven rejected inputs with unchanged
+  dumps, then native save/reopen `--verify`: zero reader differences, scenes
+  `[A, B]`, reopened 440 Hz 0.0235. Unit suite: 264 passed; smoke/build passed.
+- Gate pitfall (diagnostics `scratch/editing-scenes/diag-1`, `diag-2`): relaunching
+  an already playing/queued slot after `capture()`'s transport stop, or launching
+  immediately after `stop_launcher`, can produce silence. `measure(track=...)` now
+  resets launcher state and settles 0.5 s; five reordered launches then all
+  matched. gate-1/gate-2 keep the earlier failing runs. The deleted-row check is
+  weak: `capture()` stops transport, which also stops launcher clips.
+- Not covered: multi-row (non-contiguous) delete/move, scene duplication
+  ("Copy Scenes"), undo/redo replay of these actions.
+- Runtime: scratch host has `scratch/editing-scenes/gate-3/saved/project.bwproject`
+  open, stopped. Mutable project stays `scratch/editing-details/work/project.bwproject`.
+  Next: routing/modulation, Grid note-tracking diagnosis, editable JSON
+  reconstruction and complete-project verification.
+
+## Previous checkpoint: parallel layer controls (2026-10-19)
 
 - Grid increment `3a62aae` is pushed, CI 5/5 green. Its fixed-pitch evidence
   and open live note-tracking regression are retained below.
@@ -180,8 +211,10 @@ Do not equate native snapshot preservation with arbitrary field editing.
      state; read/write parameters and automation; manipulate nested chains.
    - Complete routing and modulation edits, documenting actual format coverage.
      Resident plugin caches may be unavailable; never invent values.
-4. **Launcher clip slots done; scene-bank editing pending.**
+4. **Launcher clip slots and scene-bank structure done.**
    - Scene name/comment/color edits landed earlier (`update_scene`).
+   - Scene-bank insert/delete/move/snapshot landed 2026-10-19 (see the
+     scene-bank checkpoint); gate `tests/live_java_scenes.py`.
    - Launcher slots landed 2026-10-19: author MIDI/audio slots, arranger-to-slot
      copy, container edits, shared audio-event edits via slot addressing,
      clear/delete with stop-button control, launch settings, launch/stop/
@@ -214,7 +247,7 @@ Active scope confirmed by the owner: finish audio/MIDI details; plugin insertion
 state/parameters, nested chains and routing/modulation; editable JSON project
 reconstruction; complete-project audible and persistence verification; and Grid
 module/cable/parameter editing. Keep this file current and commit/push each
-verified step. Scene-bank structure remains part of the overall project goal.
+verified step. Scene-bank structure landed 2026-10-19 (see its checkpoint above).
 Warped audio details and expression/note-property authoring are verified. Next:
 plugins/routing, Grid, editable JSON reconstruction and full verification. This is
 in-progress work; the checkpoints below record completed evidence.

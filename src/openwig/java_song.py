@@ -258,11 +258,35 @@ class JavaSong:
             params.update({"r": float(r), "g": float(g), "b": float(b), "a": float(a)})
         return self.b.request("cue_marker.create", params)
 
+    @staticmethod
+    def _scene_index(index: int) -> int:
+        if type(index) is not int or index < 0:
+            raise ValueError("scene index must be a nonnegative integer")
+        return index
+
+    def scenes(self) -> list[dict]:
+        """Read existing scene metadata without creating missing rows."""
+        return self.b.request("scene.snapshot")["scenes"]
+
+    def insert_scene(self, index: int | None = None) -> dict:
+        """Insert an empty launcher row across all tracks; None appends."""
+        params = {} if index is None else {"index": self._scene_index(index)}
+        return self.b.request("scene.insert", params, timeout=125)
+
+    def delete_scene(self, index: int) -> dict:
+        """Delete a launcher row, its clips and its metadata across all tracks."""
+        return self.b.request("scene.delete", {"index": self._scene_index(index)}, timeout=125)
+
+    def move_scene(self, index: int, destination: int) -> dict:
+        """Move a complete launcher row to its final index, preserving content."""
+        return self.b.request("scene.move", {"index": self._scene_index(index),
+            "destination": self._scene_index(destination)}, timeout=125)
+
     def update_scene(self, index: int, *, name: str | None = None,
                      comment: str | None = None,
                      color: tuple[float, float, float] | str | None = None) -> dict:
-        """Update a launcher scene's title, comment, or color."""
-        params: dict = {"index": int(index)}
+        """Update an existing scene's title, comment, or color; never creates rows."""
+        params: dict = {"index": self._scene_index(index)}
         if name is not None:
             params["name"] = str(name)
         if comment is not None:

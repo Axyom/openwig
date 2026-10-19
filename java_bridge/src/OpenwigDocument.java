@@ -2698,6 +2698,7 @@ public final class OpenwigDocument {
             case "project.import_dawproject" -> importDawProject(p.optString("path", ""));
             case "project.set_metadata" -> setProjectMetadata(p);
             case "cue_marker.create" -> createCueMarker(p);
+            case "scene.snapshot", "scene.insert", "scene.delete", "scene.move" -> editSceneBank(method, p);
             case "scene.update" -> updateScene(p);
             case "track.create_group" -> createTrackOrGroup(new JSONObject(p.toString()).put("type", "group"));
             case "track.create" -> createTrackOrGroup(p);
@@ -3102,37 +3103,88 @@ public final class OpenwigDocument {
         }
     }
 
+    private static int sceneIndex(JSONObject params, String key, int limit, boolean append) {
+        Object value = params.get(key);
+        if (!(value instanceof Integer n) || n < 0 || n >= limit + (append ? 1 : 0))
+            throw new IllegalArgumentException("scene " + key + " out of range");
+        return (Integer) value;
+    }
+
+    private static JSONObject sceneSnapshot(ApiProject project, int index) {
+        com.bitwig.extension.api.project.Scene scene = project.getScene(index);
+        Color color = scene.getColor();
+        Object comment = modelGetOrNull(((ApiObject) scene).getTarget(), "Vc");
+        return new JSONObject().put("index", index).put("name", scene.getTitle())
+                .put("comment", comment == null ? "" : comment)
+                .put("color", color == null ? JSONObject.NULL : color.toHex());
+    }
+
+    private static JSONObject editSceneBank(String method, JSONObject params) {
+        ApiProject project = project();
+        try {
+            int before = sceneCount();
+            Object root = ((oZU) project.getTarget()).Qjx();
+            if (method.equals("scene.snapshot")) {
+                JSONArray scenes = new JSONArray();
+                for (int i = 0; i < before; i++) scenes.put(sceneSnapshot(project, i));
+                return new JSONObject().put("count", before).put("scenes", scenes);
+            }
+            int index = params.has("index") ? sceneIndex(params, "index", before, method.equals("scene.insert")) : before;
+            if (method.equals("scene.insert")) {
+                if (before >= 4096) throw new IllegalArgumentException("scene bank limit exceeded");
+                java.lang.reflect.Method insert = Yko.class.getDeclaredMethod("Gcr", int.class, classForName("obl"));
+                insert.setAccessible(true);
+                insert.invoke(root, index, null);
+                if (sceneCount() != before + 1) throw new IllegalStateException("scene insertion count mismatch");
+            } else if (method.equals("scene.delete")) {
+                index = sceneIndex(params, "index", before, false);
+                java.lang.reflect.Method delete = Yko.class.getDeclaredMethod("IYM", int[].class);
+                delete.setAccessible(true);
+                delete.invoke(root, (Object) new int[]{index});
+                if (sceneCount() != before - 1) throw new IllegalStateException("scene deletion count mismatch");
+                return new JSONObject().put("count", sceneCount());
+            } else if (method.equals("scene.move")) {
+                index = sceneIndex(params, "index", before, false);
+                int destination = sceneIndex(params, "destination", before, false);
+                if (index != destination)
+                    root.getClass().getMethod("IYM", int[].class, int.class)
+                            .invoke(root, new int[]{index}, destination > index ? destination + 1 : destination);
+                if (sceneCount() != before) throw new IllegalStateException("scene reorder changed bank size");
+                index = destination;
+            } else throw new IllegalArgumentException("unsupported scene operation");
+            return new JSONObject().put("count", sceneCount()).put("index", index).put("data", sceneSnapshot(project, index));
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native scene operation failed", failure); }
+        finally { project.dispose(); }
+    }
+
     private static JSONObject updateScene(JSONObject params) {
         ApiProject project = project();
         try {
-            int index = params.optInt("index", -1);
-            if (index < 0) {
-                throw new IllegalArgumentException("scene index must be nonnegative");
+            int index = sceneIndex(params, "index", sceneCount(), false);
+            for (String key : params.keySet()) {
+                if (!java.util.Set.of("index", "name", "comment", "color", "r", "g", "b", "a").contains(key))
+                    throw new IllegalArgumentException("unknown scene field: " + key);
+                if ((key.equals("name") || key.equals("comment") || key.equals("color")) && !(params.get(key) instanceof String))
+                    throw new IllegalArgumentException(key + " must be a string");
             }
-            com.bitwig.extension.api.project.Scene scene = project.getScene(index);
-            if (params.has("name")) {
-                scene.setTitle(params.optString("name", ""));
-            }
-            if (params.has("comment")) {
-                String comment = params.optString("comment", "");
-                Object rawScene = ((ApiObject) scene).getTarget();
-                modifyModel((ApiObject) scene, () -> invokeModelSetter(rawScene, "nsm", String.class, comment));
-            }
+            boolean rgb = params.has("r") || params.has("g") || params.has("b") || params.has("a");
+            if (rgb && (params.has("color") || !params.has("r") || !params.has("g") || !params.has("b")))
+                throw new IllegalArgumentException("choose hex color or complete RGB components");
+            for (String key : java.util.List.of("r", "g", "b", "a"))
+                if (params.has(key) && (!(params.get(key) instanceof Number n) || !Double.isFinite(n.doubleValue()) || n.doubleValue() < 0 || n.doubleValue() > 1))
+                    throw new IllegalArgumentException("scene color components must be finite numbers within 0..1");
             Color color = parseColor(params);
-            if (color != null) {
-                scene.setColor(color);
-            }
-            Color actualColor = scene.getColor();
-            Object rawScene = ((ApiObject) scene).getTarget();
-            Object comment = modelGetOrNull(rawScene, "Vc");
-            return new JSONObject()
-                    .put("index", index)
-                    .put("name", scene.getTitle())
-                    .put("comment", comment == null ? "" : comment)
-                    .put("color", actualColor == null ? JSONObject.NULL : actualColor.toHex());
-        } finally {
-            project.dispose();
-        }
+            com.bitwig.extension.api.project.Scene scene = project.getScene(index);
+            DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
+                if (params.has("name")) scene.setTitle(params.getString("name"));
+                if (params.has("comment")) {
+                    Object rawScene = ((ApiObject) scene).getTarget();
+                    modifyModel((ApiObject) scene, () -> invokeModelSetter(rawScene, "nsm", String.class, params.getString("comment")));
+                }
+                if (color != null) scene.setColor(color);
+            });
+            return sceneSnapshot(project, index);
+        } finally { project.dispose(); }
     }
 
     private static double modelDoubleArgument(Object target, String method, double value) {

@@ -136,6 +136,17 @@ passed dump readback. Nested native-device enum writes, rename, expansion,
 enable/disable and snapshots also passed. Expansion is accepted without a
 readback assertion. Device parameter discovery waits for the model to load.
 
+Scene-bank structure is editable through Bitwig's native undoable "Insert
+Scene", "Delete Scenes" and "Reorder Scenes" actions: `scenes()` reads rows
+without creating them, `insert_scene(index=None)` (None appends),
+`delete_scene(index)` and `move_scene(index, destination)` resize or reorder
+every track bank, including group children and effect tracks. `update_scene`
+now rejects out-of-range indexes instead of growing the bank, and runs inside
+one undo transaction. Gate `tests/live_java_scenes.py` (process loopback
+required) verified an emptied bank, insert/move/delete with stop-button
+preservation, audible relaunch of moved rows, rejected-input atomicity and
+native save/reopen with zero reader differences.
+
 Path handles from `track_at()` support these edits. Renaming a root group
 updates its handle for subsequent child creation; nested titles containing
 `/` retain a usable path after renaming. Existing descendant handles must be

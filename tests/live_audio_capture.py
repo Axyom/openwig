@@ -7,9 +7,11 @@ from pathlib import Path
 import numpy as np
 
 
-def capture(song, file, *, capture_exe=None, engine_pid=None):
+def capture(song, file, *, capture_exe=None, engine_pid=None, on_play=None):
     file = Path(file)
     if capture_exe is None:
+        if on_play is not None:
+            raise ValueError("on_play requires process capture")
         song.render(file, tail=.3)
     else:
         assert engine_pid and engine_pid > 0, "pass the disposable audio-engine PID"
@@ -28,6 +30,8 @@ def capture(song, file, *, capture_exe=None, engine_pid=None):
                 assert time.monotonic() < deadline, "capture did not become ready"
                 time.sleep(.01)
             song.b.request("transport.play")
+            if on_play is not None:
+                on_play()
             assert process.wait(timeout=seconds + 12) == 0, "process capture failed"
         finally:
             try:

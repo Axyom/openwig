@@ -44,6 +44,10 @@ class FakeJavaBridge:
             return {"count": 1, "time": params["beat"], "name": params["name"], "color": params.get("color")}
         if method == "scene.update":
             return {"index": params["index"], "name": params.get("name", ""), "comment": params.get("comment", ""), "color": params.get("color")}
+        if method == "scene.snapshot":
+            return {"count": 1, "scenes": [{"index": 0, "name": "A", "comment": "", "color": None}]}
+        if method in {"scene.insert", "scene.delete", "scene.move"}:
+            return params
         if method == "track.create_group":
             path = f"{params['parent']}/{params['name']}" if params.get("parent") else params["name"]
             return {"count": 1, "index": 0, "name": params["name"], "path": path, "is_group": True}
@@ -406,6 +410,35 @@ def test_metadata_cue_marker_and_scene_updates(bridge):
         ("scene.update", {"index": 0, "name": "Intro", "comment": "Warm pad",
                           "r": 0.2, "g": 0.4, "b": 0.8, "a": 1.0}),
     ]
+
+
+def test_scene_bank_structure_requests(bridge):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    assert song.scenes()[0]["name"] == "A"
+    song.insert_scene()
+    song.insert_scene(0)
+    song.move_scene(2, 0)
+    song.delete_scene(1)
+    assert bridge.calls == [
+        ("scene.snapshot", {}),
+        ("scene.insert", {}),
+        ("scene.insert", {"index": 0}),
+        ("scene.move", {"index": 2, "destination": 0}),
+        ("scene.delete", {"index": 1}),
+    ]
+
+
+@pytest.mark.parametrize("call", [
+    lambda s: s.insert_scene(-1), lambda s: s.delete_scene(True),
+    lambda s: s.move_scene(0, 1.0), lambda s: s.update_scene(-2, name="x"),
+])
+def test_scene_indices_are_validated_before_sending(bridge, call):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        call(song)
+    assert bridge.calls == []
 
 
 def test_group_track_and_nested_track_mutations(bridge):
