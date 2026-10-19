@@ -43,6 +43,7 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--disposable", action="store_true")
     p.add_argument("--verify", action="store_true")
+    p.add_argument("--nested", action="store_true", help="Exercise plugins inside a reordered FX Layer")
     p.add_argument("--process-capture", type=Path)
     p.add_argument("--engine-pid", type=int)
     a = p.parse_args()
@@ -64,7 +65,8 @@ def main():
         assert Path(s.project_info()["path"]) == target
         s.stop(); ensure_audio(s)
         if a.verify:
-            t = s.track_at("Plugin")
+            owner = s.track_at("Plugin")
+            t = owner.chain(0, "CONTENTS/CHAIN_LIST/CHAIN1") if a.nested else owner
             expected(parameters(t, 0)); expected(parameters(t, 1))
             before = json.loads((out / "before.json").read_text(encoding="utf-8"))
             after = s.dump()
@@ -82,7 +84,14 @@ def main():
             audible(s, out, options, "reopened-plugin")
             return
         s.clear(); s.tempo(150)
-        t = s.audio_track("Plugin")
+        owner = s.audio_track("Plugin")
+        if a.nested:
+            owner.add_device("FX Layer")
+            owner.create_layer(0, "CONTENTS/CHAIN_LIST")
+            owner.update_layer(0, "CONTENTS/CHAIN_LIST/CHAIN1", name="Silent", muted=True)
+            t = owner.chain(0, "CONTENTS/CHAIN_LIST/CHAIN0")
+        else:
+            t = owner
         result = t.insert_plugin("kHs Haas", PLUGIN_ID)
         assert result["device"] == 0 and result["data"]["device_id"] == PLUGIN_ID
         parameters(t, 0)
@@ -95,12 +104,24 @@ def main():
         assert file.read_bytes()[8:40].decode("ascii") == PLUGIN_ID
         t.insert_plugin("kHs Haas", PLUGIN_ID, state=file)
         expected(parameters(t, 1))
+        if a.nested:
+            moved = owner.move_layer(0, "CONTENTS/CHAIN_LIST/CHAIN0", 1)
+            assert moved["component"] == "CONTENTS/CHAIN_LIST/CHAIN1"
+            t = owner.chain(0, moved["component"])
+            expected(parameters(t, 0)); expected(parameters(t, 1))
+            removable = owner.create_layer(0, "CONTENTS/CHAIN_LIST")["component"]
+            temporary = owner.chain(0, removable)
+            temporary.insert_plugin("kHs Haas", PLUGIN_ID)
+            parameters(temporary, 0)
+            # Exercise native state preparation on a plugin-bearing deletion.
+            s.b.request("device.plugin_parameters", temporary._track_params(device=0, values={"2": .3}))
+            assert owner.delete_layer(0, removable)["count"] == 2
         # Check a second engine export too; the independent instance's live
         # parameter values above prove the state file was actually accepted.
         restored = out / "restored.vstpreset"
         t.export_plugin_state(1, restored)
         assert restored.stat().st_size > 48
-        before = t.read()
+        before = owner.read()
         for changes in [{"1": .5, "999999": .2}, {"1": .5, "2": 2}]:
             try:
                 s.b.request("device.plugin_parameters", t._track_params(device=0, values=changes))
@@ -108,7 +129,7 @@ def main():
                 pass
             else:
                 raise AssertionError("invalid plugin parameter accepted")
-            assert t.read() == before
+            assert owner.read() == before
         file_hash = sha256(file.read_bytes()).hexdigest()
         try:
             s.b.request("device.export_plugin_state", t._track_params(device=0, file=str(file)))
@@ -124,12 +145,12 @@ def main():
             pass
         else:
             raise AssertionError("state class ID mismatch accepted")
-        assert t.read() == before
+        assert owner.read() == before
         sample = out / "tone.wav"; rate = 48000
         with wave.open(str(sample), "wb") as w:
             w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
             w.writeframes((12000 * np.sin(2 * np.pi * 440 * np.arange(rate * 3) / rate)).astype("<i2").tobytes())
-        t.import_audio(sample)
+        owner.import_audio(sample)
         audible(s, out, options, "live-plugin")
         snapshot = s.dump()
         from live_java_recreate import plugin_states

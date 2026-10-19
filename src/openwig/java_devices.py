@@ -59,15 +59,19 @@ class JavaDeviceMethods:
         return self.s.b.request("device.plugin_parameters", self._track_params(device=self._clip_index(index)))
 
     def _wait_plugin_state(self, job: dict, timeout: float = 40) -> dict:
+        return self._wait_device_operation(job, timeout, status_method="device.plugin_state_status")
+
+    def _wait_device_operation(self, job: dict, timeout: float = 40,
+                               *, status_method="device.operation_status") -> dict:
         import time
         deadline = time.monotonic() + timeout
         while job["state"] == "running":
             if time.monotonic() >= deadline:
-                raise TimeoutError(f"plugin state operation timed out: {job['job']}")
+                raise TimeoutError(f"device operation timed out: {job['job']}")
             time.sleep(.05)
-            job = self.s.b.request("device.plugin_state_status", self._track_params(job=job["job"]))
+            job = self.s.b.request(status_method, self._track_params(job=job["job"]))
         if job["state"] != "complete":
-            raise BridgeError(job.get("error", "plugin state operation failed"))
+            raise BridgeError(job.get("error", "device operation failed"))
         return job
 
     def capture_plugin_state(self, index: int) -> dict:
@@ -232,6 +236,45 @@ class JavaDeviceMethods:
         JavaDeviceChain._component(component)
         return self.s.b.request("device.create_layer", self._track_params(
             device=self._clip_index(device), component=component), timeout=125)
+
+    def read_layer(self, device: int, component: str) -> dict:
+        """Read a nested chain's stored/displayed name and optional mixer."""
+        JavaDeviceChain._component(component)
+        return self.s.b.request("device.layer_read", self._track_params(
+            device=self._clip_index(device), component=component))
+
+    def update_layer(self, device: int, component: str, **changes) -> dict:
+        """Edit name, volume (amplitude), volume_db, pan (-1..1) or muted."""
+        JavaDeviceChain._component(component)
+        if not changes or set(changes) - {"name", "volume", "volume_db", "pan", "muted"}:
+            raise ValueError("supported layer changes required")
+        if "volume" in changes and "volume_db" in changes:
+            raise ValueError("choose volume or volume_db")
+        if "name" in changes and (not isinstance(changes["name"], str) or len(changes["name"]) > 256):
+            raise ValueError("layer name string required (maximum 256)")
+        if "muted" in changes and type(changes["muted"]) is not bool:
+            raise ValueError("muted must be boolean")
+        for key, low, high in [("volume", 0, 10 ** (6 / 20)), ("volume_db", -120, 6), ("pan", -1, 1)]:
+            if key in changes:
+                value = self._clip_number(changes[key], key)
+                if not low <= value <= high:
+                    raise ValueError(f"{key} out of range")
+        return self.s.b.request("device.layer_update", self._track_params(
+            device=self._clip_index(device), component=component, changes=changes))
+
+    def delete_layer(self, device: int, component: str) -> dict:
+        """Remove one parallel layer and its native ownership/routing references."""
+        JavaDeviceChain._component(component)
+        job = self.s.b.request("device.layer_delete", self._track_params(
+            device=self._clip_index(device), component=component), timeout=125)
+        return self._wait_device_operation(job)["data"]
+
+    def move_layer(self, device: int, component: str, index: int) -> dict:
+        """Move a parallel layer to its final index; returns its new address."""
+        JavaDeviceChain._component(component)
+        job = self.s.b.request("device.layer_move", self._track_params(
+            device=self._clip_index(device), component=component, index=self._clip_index(index)), timeout=125)
+        return self._wait_device_operation(job)["data"]
 
 
 class JavaDeviceChain(JavaDeviceMethods):

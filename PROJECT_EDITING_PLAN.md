@@ -73,6 +73,44 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
   smoke, and all five GitHub CI jobs passed.
 
+## Latest checkpoint: parallel layer controls (2026-10-19)
+
+- Grid increment `3a62aae` is pushed, CI 5/5 green. Its fixed-pitch evidence
+  and open live note-tracking regression are retained below.
+- Added `read_layer`, `update_layer`, `move_layer`, `delete_layer`: stored/display
+  names, amplitude or dB gain, pan, mute, native same-bank reordering with async
+  completion, and deletion with owning-reference/routing cleanup. Nested device
+  snapshots now include a `layer` object containing the mixer/title state.
+- `scratch/editing-chains/gate-3-layers/` passed native authoring/reopen, zero
+  reader differences, deep device gain versus bypass, and audible parallel-layer
+  deletion (remaining/combined level ~.334). Includes move forward/back with
+  names/content preserved, mixer edits and mixed-invalid-batch atomicity.
+  Final async-deletion rerun `scratch/editing-chains/gate-4-layers/` also passed
+  native reopen, audio and guarded forward/back move callbacks. Python suite:
+  259 passed; exact-build JAR, offline smoke, controller syntax and diff checks pass.
+- Nested VST3 gate `scratch/editing-plugins/nested-gate-2/` passed insertion,
+  parameters/state transfer, moving a layer with two loaded plugins, deleting a
+  third plugin-bearing layer after native state preparation, audible 440 Hz,
+  save/reopen values and matching embedded state hashes. Exactly the two known
+  GUI display-cache differences remain; numerical/state data matches.
+- AGENTS.md now links this plan. Layer increment is ready to commit/push.
+- MIDI diagnostic expanded the open pitch issue: repeated playback on a freshly
+  inserted Polysynth can also have the wrong pitch, so it is not proven to be
+  Grid-specific. Saving/reopening the failing Grid snapshot gives correct 880 Hz.
+  Candidate arranger-clip insertion finalization and inserting notes after clip
+  attachment both failed and were removed. Gates 4-finalize and 5-attached retain
+  the failures; no speculative MIDI fix remains in the source.
+- Remaining scope: live MIDI/note-tracking diagnosis, routing/modulation editing,
+  documented editable JSON reconstruction, complete-project verification and
+  scene-bank structure. Plugin state capture still uses documented 100 ms pacing;
+  VST2/CLAP and a discoverable plugin/module catalog are not implemented.
+- Runtime/process details below may describe earlier checkpoints; resolve PIDs
+  afresh. Current scratch JAR SHA-256:
+  `060bfc3bfca0d8803b858742f23eed8febdf83c1f7d1f55f6ecc1a1977256ee7`.
+  Scratch launcher 31296 has `scratch/editing-chains/gate-4-layers/saved/project.bwproject`
+  selected, stopped; no in-flight commands. Next: commit this increment, then
+  inspect scene-bank structural edits and routing/modulation before JSON schema work.
+
 ## Latest checkpoint: Grid graph authoring (2026-10-19)
 
 - Nested chains landed as `f116e4d`, CI 5/5 green. Gate evidence remains
@@ -95,7 +133,8 @@ Baseline implementation commits (use `git log` for subsequent increments):
   KEYTRACK toggling and cloned-content insertion did not fix note-tracked DSP.
   `--note-tracking` keeps the failing gate available; do not claim this is fixed.
   Evidence: gate-1, gate-2, pitch-diagnostic/reopened.wav, fixed-pitch-probe WAVs.
-- Still pending: layer metadata/mixer/removal/reordering, routing/modulation,
+- Layer metadata/mixer/removal/reordering subsequently landed in the next checkpoint.
+  Still pending: routing/modulation,
   Grid note-tracked immediate playback, editable JSON reconstruction and complete
   project verification. VST3 state capture still uses documented 100 ms pacing.
 - Runtime: scratch launcher 59828, project

@@ -20,6 +20,12 @@ still apply. Do not mark the overall goal complete while documented gaps remain.
 
 openwig (PyPI `openwig`, GitHub `Axyom/openwig`, public): a Python SDK that builds Bitwig Studio songs (tracks, devices, MIDI clips, automation, master chain) and renders them to `.wav`. It goes beyond Bitwig's official Controller API by reaching into Bitwig's private, obfuscated internals. Targets Bitwig 6.0.6 on Windows (Linux experimental), Python 3.11+.
 
+## Active full-project editing work
+
+Read [PROJECT_EDITING_PLAN.md](PROJECT_EDITING_PLAN.md) before resuming this work.
+It records the authorized scope, verified increments, open regressions, live
+fixtures and the next concrete steps; update it with each implementation commit.
+
 ## Commands
 
 ```bash

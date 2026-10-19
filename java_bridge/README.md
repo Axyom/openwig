@@ -735,7 +735,7 @@ selected chain, including factory insertion, native parameters and deletion.
 `chain_banks(device)` discovers parallel containers; `create_layer(device,
 component)` appends a native layer and returns its new component address.
 Device indexes remain positional and should be refreshed after structural edits.
-Layer removal/reordering and mixer metadata are not part of this increment.
+See the parallel-layer controls section below for mixer metadata, removal and reordering.
 
 Example: `track.chain(0, "CONTENTS/CHAIN_LIST/CHAIN0").add_device("Tool")`.
 Poly Grid pre/post chains use `CONTENTS/PRE_FX/Chain` and
@@ -776,3 +776,36 @@ correct. The gate's `--note-tracking` option retains this failing regression.
 The default passing gate explicitly disables KEYTRACK. Save/reopen before
 trusting note-tracked Grid renders; do not infer reliable live note tracking
 from the fixed-pitch gate. This is separate from the resolved orphan-track warp bug.
+
+## Parallel layer controls (2026-10-19)
+
+`read_layer(device, component)` reads stored `name`, display `title`, and an
+optional `mixer` (amplitude `volume`, `volume_db`, bipolar `pan`, `muted`). A
+zero-amplitude fader reports `volume_db: null`. Nested device snapshots include
+this state under each chain's `layer` field.
+`update_layer(device, component, name="Quiet", volume_db=-6, pan=0, muted=False)`
+patches selected fields. Choose amplitude `volume` (0..+6 dB equivalent) or
+`volume_db` (-120..6), and pan -1..1; invalid mixed batches reject before writing.
+
+`move_layer(device, component, index)` waits for native asynchronous completion
+and returns the new component address. `delete_layer(device, component)` removes
+one parallel layer with native routing/ownership cleanup. Structural edits require
+an AYz parallel-layer bank; fixed pre/post chains cannot be deleted/reordered.
+Refresh positional chain handles after either operation.
+
+Expanded gate `tests/live_java_device_chains.py`, evidence
+`scratch/editing-chains/gate-4-layers/`: mixer/name edits, reorder both directions,
+audible deletion ratio, invalid batches, zero reader differences after native
+reopen, and audible reopened processing. 259 Python tests pass.
+`tests/live_java_plugins.py --nested` additionally exercises two VST3s inside a
+layer moved to index 1, including state transfer, native save/reopen and audio.
+`scratch/editing-plugins/nested-gate-2/` passes this gate, including deletion of a
+third plugin-bearing layer after native state preparation. Parameter values and
+state hashes match after reopen; the same two GUI display-string differences as
+the top-level plugin gate are reported explicitly. Deletion waits for Bitwig's
+native plugin-state preparation before beginning its removal transaction.
+
+The open note-tracked pitch regression also appeared on newly inserted Polysynth;
+its cause is not yet proven to be Grid-specific. The fixed-pitch Grid gate remains
+the verified immediate-DSP case. See the plan for diagnostic evidence and removed
+candidate fixes.

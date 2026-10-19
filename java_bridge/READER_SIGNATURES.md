@@ -341,3 +341,21 @@ shape application must offset caller points past that anchor and validate times.
   ApiNativeDevice parameter wrappers resolve full module paths.
 - Fixed-pitch gate passed; immediate note-tracked pitch remains an open regression.
   See PROJECT_EDITING_PLAN.md and scratch/editing-grid/ diagnostics.
+
+## Parallel layer mixer and structure, exact 6.1.5 (2026-10-19)
+
+- `ApiNestedDeviceChain(YLB).getMixer()` wraps native fdR as ApiMixerModule;
+  volume/pan/mute use the existing public parameter wrappers. Null mixer is valid
+  for fixed chains. `fNm()` is stored name, `cc_()` display title; raw `Qcu(String)`
+  updates the stored name inside bridge undo and triggers native name propagation.
+- `QRd.jPB(List,int,boolean,rdP)` is the layer insertion/move entry inherited by
+  AYz; false moves existing layers, int is an insertion boundary (forward final
+  index needs +1). It owns undo/state preparation, with async rdP completion.
+- Before deletion, `com.bitwig.flt.document.core.master.ymV.IYM(Collection,
+  Runnable, com.bitwig.base.async.urr)` prepares plugin state asynchronously.
+  The callback starts bridge undo and mirrors dlH's ownership sequence: VMm, wQg.IYM(pqP),
+  bank.IYM(YLB,true), VxG. The finalizer runs in finally; count and detached parent
+  are checked. AYz guards reject structural edits on fixed device slots.
+- Native deletion/reorder gate passes with audible audio-routing evidence and
+  zero reader differences after reopen. See scratch/editing-chains/gate-4-layers/. Nested plugin movement/deletion and
+  state persistence also pass in scratch/editing-plugins/nested-gate-2/.

@@ -968,7 +968,8 @@ public final class OpenwigDocument {
         }
         return new JSONObject().put("kind", kind).put("index", index)
                 .put("component_path", jsonModelValue(automationIdentifier(owner, chain)))
-                .put("has_chain", stored != null).put("devices", devices);
+                .put("has_chain", stored != null).put("devices", devices)
+                .put("layer", layerState(owner, chain));
     }
 
     private static java.util.IdentityHashMap<Object, JSONObject> routingContext(ApiProject project) {
@@ -1200,6 +1201,151 @@ public final class OpenwigDocument {
             } else throw new IllegalArgumentException("unsupported Grid operation");
             return readGrid(device);
         } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native Grid operation failed", failure); }
+    }
+
+    private static JSONObject newDeviceJob() {
+        if (pluginStateJobs.size() >= 64) {
+            String completed = null;
+            for (String key : pluginStateJobs.keySet()) if (!pluginStateJobs.get(key).getString("state").equals("running")) { completed = key; break; }
+            if (completed == null) throw new IllegalStateException("too many active device operations");
+            pluginStateJobs.remove(completed);
+        }
+        String job = java.util.UUID.randomUUID().toString();
+        JSONObject status = new JSONObject().put("job", job).put("state", "running");
+        pluginStateJobs.put(job, status);
+        return status;
+    }
+
+    private static Mixer layerMixer(Object layer) {
+        try {
+            Object api = classForName("com.bitwig.flt.document.api.document.ApiNestedDeviceChain")
+                    .getConstructor(classForName("com.bitwig.flt.document.core.master.device.YLB")).newInstance(layer);
+            return (Mixer) api.getClass().getMethod("getMixer").invoke(api);
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("nested mixer wrapper failed", failure); }
+    }
+
+    private static JSONObject layerState(Object owner, Object layer) {
+        Mixer mixer = layerMixer(layer);
+        JSONObject result = new JSONObject().put("component", automationIdentifier(owner, layer))
+                .put("name", modelGet(layer, "fNm")).put("title", modelGet(layer, "cc_"));
+        if (mixer == null) return result.put("mixer", JSONObject.NULL);
+        double db = mixer.getVolume().getValue(Unit.DECIBEL);
+        return result.put("mixer", new JSONObject().put("volume", mixer.getVolume().getValue(Unit.RATIO))
+                .put("volume_db", Double.isFinite(db) ? db : JSONObject.NULL)
+                .put("pan", mixer.getPan().getValue(Unit.PERCENTAGE_OF_RANGE) / 100)
+                .put("muted", mixer.getMute().getValue()));
+    }
+
+    private static JSONObject editLayer(String method, Track track, JSONObject params) {
+        Object owner = ((ApiObject) nativeDeviceOnTrack(track, params.getInt("device"))).getTarget();
+        Class<?> layerType = classForName("com.bitwig.flt.document.core.master.device.YLB");
+        Object layer = deviceComponent(owner, params.getString("component"), layerType);
+        if (method.equals("device.layer_read")) return layerState(owner, layer);
+        if (method.equals("device.layer_move")) {
+            Object bank = modelGet(layer, "ExU");
+            if (!automationInstance("com.bitwig.flt.document.core.master.device.AYz", bank)) throw new IllegalArgumentException("reordering requires a parallel layer");
+            java.util.List<?> members = (java.util.List<?>) modelGet(bank, "NFl");
+            int source = members.indexOf(layer);
+            Object value = params.get("index");
+            if (!(value instanceof Integer index) || index < 0 || index >= members.size()) throw new IllegalArgumentException("layer destination index out of range");
+            int destination = (Integer) value;
+            if (source == destination) return new JSONObject().put("state", "complete").put("data", layerState(owner, layer));
+            JSONObject status = newDeviceJob();
+            try {
+                Class<?> type = classForName("com.bitwig.base.async.rdP");
+                Object callback = java.lang.reflect.Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, (proxy, call, args) -> {
+                    if (call.getDeclaringClass() == Object.class) return switch (call.getName()) {
+                        case "hashCode" -> System.identityHashCode(proxy);
+                        case "equals" -> proxy == args[0];
+                        default -> "OpenwigLayerMove";
+                    };
+                    if (call.getName().equals("taskCompleted") || (call.getName().equals("IYM") && call.getParameterTypes()[0] == Object.class)) {
+                        try {
+                            if (modelGet(layer, "ExU") != bank || ((java.util.List<?>) modelGet(bank, "NFl")).indexOf(layer) != destination)
+                                throw new IllegalStateException("layer did not reach its requested index");
+                            status.put("data", layerState(owner, layer)).put("state", "complete");
+                        } catch (RuntimeException failure) { status.put("state", "failed").put("error", failure.toString()); }
+                    } else if (call.getName().equals("IYM")) status.put("state", "failed").put("error", String.valueOf(args[0]));
+                    return null;
+                });
+                bank.getClass().getMethod("jPB", java.util.List.class, int.class, boolean.class, type)
+                        .invoke(bank, java.util.List.of(layer), destination > source ? destination + 1 : destination, false, callback);
+            } catch (ReflectiveOperationException failure) {
+                status.put("state", "failed").put("error", failure.toString());
+                throw new IllegalStateException("native layer reordering failed", failure);
+            }
+            return new JSONObject(status.toString());
+        }
+        if (method.equals("device.layer_delete")) {
+            Object bank = modelGet(layer, "ExU");
+            if (!automationInstance("com.bitwig.flt.document.core.master.device.AYz", bank))
+                throw new IllegalArgumentException("deletion requires a parallel layer");
+            JSONObject status = newDeviceJob();
+            Runnable remove = () -> {
+                try {
+                    if (modelGet(layer, "ExU") != bank) throw new IllegalArgumentException("layer moved during state preparation");
+                    int before = ((java.util.List<?>) modelGet(bank, "NFl")).size();
+                    DirectAccess.runInUndo(track.clipTimeline(), () -> {
+                        modelGet(bank, "VMm");
+                        try {
+                            try {
+                                classForName("com.bitwig.flt.document.core.master.device.wQg").getMethod("IYM", classForName("pqP")).invoke(null, layer);
+                                bank.getClass().getMethod("IYM", layerType, boolean.class).invoke(bank, layer, true);
+                            } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native layer deletion failed", failure); }
+                        } finally { modelGet(bank, "VxG"); }
+                    });
+                    int after = ((java.util.List<?>) modelGet(bank, "NFl")).size();
+                    if (after != before - 1 || modelGetOrNull(layer, "L_") != null) throw new IllegalStateException("layer ownership was not removed");
+                    status.put("data", new JSONObject().put("count", after)).put("state", "complete");
+                } catch (RuntimeException failure) { status.put("state", "failed").put("error", failure.toString()); }
+            };
+            try {
+                Class<?> errorType = classForName("com.bitwig.base.async.urr");
+                Object errors = java.lang.reflect.Proxy.newProxyInstance(errorType.getClassLoader(), new Class<?>[]{errorType}, (proxy, call, args) -> {
+                    if (call.getDeclaringClass() == Object.class) return switch (call.getName()) {
+                        case "hashCode" -> System.identityHashCode(proxy);
+                        case "equals" -> proxy == args[0];
+                        default -> "OpenwigLayerDeleteError";
+                    };
+                    if (call.getName().equals("IYM")) status.put("state", "failed").put("error", String.valueOf(args[0]));
+                    return null;
+                });
+                classForName("com.bitwig.flt.document.core.master.ymV")
+                        .getMethod("IYM", java.util.Collection.class, Runnable.class, errorType)
+                        .invoke(null, java.util.List.of(layer), remove, errors);
+            } catch (ReflectiveOperationException failure) {
+                status.put("state", "failed").put("error", failure.toString());
+                throw new IllegalStateException("layer state preparation failed", failure);
+            }
+            return new JSONObject(status.toString());
+        }
+        JSONObject changes = params.getJSONObject("changes");
+        if (changes.isEmpty()) throw new IllegalArgumentException("layer changes required");
+        if (changes.has("volume") && changes.has("volume_db")) throw new IllegalArgumentException("choose volume or volume_db");
+        Mixer mixer = layerMixer(layer);
+        for (String key : changes.keySet()) {
+            Object value = changes.get(key);
+            switch (key) {
+                case "name" -> { if (!(value instanceof String name) || name.length() > 256) throw new IllegalArgumentException("layer name string required (maximum 256)"); }
+                case "volume", "volume_db", "pan" -> {
+                    if (mixer == null || !(value instanceof Number number) || !Double.isFinite(number.doubleValue())) throw new IllegalArgumentException("finite mixer value required");
+                    double n = ((Number) value).doubleValue();
+                    double low = key.equals("volume") ? 0 : key.equals("pan") ? -1 : -120;
+                    double high = key.equals("volume") ? 1.9952623149688795 : key.equals("pan") ? 1 : 6;
+                    if (n < low || n > high) throw new IllegalArgumentException("layer mixer value out of range: " + key);
+                }
+                case "muted" -> { if (mixer == null || !(value instanceof Boolean)) throw new IllegalArgumentException("mixer muted boolean required"); }
+                default -> throw new IllegalArgumentException("unknown layer field: " + key);
+            }
+        }
+        DirectAccess.runInUndo(track.clipTimeline(), () -> {
+            if (changes.has("name")) invokeModelSetter(layer, "Qcu", String.class, changes.getString("name"));
+            if (changes.has("volume")) mixer.getVolume().setValue(changes.getDouble("volume"), Unit.RATIO);
+            if (changes.has("volume_db")) mixer.getVolume().setValue(changes.getDouble("volume_db"), Unit.DECIBEL);
+            if (changes.has("pan")) mixer.getPan().setValue(changes.getDouble("pan") * 100, Unit.PERCENTAGE_OF_RANGE);
+            if (changes.has("muted")) mixer.getMute().setValue(changes.getBoolean("muted"));
+        });
+        return layerState(owner, layer);
     }
 
     private static JSONArray chainBanks(Object owner) {
@@ -2566,7 +2712,7 @@ public final class OpenwigDocument {
             case "track.set_monitor" -> updateTrackTarget("monitor", p);
             case "track.set_color" -> updateTrackTarget("color", p);
             case "track.set_send" -> updateTrackTarget("send", p);
-            case "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect", "device.grid_read", "device.read", "device.chain_banks", "device.create_layer", "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.capture_plugin_state",
+            case "device.layer_read", "device.layer_update", "device.layer_delete", "device.layer_move", "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect", "device.grid_read", "device.read", "device.chain_banks", "device.create_layer", "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.operation_status", "device.capture_plugin_state",
                  "device.set_parameters", "device.get_parameters", "device.rename",
                  "device.set_expanded", "device.delete", "device.list_parameters" ->
                     executeDevice(method, p);
@@ -2582,6 +2728,7 @@ public final class OpenwigDocument {
             Track targetTrack = deviceScope(resolveTrack(project, params), params);
             String path = params.optString("path", null);
             return switch (method) {
+                case "device.layer_read", "device.layer_update", "device.layer_delete", "device.layer_move" -> editLayer(method, targetTrack, params);
                 case "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect" -> executeGrid(method, targetTrack, params);
                 case "device.grid_read", "device.read", "device.chain_banks", "device.create_layer" -> {
                     int index = params.getInt("device");
@@ -2613,7 +2760,7 @@ public final class OpenwigDocument {
                         throw new IllegalArgumentException("plugin device index required");
                     yield capturePluginState(modelGet(((ApiObject) devices.get(index)).getTarget(), "Oof"));
                 }
-                case "device.plugin_state_status" -> {
+                case "device.plugin_state_status", "device.operation_status" -> {
                     JSONObject status = pluginStateJobs.get(params.getString("job"));
                     if (status == null) throw new IllegalArgumentException("unknown plugin state job");
                     yield new JSONObject(status.toString());

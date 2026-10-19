@@ -58,6 +58,20 @@ def main():
             assert added["count"] == 2
             second = t.chain(0, added["component"])
             second.add_device("Tool").parameters(0, unit="DECIBEL", VOLUME=-120)
+            first_path = "CONTENTS/CHAIN_LIST/CHAIN0"
+            t.update_layer(0, first_path, name="Audible", pan=.2, volume_db=-3, muted=True)
+            layer = t.read_layer(0, first_path)
+            assert layer["name"] == layer["title"] == "Audible"
+            assert abs(layer["mixer"]["volume_db"] + 3) < 1e-6 and layer["mixer"]["muted"]
+            t.update_layer(0, first_path, pan=0, volume=1, muted=False)
+            t.update_layer(0, added["component"], name="Muted", muted=True)
+            loud = t.create_layer(0, "CONTENTS/CHAIN_LIST")["component"]
+            t.update_layer(0, loud, name="Delete audible layer")
+            t.chain(0, loud).add_device("Tool")
+            moved = t.move_layer(0, first_path, 2)
+            assert moved["component"] == "CONTENTS/CHAIN_LIST/CHAIN2" and moved["name"] == "Audible"
+            assert [c["layer"]["name"] for c in t.read_device(0)["chains"]] == ["Muted", "Delete audible layer", "Audible"]
+            assert t.move_layer(0, moved["component"], 0)["component"] == first_path
             grid = s.track("Grid chains").add_device("Poly Grid")
             grid.chain(0, "CONTENTS/PRE_FX/Chain").add_device("Note Transpose")
             grid.chain(0, "CONTENTS/POST_FX/Chain").add_device("Tool")
@@ -77,6 +91,27 @@ def main():
                 w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
                 w.writeframes((12000 * np.sin(2 * np.pi * 440 * np.arange(rate * 3) / rate)).astype("<i2").tobytes())
             t.import_audio(sample)
+            rate, parallel = capture(s, out / "parallel-before-delete.wav", capture_exe=a.process_capture, engine_pid=a.engine_pid)
+            parallel_rms = tone_rms(parallel, rate, 1., 440)
+            assert t.delete_layer(0, loud)["count"] == 2
+            rate, removed = capture(s, out / "parallel-after-delete.wav", capture_exe=a.process_capture, engine_pid=a.engine_pid)
+            removed_rms = tone_rms(removed, rate, 1., 440)
+            assert abs(removed_rms / parallel_rms - .501187 / 1.501187) < .03, (removed_rms, parallel_rms)
+            # Validate the entire batch before changing a layer name or level.
+            before = s.dump()
+            for method, changes in [
+                ("device.layer_update", dict(changes=dict(name="must not change", pan=2))),
+                ("device.layer_update", dict(changes=dict(volume=.5, volume_db=-6))),
+                ("device.layer_move", dict(index=10)),
+                ("device.layer_move", dict(index=.5)),
+            ]:
+                try:
+                    s.b.request(method, dict(path="Nested", device=0, component=first_path, **changes))
+                except BridgeError:
+                    pass
+                else:
+                    raise AssertionError(f"invalid layer edit accepted: {method}")
+                assert s.dump() == before
             deep.enable_device(0, False)
             rate, baseline = capture(s, out / "baseline.wav", capture_exe=a.process_capture, engine_pid=a.engine_pid)
             baseline_rms = tone_rms(baseline, rate, 1., 440)

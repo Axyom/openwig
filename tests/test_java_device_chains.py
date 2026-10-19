@@ -7,6 +7,12 @@ from test_java_song import FakeJavaBridge
 
 class ChainBridge(FakeJavaBridge):
     def request(self, method, params=None, timeout=None):
+        if method in {"device.layer_move", "device.layer_delete"}:
+            self.calls.append((method, params))
+            return {"state": "complete", "data": params}
+        if method.startswith("device.layer_"):
+            self.calls.append((method, params))
+            return params
         if method == "device.set_parameters" or method.startswith("device.grid_"):
             self.calls.append((method, params))
             return params
@@ -91,4 +97,34 @@ def test_invalid_grid_calls_reject_before_rpc(call):
     bridge.calls.clear()
     with pytest.raises(ValueError):
         call(track)
+    assert not bridge.calls
+
+
+def test_layer_controls_keep_owner_scope():
+    bridge = ChainBridge()
+    t = JavaSong(bridge=bridge).track_at("Group/Audio").chain(0, "CONTENTS/FX/Chain")
+    bridge.calls.clear()
+    path = "CONTENTS/CHAIN_LIST/CHAIN0"
+    t.read_layer(1, path)
+    t.update_layer(1, path, name="Quiet", volume_db=-6, pan=-.2, muted=True)
+    t.move_layer(1, path, 2)
+    t.delete_layer(1, path)
+    base = {"path": "Group/Audio", "chain": [{"device": 0, "component": "CONTENTS/FX/Chain"}],
+            "device": 1, "component": path}
+    assert bridge.calls == [
+        ("device.layer_read", base),
+        ("device.layer_update", {**base, "changes": {"name": "Quiet", "volume_db": -6, "pan": -.2, "muted": True}}),
+        ("device.layer_move", {**base, "index": 2}),
+        ("device.layer_delete", base)]
+
+
+@pytest.mark.parametrize("changes", [dict(name=None), dict(pan=2), dict(volume=-1),
+    dict(volume_db=float("nan")), dict(volume_db=7), dict(volume=1, volume_db=0),
+    dict(muted=1), dict(unknown=1), {}])
+def test_invalid_layer_batches_reject_locally(changes):
+    bridge = ChainBridge()
+    t = JavaSong(bridge=bridge).track_at("Audio")
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        t.update_layer(0, "CONTENTS/CHAIN_LIST/CHAIN0", **changes)
     assert not bridge.calls
