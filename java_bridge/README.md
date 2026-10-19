@@ -565,22 +565,39 @@ Example: `track.update_audio_event(0, 0, warp_mode="ELASTIQUE_PRO",
 warp_markers=[[0, 0], [5, 1], [7.5, 3]], content_offset=0, transpose=7,
 preserve_formants=False)`.
 
-**Runtime limitation:** these state writes persist and produce verified pitch
-and warp behavior after saving/reopening. Immediate playback after some mode
-transitions can retain inconsistent processing state, including on copied clips.
-Save/reopen before relying on the processing render. This remains an open parity
-gap; the Java bridge does not claim complete live audio editing. General audio
-expression curves, warped-event source offsets/reverse, and formant envelope
-resolution are also pending.
+Immediate stretch, REPITCH, and semitone-shift playback now pass without a
+save/reopen. The former apparent processing-cache regression came from track
+deletion: removing only a visible track reference left its owning object alive
+and audible. Old tracks then mixed with newly authored fixtures. Deletion now
+removes both visible and owning bank memberships, matching the native Delete
+Tracks sequence for main and effect tracks. No warp-cache workaround or native
+engine disassembly was needed. General audio expression curves, warped-event
+source offsets/reverse, and formant envelope resolution remain pending.
 
 Manual gate: `tests/live_java_warps.py --disposable --project <open fixture>
---output <fresh directory>`, then reopen the saved file and use `--verify --render`.
-`--live-render` explicitly exercises the unresolved immediate-playback regression.
-At 150 BPM the authored synthetic source verified pitch-preserving stretch,
-REPITCH rate-dependent pitch, and a seven-semitone shift after reopen. The saved
-fixture preserves nondefault processing settings with zero reader differences.
-All ten mode names were read back; this is not a separate audible certification
-of every algorithm and every settings combination.
+--output <fresh directory> --live-render --repeat 3`. Each iteration saves a
+fresh fixture, checks immediate stretch (440/880 Hz), REPITCH (220/1760 Hz), and
++7 semitones (about 660/1316 Hz), then clears it and rejects lingering fixture
+tones. It also covers nested groups and effect-track deletion. With `--repeat`,
+fixtures live in `run-1`, `run-2`, etc. Reopen a run's `saved/project.bwproject`
+and pass that run directory to `--verify --render` for persistence/readback.
+All ten algorithm names are read back; audible certification covers the three
+processing cases above, not every algorithm/settings combination.
+
+The default capture uses system loopback, so other apps must be quiet. On
+Windows, `tests/windows_process_loopback.cpp` is an optional manual-test helper
+that records only the supplied audio-engine PID (not the launcher PID). Build
+from a Visual Studio x64 developer prompt with the installed Windows SDK:
+
+```bat
+cl /EHsc /std:c++17 /DNTDDI_VERSION=0x0A00000A tests\windows_process_loopback.cpp /Foscratch\process_loopback.obj /Fescratch\process_loopback.exe /link ole32.lib mmdevapi.lib
+```
+
+Then append `--process-capture scratch/process_loopback.exe --engine-pid <PID>`
+to the gate. Activate audio before identifying its process; engine PIDs change
+on restart. Capture remains a manual test aid, not a change to `JavaSong.render`.
+The deletion check measures lingering fixture tones rather than endpoint-wide
+silence, allowing Bitwig's metronome clicks. Only use disposable projects.
 
 ## Launcher clip slots (2026-10-19)
 

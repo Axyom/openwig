@@ -261,8 +261,8 @@ public final class OpenwigDocument {
             DirectAccess.runInUndo(project,
                     () -> modifyModel(project, () -> DirectAccess.removeEffectTrack(group, target)));
             int after = project.getTrackGroup().effectTracks().size();
-            if (after != before - 1) {
-                throw new IllegalStateException("effect track count did not decrease after deletion");
+            if (after != before - 1 || modelGet(target, "L_") != null) {
+                throw new IllegalStateException("effect track was not removed from both native banks");
             }
             return after;
         } finally {
@@ -386,10 +386,16 @@ public final class OpenwigDocument {
             Kkl target = (Kkl) ((ApiObject) targetItem).getTarget();
             int before = project.getTrackGroup().mainTracks().size();
             DirectAccess.runInUndo(project,
-                    () -> modifyModel(project, () -> group.jPB(target)));
+                    () -> modifyModel(project, () -> {
+                        // The visible bank is a reference list; the owning bank
+                        // keeps the track (and its engine playback) alive.
+                        // Match native Delete Tracks: remove both memberships.
+                        group.jPB(target);
+                        group.jPB(target, true);
+                    }));
             int after = project.getTrackGroup().mainTracks().size();
-            if (after != before - 1) {
-                throw new IllegalStateException("track count did not decrease after deletion");
+            if (after != before - 1 || modelGet(target, "L_") != null) {
+                throw new IllegalStateException("track was not removed from both native banks");
             }
             return after;
         } finally {

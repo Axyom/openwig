@@ -332,6 +332,14 @@ public final class PatchMain {
         removeEffect.visitTypeInsn(Opcodes.CHECKCAST, "roo");
         removeEffect.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
                 "com/bitwig/flt/document/core/master/Yko", "Gcr", "(Lroo;)V", false);
+        // Native deletion removes the visible FX reference and its owning bank.
+        removeEffect.visitVarInsn(Opcodes.ALOAD, 0);
+        removeEffect.visitTypeInsn(Opcodes.CHECKCAST, "com/bitwig/flt/document/core/master/Yko");
+        removeEffect.visitVarInsn(Opcodes.ALOAD, 1);
+        removeEffect.visitTypeInsn(Opcodes.CHECKCAST, "roo");
+        removeEffect.visitInsn(Opcodes.ICONST_1);
+        removeEffect.visitMethodInsn(Opcodes.INVOKEVIRTUAL,
+                "com/bitwig/flt/document/core/master/Yko", "IYM", "(Lroo;Z)V", false);
         removeEffect.visitInsn(Opcodes.RETURN);
         removeEffect.visitMaxs(0, 0);
         removeEffect.visitEnd();

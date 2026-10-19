@@ -213,7 +213,7 @@ shape application must offset caller points past that anchor and validate times.
   via `HT3(double)`, and `wtf()` curve via `KF3(xEd)` after finalization.
   Live copied fade/content persistence and forward/reverse audio tests pass.
 
-### Warp/processing state writes (6.1.5; immediate DSP gap remains)
+### Warp/processing state writes (6.1.5)
 
 - `Factory.createWarpEvents()` / `WarpMarkers.addWarpEvent(beat,seconds)` stage
   explicit mappings; validate native areWarpMarkersValid before attaching.
@@ -225,9 +225,25 @@ shape application must offset caller points past that anchor and validate times.
   transient preservation/rate, grain size and tail mode. Runtime enum valueOf
   uses the actual host enum (compile stubs need no copied native implementation).
 - Native state readbacks cover all ten modes and nondefault settings; persistence
-  and reopened shifted audio pass. **Immediate live processing remains unreliable**
-  after some mode transitions. The failing regression is preserved separately
-  from the save/reopen gate; no successful runtime-cache fix is claimed.
+  and reopened shifted audio pass. Immediate stretch/REPITCH/+7 playback also
+  passes with corrected track deletion. The apparent stale DSP was deleted
+  tracks still sounding, not evidence of a missing warp notification.
 - Inspected refresh paths `KoO.JTi -> BBa.QmZ -> yMP.kxC -> e2n.tY1` and
-  `KoO.fv_ -> MjL.UqY/IxG`, plus fresh event identities, did not resolve all
-  transitions. They were removed rather than shipping speculative fixes.
+  `KoO.fv_ -> MjL.UqY/IxG`, fresh identities, modification scopes and copy-order
+  experiments did not fix the regression; none is shipped as a workaround.
+
+### Track ownership and deletion (6.1.5)
+
+- Exact-build `com.bitwig.flt.document.core.master.HYn` maintains separate
+  reference and owning banks. Main: `jPB(Kkl)` removes the visible reference;
+  `jPB(Kkl,boolean)` removes the owned child from `QPT` and clears its parent.
+  FX: `Gcr(roo)` removes the visible reference; `IYM(roo,boolean)` removes
+  the owned child from `gTC` and clears its parent. Pass `true` for deletion.
+- The native `n1z` Delete Tracks path uses both operations for each bank.
+  The bridge now pairs these operations inside its native undo transaction
+  and checks both the visible count and that the removed target has no parent.
+  Reference-only removal leaves old tracks audible even after the reader reports
+  zero tracks; recreating fixtures then mixes old and new processing results.
+- `tests/live_java_warps.py --live-render --repeat 3` covers immediate processing
+  across repeated saves/clears, nested groups, FX deletion, and absence of old
+  fixture tones. Optional engine-PID loopback excludes unrelated applications.

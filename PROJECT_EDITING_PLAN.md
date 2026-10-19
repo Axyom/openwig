@@ -96,8 +96,10 @@ Do not equate native snapshot preservation with arbitrary field editing.
      event import/move/resize/gain/mute/reverse/exact deletion and empty-lane reuse.
    - Implemented state authoring: warp modes/markers/content offset, pitch,
      formant/pan and processing settings; save/reopen and reopened pitch proof.
-   - Pending: reliable immediate DSP mode transitions, warped-event source
-     offsets/reverse, general expression curves and envelope resolution.
+   - Done: immediate stretch/REPITCH/pitch regression traced to orphaned deleted
+     tracks; main/FX deletion now removes visible and owning memberships.
+   - Pending: warped-event source offsets/reverse, general expression curves
+     and envelope resolution.
    - Use authored synthetic audio fixtures. Verify timing and audible output,
      media collection, and save/reopen; never use track counts as sole proof.
 3. **Plugins, nested device chains, and routing — pending.**
@@ -105,7 +107,7 @@ Do not equate native snapshot preservation with arbitrary field editing.
      state; read/write parameters and automation; manipulate nested chains.
    - Complete routing and modulation edits, documenting actual format coverage.
      Resident plugin caches may be unavailable; never invent values.
-4. **Launcher and scene editing: done.**
+4. **Launcher clip slots done; scene-bank editing pending.**
    - Scene name/comment/color edits landed earlier (`update_scene`).
    - Launcher slots landed 2026-10-19: author MIDI/audio slots, arranger-to-slot
      copy, container edits, shared audio-event edits via slot addressing,
@@ -134,6 +136,64 @@ Do not equate native snapshot preservation with arbitrary field editing.
      All required checks green, changes pushed, working tree accounted for.
 
 ## Current checkpoint: start here
+
+2026-10-19: the apparent immediate warp/DSP regression was traced to **track
+ownership**, not a missing processing-cache notification. `deleteTrack` removed
+only the visible reference (`Yko.jPB(Kkl)`), leaving the actual owned track and
+its audio engine alive. After clearing the fixture, the reader reported zero
+tracks but engine-only loopback still played the previous 660/1316 Hz material.
+Repeated fixtures accumulated audible hidden tracks. Save/reopen discarded the
+unreferenced tracks, explaining the earlier misleading cache diagnosis.
+
+Fix: pair main reference removal with `Yko.jPB(Kkl,true)`; pair FX reference
+removal `Yko.Gcr(roo)` with owning removal `Yko.IYM(roo,true)`. Both pairs match
+the native `n1z` Delete Tracks membership sequence and remain inside undo.
+Postconditions check visible counts and the target's cleared parent. Fresh
+exact-build CFR sources: `scratch/decomp/warp-sync/`, especially packaged
+`HYn`, `Yko`, `oZU`, `ZfA`, `n1z` and `ymV`. Class-name collisions are common;
+resolve imports rather than trusting unqualified decompiles.
+
+The permanent `tests/live_java_warps.py` gate now activates audio, supports
+`--repeat`, checks immediate stretch/REPITCH/+7 playback, and checks that old
+fixture tones are absent after clear. It covers nested groups and FX deletion.
+Optional Windows process loopback (`tests/windows_process_loopback.cpp`,
+`tests/live_audio_capture.py`, `--process-capture ... --engine-pid ...`) excludes
+other applications, which were contaminating system recordings during this
+investigation. Use the **audio-engine PID** after activation, not a launcher PID.
+Metronome clicks can remain: the clear check rejects fixture tones rather than
+requiring endpoint-wide silence.
+
+Evidence: a negative control built from committed `3ffa002` fails the new gate
+at `scratch/warp-negative-control/cleared.json`: zero visible main/FX tracks,
+fixture-tone RMS **0.0337323** against a **0.001** limit. Corrected repeated gates
+`scratch/warp-fixed-gate/run-{1,2,3}/` and final nested/FX gate
+`scratch/warp-fixed-final-gate/run-{1,2,3}/` all pass. Each run saves its own
+native project, records immediate renders, and writes main/group and FX deletion
+reports (remaining tone RMS about **5.1e-7**). The third saved fixture reopened
+with **zero reader differences**, three audio clips/events, and 660/1316 Hz
+shifted playback. Unit suite: **201 passed** (including capture calibration);
+Java build/JAR protocol smoke, checked-in C++ capture-helper build, controller
+syntax and whitespace checks passed. Consult the feature-branch commit/CI for
+remote status; no native engine binary was modified.
+
+Runtime is clean: the identified disposable host was closed without saving and
+`scratch/bitwig-6.1.5-live/bin/bitwig.jar` restored to the exact original hash.
+The tested patch is retained as `scratch/bitwig-6.1.5-openwig.jar` and
+`scratch/warp-fixed-verified.jar`. No bridge listens on 7778. The preserved
+reopened fixture is `scratch/warp-fixed-final-gate/run-3/saved/project.bwproject`;
+copy it to a separate work directory before future destructive authoring.
+The owner's original Substance project still hashes to
+`3cef520796171bc0ac4088fc89c142ae04f04711215c3bb77b648a23fa5b17a8`.
+The old unrelated PID 20784 zombie remains outside this test lifecycle.
+
+No native engine was disassembled. Unsuccessful scope/copy-order experiments
+were removed; the actual warp setters are unchanged. Only the diagnosed/tested
+regression is closed; do not infer audible certification of all ten algorithms
+or mark the overall goal complete. Next work remains warped audio reverse/
+curves, plugin and nested routing writes, scene-bank structure, Grid, and JSON
+reconstruction.
+
+### Previous launcher increment
 
 Latest increment (2026-10-19): launcher clip slots are live-verified end to
 end. `JavaTrack` now exposes `read_launcher_slot`, `put_launcher_notes`,
@@ -171,16 +231,16 @@ was used. `scratch/editing-launcher-gate/` holds the earlier ad-hoc evidence.
 exact-build Java build, JAR/protocol smoke, controller syntax and whitespace
 checks passed. CI status for this increment's commit to recheck after push.
 
-Still open from the warp increment: the immediate-DSP gap (below),
-plugins/nested routing (milestone 3), Grid (5) and documented JSON
-reconstruction (6). Scene-bank editing (add/remove/reorder scenes) was not
+Still open: warped audio reverse/curves, plugins/nested routing (milestone 3),
+Grid (5) and documented JSON reconstruction (6). The immediate-DSP regression
+was resolved in the current checkpoint above. Scene-bank editing (add/remove/reorder scenes) was not
 part of this increment; only scene metadata edits exist.
 
-Current scratch project: `scratch/editing-launcher-gate-2/saved/project.bwproject`,
-stopped, with the disposable host copy in `.../work/`. No live sessions remain
-running and the live-root jar is restored to the original; one dead 24 K
-`BitwigStudioApp.exe` zombie (PID 20784) ignores kills but holds no ports or
-files. Re-identify processes before any process work.
+At that launcher handoff the host was closed and its JAR restored. Its separate
+`scratch/editing-launcher-gate-2/work/project.bwproject` is the disposable host
+used by the current warp investigation. Never use the saved launcher evidence
+as the clear target. One old dead 24 K `BitwigStudioApp.exe` zombie (PID 20784)
+holds no ports/files; do not act on stale PIDs. Re-identify processes first.
 
 ### Previous warp increment
 
@@ -194,14 +254,12 @@ Source-offset/reverse still require RAW; reversed material must first be made
 forward before replacing its warp mapping. General curves and envelope
 resolution remain pending.
 
-**Verified scope and open DSP gap:** state writes persist correctly and render
-correctly after native save/reopen. Immediate live mode/pitch transitions can
-still use inconsistent old processing state, especially on copied clips and
-after cycling modes. Do not mark audio editing complete or promise reliable
-immediate DSP. `tests/live_java_warps.py --live-render` deliberately retains
-this known failing regression. Mutation without that
-flag verifies state authoring, and `--verify --render` verifies the reopened
-snapshot. Ordinary `--render` requires `--verify`, making the distinction explicit.
+**Historical limitation, now explained:** the original increment verified state
+and reopened DSP but recorded apparent stale immediate processing. The current
+checkpoint establishes that retained owned tracks from incomplete deletion were
+mixing old audio into later fixtures. `--live-render` is now an ordinary passing
+regression with repeated author/clear coverage; it no longer denotes a known
+failure. `--verify --render` still checks native persistence separately.
 
 Final gate: `scratch/editing-warp-final-gate/`. At 150 BPM, markers
 [[0,0],[5,1],[7.5,3]] stretch the first source second over two arrangement seconds
@@ -228,13 +286,12 @@ all transitions reliable. These unsuccessful code workarounds were removed;
 do not claim they fixed it. Fresh exact-build CFR sources include
 ApiModificationProcessor, KoO/pUn/Tc, BBa/BOt, MjL and yMP under
 `scratch/decomp/editing/`. `KoO.JTi -> BBa.QmZ -> yMP.kxC -> e2n.tY1` refreshes
-source state; `KoO.fv_` calls `MjL.UqY/IxG`. Actual native audio graph/processing
-invalidation still needs investigation.
+source state; `KoO.fv_` calls `MjL.UqY/IxG`. The old cache-invalidation hypothesis was superseded by the owning-bank
+deletion diagnosis in the current checkpoint.
 
 The warp gate's evidence and saved fixture remain in
-`scratch/editing-warp-final-gate/`, preserved. Next: close the immediate DSP
-gap or continue with plugins/nested routing, Grid and JSON reconstruction,
-retaining the gap in the completion audit. The overall goal remains active
+`scratch/editing-warp-final-gate/`, preserved. Next: continue with the remaining
+audio edits, plugins/nested routing, Grid and JSON reconstruction. The overall goal remains active
 and incomplete.
 
 ### Previous RAW audio-event increment
