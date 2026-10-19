@@ -1,6 +1,6 @@
 # Full project editing: active goal and agent handoff
 
-Last updated: 2026-10-19. Goal is **active**, not complete.
+Last updated: 2026-10-20. Goal is **active**, not complete.
 
 ## Owner request and authorization
 
@@ -73,7 +73,55 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
   smoke, and all five GitHub CI jobs passed.
 
-## Latest checkpoint: scene-bank structure (2026-10-19)
+## Latest checkpoint: modulator editing (2026-10-20)
+
+- Worked in a separate worktree branch `codex/modulator-editing` (from `78b3574`);
+  not merged into `codex/java-bridge-615`. See `java_bridge/README.md`,
+  "Modulator editing", for the native entry points. CFR sources:
+  `scratch/decomp/modulators/` (gDz, JDY, KaT, Hx3, AwX, AvA, CzJ, QFL, m1C/zgi,
+  aB, eQt, packaging MD/LXO/Byq, Api*ValueAtom).
+- Python: `JavaSong.modulator_catalog()`; track and chain handles add `modulators`,
+  `add_modulator(device, name_or_uuid, x=, y=, values=)`, `modulator_parameters`,
+  `set_modulator_parameters`, `bind_modulator(device, modulator, target_parameter,
+  amount, source=, target_device=)`, `unbind_modulator`, `move_modulator`,
+  `delete_modulator`. Reader adds modulator `x`/`y`/`modulator_id` and binding
+  `amount_normalized`/`enabled`. Old controller-bridge path was not reused.
+- Gate `tests/live_java_modulators.py` passed in `scratch/editing-modulators/gate-5/`
+  (mutation, then `--verify` after native reopen). Envelope depth of a 440 Hz
+  sine through Tool, LFO -> `AMPLITUDE`: unmapped 0.37 dB, amount -0.5 35.3 dB,
+  -0.15 10.6 dB, LFO DEPTH 0 0.0 dB, unmapped again 0.0 dB, after load 35.2 dB,
+  modulator deleted 0.04 dB, final 35.5 dB. FX Layer LFO into its nested Tool
+  (660 Hz): 0.08 dB unmapped, 34.8 dB mapped; sibling-device target rejected.
+  Load during playback: 45 insertions, 180 mapping writes, 27 deletions,
+  18 unmappings over three Polysynth tracks; engine PID alive throughout.
+  21 rejected inputs left `dump()` unchanged. Reopen: zero reader differences
+  (27 modulators, 41 mappings), reopened 36.0 dB / nested 35.5 dB.
+- Found and mitigated: a parameter write sent as a separate event right after
+  insertion is dropped by the engine (document says unipolar, audio stays
+  bipolar). 0 ms failed 3/3; 50..500 ms passed. Fix: `values=` staged before
+  insertion (3/3 without pacing) plus 250 ms Python pacing after insertion
+  (3/3). Measured pacing, not an engine fence (`diag-insert-race-*`).
+- Gate pitfall: an LFO boosting a full-scale tone (bipolar, +36 dB on Tool
+  AMPLITUDE) triggers output limiting that ducks every other tone in the
+  capture; it looked like cross-track modulation leakage
+  (`diag-nested-1..3`). Gates now use a unipolar LFO with negative amounts and
+  assert attenuation only. gate-1 (metric), gate-3 (limiter) failed; gate-2/
+  gate-4 passed older assertions (gate-4's final capture shows the race).
+- Not covered: undo/redo replay; mapping enable, transfer function and
+  auxiliary scaling; track remote-control, mixer and modulator-parameter
+  targets; plugin-hosted modulators; `unit=` for modulator parameters (HERTZ
+  returned unconverted values); whether device insertion has the same race.
+  Reader: a nested device's self-mapping reports `target_owner` without its
+  chain step (pre-existing labeling).
+- Unit suite: 291 passed; exact-build build, offline smoke, controller syntax
+  and diff checks passed. Modulator JAR `scratch/editing-modulators/openwig.jar`
+  SHA-256 `812ae24a8f4c22e98d238d567267ef89b7dc089dc0c115557f4386e54d0f3d7c`.
+- Runtime: scratch host has `scratch/editing-modulators/gate-5/saved/project.bwproject`
+  open, stopped, with the modulator JAR installed (not the shared
+  `scratch/bitwig-6.1.5-openwig.jar`). Mutable copy:
+  `scratch/editing-modulators/work/project.bwproject`.
+
+## Previous checkpoint: scene-bank structure (2026-10-19)
 
 - `JavaSong.scenes()`, `insert_scene(index=None)`, `delete_scene(index)`,
   `move_scene(index, destination)`; methods `scene.snapshot/insert/delete/move`.
@@ -210,6 +258,8 @@ Do not equate native snapshot preservation with arbitrary field editing.
    - Discover installed plugin identities; insert supported formats; load/save
      state; read/write parameters and automation; manipulate nested chains.
    - Complete routing and modulation edits, documenting actual format coverage.
+     Device modulators (insert/parameters/mappings/move/delete) landed
+     2026-10-20 on `codex/modulator-editing`; see its checkpoint.
      Resident plugin caches may be unavailable; never invent values.
 4. **Launcher clip slots and scene-bank structure done.**
    - Scene name/comment/color edits landed earlier (`update_scene`).

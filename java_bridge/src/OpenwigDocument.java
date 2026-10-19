@@ -708,9 +708,13 @@ public final class OpenwigDocument {
                     .put("id", jsonModelValue(modelGet(modulator, "UNI")))
                     .put("device_name", modelGet(modulator, "HT3"))
                     .put("display_name", modelGet(modulator, "ruM"))
-                    .put("preset", modelGet(modulator, "SVb"));
+                    .put("preset", modelGet(modulator, "SVb"))
+                    .put("x", modelGet(modulator, "AOA")).put("y", modelGet(modulator, "KF3"));
             try {
                 Object contents = modelGet(modulator, "dsw");
+                // nJS.ppu() is the definition's factory identity (F3z.Gcr() UUID).
+                Object identity = contents == null ? null : modelGetOrNull(modelGetOrNull(contents, "ppu"), "Gcr");
+                item.put("modulator_id", identity == null ? JSONObject.NULL : identity.toString());
                 item.put("parameters", readModulatorParameters(modulator, contents, decimal, bool, indexed));
                 item.put("bindings", readModulatorBindings(contents, target, path, deviceIndex,
                         owners, context, atomPaths, atomOwners));
@@ -841,6 +845,11 @@ public final class OpenwigDocument {
                         binding.put("target_owner", new JSONObject().put("resolved", false));
                 }
                 if (amount instanceof Number number) binding.put("amount", number.doubleValue());
+                // AvA.LZe(): amount over the target's modulation span, clamped to -1..1.
+                Object normalized = modelGetOrNull(entry, "LZe");
+                if (normalized instanceof Number number) binding.put("amount_normalized", number.doubleValue());
+                Object enabled = modelGetOrNull(entry, "oLP");
+                if (enabled instanceof Boolean flag) binding.put("enabled", flag);
                 bindings.put(binding);
             }
         }
@@ -1346,6 +1355,267 @@ public final class OpenwigDocument {
             if (changes.has("muted")) mixer.getMute().setValue(changes.getBoolean("muted"));
         });
         return layerState(owner, layer);
+    }
+
+    // Factory modulators registered in the exact build's packaging table (MD/LXO).
+    private static JSONArray modulatorCatalog() {
+        JSONArray result = new JSONArray();
+        try {
+            Class<?> table = classForName("com.bitwig.flt.packaging.core.MD");
+            for (Object entry : (java.util.List<?>) table.getMethod("IYM").invoke(null)) {
+                if (!((Enum<?>) modelGet(entry, "Gcr")).name().equals("MODULATOR")) continue;
+                result.put(new JSONObject().put("name", modelGet(entry, "jPB"))
+                        .put("modulator_id", modelGet(entry, "IYM").toString()));
+            }
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("modulator catalog unavailable", failure); }
+        return result;
+    }
+
+    private static java.lang.reflect.Method declaredMethod(Class<?> type, String name, Class<?>... parameters) {
+        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+            try {
+                java.lang.reflect.Method method = c.getDeclaredMethod(name, parameters);
+                method.setAccessible(true);
+                return method;
+            } catch (NoSuchMethodException ignored) {
+                // Look on the superclass.
+            }
+        }
+        throw new IllegalStateException("native method missing: " + type.getName() + "." + name);
+    }
+
+    private static Object invokeNative(Object target, java.lang.reflect.Method method, Object... args) {
+        try { return method.invoke(target, args); }
+        catch (java.lang.reflect.InvocationTargetException failure) {
+            if (failure.getCause() instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("native call failed: " + method.getName(), failure.getCause());
+        } catch (IllegalAccessException failure) { throw new IllegalStateException("native call denied: " + method.getName(), failure); }
+    }
+
+    private static int integerField(JSONObject params, String key, int low, int high) {
+        Object value = params.opt(key);
+        if (!(value instanceof Integer number) || number < low || number > high)
+            throw new IllegalArgumentException(key + " must be an integer within " + low + ".." + high);
+        return number;
+    }
+
+    private static Object modulatorOwner(Track track, JSONObject params, String key) {
+        java.util.List<?> members = track.deviceChain().getDevices();
+        int index = integerField(params, key, 0, Math.max(0, members.size() - 1));
+        if (index >= members.size()) throw new IllegalArgumentException(key + " index out of range");
+        return ((ApiObject) members.get(index)).getTarget();
+    }
+
+    private static java.util.List<?> modulatorList(Object owner) {
+        Object bank = modelGetOrNull(owner, "YGC");
+        if (bank == null) throw new IllegalArgumentException("device has no modulator bank");
+        return (java.util.List<?>) modelGet(bank, "Klm");
+    }
+
+    // Hx3 source components of one modulator, keyed by their stored component key.
+    private static java.util.Map<String, Object> modulationSources(Object modulator) {
+        java.util.Map<String, Object> sources = new java.util.LinkedHashMap<>();
+        Object children = modelGetOrNull(modelGet(modulator, "dsw"), "hMI");
+        if (children instanceof java.util.List<?> list)
+            for (Object child : list)
+                if (automationInstance("com.bitwig.flt.document.core.master.device.Hx3", child))
+                    sources.put(String.valueOf(modelGetOrNull(child, "az_")), child);
+        return sources;
+    }
+
+    private static java.util.Map<String, Object> modulatorAtoms(Object modulator) {
+        Class<?> decimal = classForName("Ob"), bool = classForName("KOL"), indexed = classForName("mqD");
+        Object contents = modelGet(modulator, "dsw");
+        java.util.Map<String, Object> atoms = new java.util.LinkedHashMap<>();
+        if (contents == null) return atoms;
+        java.util.List<Object> found = new java.util.ArrayList<>();
+        walkAtoms(contents, 0, new java.util.IdentityHashMap<>(), found, decimal, bool, indexed);
+        for (Object atom : found) {
+            String fullPath = automationIdentifier(modulator, atom);
+            if (fullPath == null) fullPath = automationIdentifier(contents, atom);
+            if (fullPath != null && fullPath.startsWith("CONTENTS/")) atoms.put(fullPath.substring("CONTENTS/".length()), atom);
+        }
+        return atoms;
+    }
+
+    private static Object parameterWrapper(Object atom) {
+        String type = automationInstance("Ob", atom) ? "ApiDecimalValueAtom" : automationInstance("KOL", atom) ? "ApiBooleanValueAtom"
+                : automationInstance("mqD", atom) ? "ApiIndexedValueAtom" : null;
+        if (type == null) throw new IllegalArgumentException("unsupported modulator parameter kind");
+        try {
+            Class<?> wrapper = classForName("com.bitwig.flt.document.api.document." + type);
+            return wrapper.getConstructors()[0].newInstance(atom);
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("parameter wrapper failed", failure); }
+    }
+
+    private static JSONObject modulatorValues(java.util.Map<String, Object> atoms, Unit unit, String unitName) {
+        JSONObject values = new JSONObject();
+        for (java.util.Map.Entry<String, Object> entry : atoms.entrySet()) {
+            Object wrapper = parameterWrapper(entry.getValue());
+            if (wrapper instanceof DoubleParameter p) values.put(entry.getKey(), toClientValue(p.getValue(unit), unitName));
+            else if (wrapper instanceof BooleanParameter p) values.put(entry.getKey(), p.getValue());
+            else if (wrapper instanceof EnumParameter p) values.put(entry.getKey(), p.getValue());
+        }
+        return values;
+    }
+
+    // Validate a whole {path: value} batch before any write: normalized 0..1
+    // numbers (or explicit-unit numbers), booleans, and in-range enum indexes.
+    private static java.util.Map<String, Object> stageModulatorValues(java.util.Map<String, Object> atoms,
+                                                                    JSONObject params, String unitName) {
+        JSONObject changes = params.optJSONObject("values");
+        if (changes == null || changes.isEmpty()) throw new IllegalArgumentException("nonempty values object required");
+        java.util.Map<String, Object> wrappers = new java.util.LinkedHashMap<>();
+        for (String name : changes.keySet()) {
+            Object atom = atoms.get(name), value = changes.get(name);
+            if (atom == null) throw new IllegalArgumentException("unknown modulator parameter: " + name);
+            Object wrapper = parameterWrapper(atom);
+            boolean valid = wrapper instanceof BooleanParameter ? value instanceof Boolean
+                    : wrapper instanceof EnumParameter ? value instanceof Integer
+                    : value instanceof Number number && !(value instanceof Boolean) && Double.isFinite(number.doubleValue())
+                            && (unitName != null && !unitName.isBlank() || (number.doubleValue() >= 0 && number.doubleValue() <= 1));
+            if (wrapper instanceof EnumParameter && valid) {
+                // dZZ.F1E() is the stored enum type; aJ.Trh() its entry count.
+                int count = ((Number) modelGet(modelGet(atom, "F1E"), "Trh")).intValue();
+                valid = (Integer) value >= 0 && (Integer) value < count;
+            }
+            if (!valid) throw new IllegalArgumentException("invalid value for modulator parameter: " + name);
+            wrappers.put(name, wrapper);
+        }
+        return wrappers;
+    }
+
+    private static void applyModulatorValues(java.util.Map<String, Object> wrappers, JSONObject changes, String unitName) {
+        Unit unit = unitByName(unitName);
+        for (java.util.Map.Entry<String, Object> entry : wrappers.entrySet()) {
+            Object value = changes.get(entry.getKey());
+            if (entry.getValue() instanceof DoubleParameter p) p.setValue(fromClientValue(((Number) value).doubleValue(), unitName), unit);
+            else if (entry.getValue() instanceof BooleanParameter p) p.setValue((Boolean) value);
+            else if (entry.getValue() instanceof EnumParameter p) p.setValue((Integer) value);
+        }
+    }
+
+    private static Object bindingFor(Object source, Object atom) {
+        for (Object entry : (java.util.List<?>) modelGet(source, "gTC")) {
+            Object reference = modelGetOrNull(entry, "kxC");
+            if (reference != null && modelGetOrNull(reference, "XYl") == atom) return entry;
+        }
+        return null;
+    }
+
+    // Modulator editing on the device's JDY bank. Insertion, deletion, moves and
+    // modulation mappings call Bitwig's own entries, each owning its undo action
+    // ("Add modulator", delete modulators, "Move Modulators", the merged mapping
+    // amount transaction, "Clear modulation"); parameter writes share one undo.
+    private static JSONObject editModulator(String method, Track track, JSONObject params) {
+        Object owner = modulatorOwner(track, params, "device");
+        java.util.List<?> modulators = modulatorList(owner);
+        Object bank = modelGet(owner, "YGC");
+        Class<?> modulatorType = classForName("com.bitwig.flt.document.core.master.device.gDz");
+        if (method.equals("device.modulator_add")) {
+            if (modulators.size() >= 256) throw new IllegalArgumentException("modulator limit exceeded");
+            java.util.UUID id;
+            try { id = java.util.UUID.fromString(params.getString("modulator_id")); }
+            catch (RuntimeException invalid) { throw new IllegalArgumentException("modulator UUID required"); }
+            boolean known = false;
+            for (Object item : modulatorCatalog()) known |= ((JSONObject) item).getString("modulator_id").equals(id.toString());
+            if (!known) throw new IllegalArgumentException("not a factory modulator: " + id);
+            int x = params.has("x") ? integerField(params, "x", 0, 4095) : 0;
+            int y = params.has("y") ? integerField(params, "y", 0, 2) : 0;
+            if (params.has("x") && invokeNative(bank, declaredMethod(bank.getClass(), "IYM", int.class, int.class), x, y) != null)
+                throw new IllegalArgumentException("modulator cell is occupied");
+            Object created = invokeNative(null, declaredMethod(modulatorType, "tDS", java.util.UUID.class), id);
+            if (created == null || modelGet(created, "dsw") == null) throw new IllegalStateException("modulator definition did not load");
+            // Initial values are written to the staged modulator, so the engine
+            // instantiates it with them. A write to a just-inserted modulator in
+            // a separate, immediately following event was live-verified to be
+            // dropped by the engine (document and audio then disagree).
+            if (params.has("values")) applyModulatorValues(stageModulatorValues(modulatorAtoms(created), params, null),
+                    params.getJSONObject("values"), null);
+            java.util.List<?> before = new java.util.ArrayList<>(modulators);
+            // Match the GUI insertion point (roB): cloned content, native "Add modulator".
+            invokeNative(bank, declaredMethod(bank.getClass(), "IYM", java.util.Collection.class, int.class, int.class,
+                    boolean.class, classForName("com.bitwig.base.async.F3z")), java.util.List.of(created), x, y, true, null);
+            java.util.List<?> after = modulatorList(owner);
+            Object inserted = after.stream().filter(candidate -> !before.contains(candidate)).findFirst()
+                    .orElseThrow(() -> new IllegalStateException("modulator insertion did not add a modulator"));
+            if (after.size() != before.size() + 1) throw new IllegalStateException("modulator count mismatch after insertion");
+            JSONObject result = new JSONObject().put("modulator", after.indexOf(inserted)).put("count", after.size());
+            if (params.has("values")) result.put("values", modulatorValues(modulatorAtoms(inserted), unitByName(null), null));
+            return result;
+        }
+        int index = integerField(params, "modulator", 0, Math.max(0, modulators.size() - 1));
+        if (index >= modulators.size()) throw new IllegalArgumentException("modulator index out of range");
+        Object modulator = modulators.get(index);
+        switch (method) {
+            case "device.modulator_delete" -> {
+                invokeModelSetter(bank, "IYM", java.util.List.class, java.util.List.of(modulator));
+                if (modulatorList(owner).contains(modulator) || modelGetOrNull(modulator, "L_") != null)
+                    throw new IllegalStateException("modulator was not removed");
+                return new JSONObject().put("count", modulatorList(owner).size());
+            }
+            case "device.modulator_move" -> {
+                int x = integerField(params, "x", 0, 4095), y = integerField(params, "y", 0, 2);
+                int dx = x - ((Number) modelGet(modulator, "AOA")).intValue(), dy = y - ((Number) modelGet(modulator, "KF3")).intValue();
+                if (dx == 0 && dy == 0) return new JSONObject().put("modulator", index).put("x", x).put("y", y);
+                if (invokeNative(bank, declaredMethod(bank.getClass(), "IYM", int.class, int.class), x, y) != null)
+                    throw new IllegalArgumentException("modulator cell is occupied");
+                invokeNative(bank, declaredMethod(bank.getClass(), "IYM", modulatorType, java.util.Collection.class, int.class, int.class,
+                        classForName("com.bitwig.base.async.F3z")), modulator, java.util.List.of(modulator), dx, dy, null);
+                if (((Number) modelGet(modulator, "AOA")).intValue() != x || ((Number) modelGet(modulator, "KF3")).intValue() != y)
+                    throw new IllegalStateException("modulator did not reach its requested cell");
+                return new JSONObject().put("modulator", modulatorList(owner).indexOf(modulator)).put("x", x).put("y", y);
+            }
+            case "device.modulator_parameters" -> {
+                java.util.Map<String, Object> atoms = modulatorAtoms(modulator);
+                String unitName = params.optString("unit", null);
+                if (params.has("values")) {
+                    java.util.Map<String, Object> wrappers = stageModulatorValues(atoms, params, unitName);
+                    DirectAccess.runInUndo(track.clipTimeline(), () -> applyModulatorValues(wrappers, params.getJSONObject("values"), unitName));
+                }
+                return new JSONObject().put("modulator", index).put("values", modulatorValues(atoms, unitByName(unitName), unitName));
+            }
+            case "device.modulator_bind", "device.modulator_unbind" -> {
+                java.util.Map<String, Object> sources = modulationSources(modulator);
+                String key;
+                if (params.has("source")) {
+                    key = params.getString("source");
+                    if (!sources.containsKey(key)) throw new IllegalArgumentException("unknown modulation source " + key + "; available " + sources.keySet());
+                } else if (sources.size() == 1) key = sources.keySet().iterator().next();
+                else throw new IllegalArgumentException("modulation source required; available " + sources.keySet());
+                Object source = sources.get(key);
+                Object targetOwner = params.has("target_device") ? modulatorOwner(track, params, "target_device") : owner;
+                String parameter = params.optString("target_parameter", "");
+                if (parameter.isBlank() || parameter.startsWith("/") || parameter.contains("..") || parameter.length() > 1024)
+                    throw new IllegalArgumentException("target_parameter path required");
+                Object atom = deviceComponent(targetOwner, "CONTENTS/" + parameter, classForName("m1C"));
+                if (method.equals("device.modulator_unbind")) {
+                    if (bindingFor(source, atom) == null) throw new IllegalArgumentException("no modulation mapping to " + parameter);
+                    invokeNative(source, declaredMethod(source.getClass(), "Gcr", classForName("m1C")), atom);
+                    if (bindingFor(source, atom) != null) throw new IllegalStateException("modulation mapping was not removed");
+                    return new JSONObject().put("modulator", index).put("source", key).put("removed", true);
+                }
+                Object amountValue = params.opt("amount");
+                if (!(amountValue instanceof Number amount) || amountValue instanceof Boolean || !Double.isFinite(amount.doubleValue())
+                        || Math.abs(amount.doubleValue()) > 1)
+                    throw new IllegalArgumentException("amount must be a finite number within -1..1");
+                if (!(Boolean) invokeNative(source, declaredMethod(source.getClass(), "IYM", classForName("sQi")), atom))
+                    throw new IllegalArgumentException("Bitwig does not allow this modulation target: " + parameter);
+                Object range = modelGetOrNull(modelGetOrNull(atom, "VMm"), "Nwn");
+                double span = range instanceof Number number ? number.doubleValue() : Double.NaN;
+                if (!Double.isFinite(span) || span <= 0) throw new IllegalArgumentException("target has no modulation range");
+                // AwX.jPB(m1C,double): creates or updates the mapping in Bitwig's own
+                // (mergeable) mapping transaction; amount is native, clamped to +/-span.
+                invokeNative(source, declaredMethod(source.getClass(), "jPB", classForName("m1C"), double.class),
+                        atom, amount.doubleValue() * span);
+                Object binding = bindingFor(source, atom);
+                if (binding == null) throw new IllegalStateException("modulation mapping was not created");
+                return new JSONObject().put("modulator", index).put("source", key)
+                        .put("amount", ((Number) modelGet(binding, "Qcu")).doubleValue() / span)
+                        .put("native_amount", modelGet(binding, "Qcu"));
+            }
+            default -> throw new IllegalArgumentException("unsupported modulator operation");
+        }
     }
 
     private static JSONArray chainBanks(Object owner) {
@@ -2700,6 +2970,7 @@ public final class OpenwigDocument {
             case "cue_marker.create" -> createCueMarker(p);
             case "scene.snapshot", "scene.insert", "scene.delete", "scene.move" -> editSceneBank(method, p);
             case "scene.update" -> updateScene(p);
+            case "modulator.catalog" -> new JSONObject().put("modulators", modulatorCatalog());
             case "track.create_group" -> createTrackOrGroup(new JSONObject(p.toString()).put("type", "group"));
             case "track.create" -> createTrackOrGroup(p);
             case "track.rename" -> updateTrackTarget("name", p);
@@ -2713,7 +2984,7 @@ public final class OpenwigDocument {
             case "track.set_monitor" -> updateTrackTarget("monitor", p);
             case "track.set_color" -> updateTrackTarget("color", p);
             case "track.set_send" -> updateTrackTarget("send", p);
-            case "device.layer_read", "device.layer_update", "device.layer_delete", "device.layer_move", "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect", "device.grid_read", "device.read", "device.chain_banks", "device.create_layer", "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.operation_status", "device.capture_plugin_state",
+            case "device.modulator_add", "device.modulator_delete", "device.modulator_move", "device.modulator_parameters", "device.modulator_bind", "device.modulator_unbind", "device.layer_read", "device.layer_update", "device.layer_delete", "device.layer_move", "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect", "device.grid_read", "device.read", "device.chain_banks", "device.create_layer", "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.operation_status", "device.capture_plugin_state",
                  "device.set_parameters", "device.get_parameters", "device.rename",
                  "device.set_expanded", "device.delete", "device.list_parameters" ->
                     executeDevice(method, p);
@@ -2730,6 +3001,7 @@ public final class OpenwigDocument {
             String path = params.optString("path", null);
             return switch (method) {
                 case "device.layer_read", "device.layer_update", "device.layer_delete", "device.layer_move" -> editLayer(method, targetTrack, params);
+                case "device.modulator_add", "device.modulator_delete", "device.modulator_move", "device.modulator_parameters", "device.modulator_bind", "device.modulator_unbind" -> editModulator(method, targetTrack, params);
                 case "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect" -> executeGrid(method, targetTrack, params);
                 case "device.grid_read", "device.read", "device.chain_banks", "device.create_layer" -> {
                     int index = params.getInt("device");

@@ -258,6 +258,10 @@ class JavaSong:
             params.update({"r": float(r), "g": float(g), "b": float(b), "a": float(a)})
         return self.b.request("cue_marker.create", params)
 
+    def modulator_catalog(self) -> list[dict]:
+        """List Bitwig's factory modulators as ``{"name", "modulator_id"}``."""
+        return self.b.request("modulator.catalog")["modulators"]
+
     @staticmethod
     def _scene_index(index: int) -> int:
         if type(index) is not int or index < 0:

@@ -276,6 +276,128 @@ class JavaDeviceMethods:
             device=self._clip_index(device), component=component, index=self._clip_index(index)), timeout=125)
         return self._wait_device_operation(job)["data"]
 
+    # Modulators ---------------------------------------------------------------
+
+    @staticmethod
+    def _modulator_target(parameter):
+        if not isinstance(parameter, str) or not parameter.strip() or parameter.startswith("/") \
+                or ".." in parameter or len(parameter) > 1024:
+            raise ValueError("target parameter path required")
+        return parameter
+
+    def modulators(self, device: int) -> list[dict]:
+        """Read the device's modulators: identity, grid cell, parameters, bindings."""
+        return self.read_device(device)["modulators"]
+
+    def add_modulator(self, device: int, modulator: str, *, x: int | None = None,
+                      y: int | None = None, values: dict | None = None) -> dict:
+        """Insert a factory modulator by catalog name or UUID ("Add modulator").
+
+        Without a cell Bitwig takes the first free one; an explicit (x, y)
+        cell (y in 0..2) must be free. ``values`` (as for
+        ``set_modulator_parameters``, normalized) are applied before insertion
+        so the engine starts with them. Returns the new modulator's index.
+
+        The engine instantiates a new modulator asynchronously: a parameter
+        write sent immediately after insertion was live-verified to be lost by
+        the engine while the document kept it. This call therefore waits a
+        measured 250 ms before returning (0 ms failed 3/3; 50 to 500 ms passed).
+        That is pacing, not an engine acknowledgement; prefer ``values``.
+        """
+        from uuid import UUID
+        if not isinstance(modulator, str) or not modulator.strip():
+            raise ValueError("modulator name or UUID required")
+        if (x is None) != (y is None):
+            raise ValueError("give both x and y, or neither")
+        cell = {}
+        if x is not None:
+            if type(x) is not int or not 0 <= x <= 4095 or type(y) is not int or not 0 <= y <= 2:
+                raise ValueError("modulator cell needs integer x 0..4095 and y 0..2")
+            cell = dict(x=x, y=y)
+        try:
+            modulator_id = str(UUID(modulator))
+        except ValueError:
+            matches = [m["modulator_id"] for m in self.s.modulator_catalog() if m["name"] == modulator]
+            if len(matches) != 1:
+                raise ValueError(f"unknown factory modulator: {modulator}") from None
+            modulator_id = matches[0]
+        if values is not None:
+            self._modulator_values(values)
+            cell["values"] = values
+        result = self.s.b.request("device.modulator_add", self._track_params(
+            device=self._clip_index(device), modulator_id=modulator_id, **cell), timeout=125)
+        import time
+        time.sleep(.25)
+        return result
+
+    def modulator_parameters(self, device: int, modulator: int, unit: str | None = None) -> dict:
+        """Read modulator parameters: normalized 0..1 numbers (or ``unit``), booleans, enum indexes."""
+        return self.s.b.request("device.modulator_parameters", self._track_params(
+            device=self._clip_index(device), modulator=self._clip_index(modulator), unit=unit))["values"]
+
+    def set_modulator_parameters(self, device: int, modulator: int, values: dict,
+                                 unit: str | None = None) -> dict:
+        """Set modulator parameters in one undo step; the batch is validated first."""
+        self._modulator_values(values)
+        return self.s.b.request("device.modulator_parameters", self._track_params(
+            device=self._clip_index(device), modulator=self._clip_index(modulator),
+            values=values, unit=unit))["values"]
+
+    def _modulator_values(self, values):
+        if not isinstance(values, dict) or not values:
+            raise ValueError("nonempty modulator parameter values required")
+        for key, value in values.items():
+            if not isinstance(key, str) or not key:
+                raise ValueError("modulator parameter paths must be strings")
+            if not isinstance(value, (bool, int, float)):
+                raise ValueError(f"invalid value for {key}")
+            if isinstance(value, float):
+                self._clip_number(value, key)
+
+    def bind_modulator(self, device: int, modulator: int, target_parameter: str, amount: float, *,
+                       source: str | None = None, target_device: int | None = None) -> dict:
+        """Create or update a modulation mapping; ``amount`` is -1..1 of the target's range.
+
+        ``target_parameter`` is a native parameter path (as listed by
+        ``list_parameters``) on this device or on ``target_device`` in the same
+        chain; Bitwig's own target rules apply. ``source`` picks a modulation
+        output when a modulator has several.
+        """
+        amount = self._clip_number(amount, "amount")
+        if not -1 <= amount <= 1:
+            raise ValueError("amount must be within -1..1")
+        return self.s.b.request("device.modulator_bind", self._modulation_params(
+            device, modulator, target_parameter, source, target_device, amount=amount))
+
+    def unbind_modulator(self, device: int, modulator: int, target_parameter: str, *,
+                         source: str | None = None, target_device: int | None = None) -> dict:
+        """Remove one existing modulation mapping (native "Clear modulation")."""
+        return self.s.b.request("device.modulator_unbind", self._modulation_params(
+            device, modulator, target_parameter, source, target_device))
+
+    def _modulation_params(self, device, modulator, parameter, source, target_device, **extra):
+        params = self._track_params(device=self._clip_index(device), modulator=self._clip_index(modulator),
+                                    target_parameter=self._modulator_target(parameter), **extra)
+        if source is not None:
+            if not isinstance(source, str) or not source:
+                raise ValueError("modulation source key must be a string")
+            params["source"] = source
+        if target_device is not None:
+            params["target_device"] = self._clip_index(target_device)
+        return params
+
+    def move_modulator(self, device: int, modulator: int, x: int, y: int) -> dict:
+        """Move a modulator to a free grid cell (native "Move Modulators")."""
+        if type(x) is not int or not 0 <= x <= 4095 or type(y) is not int or not 0 <= y <= 2:
+            raise ValueError("modulator cell needs integer x 0..4095 and y 0..2")
+        return self.s.b.request("device.modulator_move", self._track_params(
+            device=self._clip_index(device), modulator=self._clip_index(modulator), x=x, y=y))
+
+    def delete_modulator(self, device: int, modulator: int) -> dict:
+        """Delete a modulator and its mappings; later modulator indexes shift down."""
+        return self.s.b.request("device.modulator_delete", self._track_params(
+            device=self._clip_index(device), modulator=self._clip_index(modulator)))
+
 
 class JavaDeviceChain(JavaDeviceMethods):
     """A nested device chain; exposes device operations without track/clip edits."""

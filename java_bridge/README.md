@@ -250,6 +250,66 @@ descriptors rather than `m1C` atoms remain at track-level ownership (`QFL.xTe()`
 when not bound to a `Wcl` owner. Plugin parameter caches can still be
 unavailable on any read, as described above.
 
+Each modulator read now also reports its grid cell (`x`, `y`, row `y` in
+0..2) and `modulator_id` (the definition's factory UUID, `nJS.ppu().Gcr()`);
+each binding reports `amount_normalized` (`AvA.LZe()`: native amount over the
+target's modulation span, clamped to -1..1) and `enabled`.
+
+### Modulator editing (live-verified 2026-10-20)
+
+Methods `modulator.catalog` and `device.modulator_add|parameters|bind|unbind|move|delete`
+(Python: `JavaSong.modulator_catalog()`, and on track/nested-chain handles
+`modulators`, `add_modulator`, `modulator_parameters`, `set_modulator_parameters`,
+`bind_modulator`, `unbind_modulator`, `move_modulator`, `delete_modulator`).
+All edits use the device's native modulator bank (`JDY`) on the event queue:
+
+- Insert: factory UUID from the packaging table (`MD`/`LXO`, category
+  `MODULATOR`, 43 entries), staged with `gDz.tDS(UUID)` and inserted through
+  the GUI insertion point's own entry `JDY.IYM(Collection,x,y,clone,F3z)`
+  ("Add modulator"). Optional explicit cell must be free; optional initial
+  `values` are written to the staged modulator before insertion.
+- Parameters: modulator value atoms wrapped as `ApiDecimalValueAtom`,
+  `ApiBooleanValueAtom`, `ApiIndexedValueAtom`; normalized 0..1, booleans and
+  in-range enum indexes; one validated batch per undo transaction.
+- Mappings: the modulator's `Hx3` source component (auto-selected when it has
+  one, otherwise by component key). `AwX.jPB(m1C,double)` creates or updates the
+  mapping in Bitwig's own (mergeable) mapping transaction; `AwX.Gcr(m1C)` is
+  native "Clear modulation". Amounts are -1..1 of the target's span
+  (`bL.Nwn()`). Targets are `CONTENTS`-relative paths on the owner device or a
+  device inside its nested chains (e.g.
+  `CHAIN_LIST/CHAIN0/DEVICE_CHAIN/0/CONTENTS/AMPLITUDE`), or a same-chain
+  `target_device`. Bitwig's scope check `Hx3.IYM(sQi)` runs first: a sibling
+  device on the same track is rejected (live-verified).
+- Move: free cell via native "Move Modulators"; delete: `KaT.IYM(List)`,
+  which removes the modulator and its mappings.
+
+Gate `tests/live_java_modulators.py` (evidence
+`scratch/editing-modulators/gate-5/`) passed: a 440 Hz sine through Tool with a
+unipolar LFO mapped to `AMPLITUDE` measured 0.37 dB envelope depth unmapped,
+35.3 dB at amount -0.5, 10.6 dB at -0.15, 0.0 dB with LFO `DEPTH` 0, 0.0 dB
+after unmapping and 0.04 dB after deleting the modulator. An FX Layer LFO
+mapped into its layer's nested Tool moved a 660 Hz sine by 34.8 dB. Load phase:
+during playback, three Polysynth tracks received 45 modulator insertions,
+180 mapping writes, 27 deletions and 18 unmappings; the audio-engine process
+stayed alive and the Tone mapping still measured 35.2 dB. 21 rejected inputs
+(unknown/invalid UUIDs, occupied or invalid cells, unknown/out-of-range/
+mixed-invalid parameter batches, out-of-range amounts, unknown targets and
+sources, out-of-range target devices, missing mappings) left the dump
+unchanged; a sibling-device target was rejected with the device read unchanged. Native
+save/reopen: zero reader differences across 27 modulators and 41 mappings;
+reopened depths 36.0 dB (440 Hz) and 35.5 dB (nested 660 Hz).
+
+**Engine timing limitation:** a modulator parameter write sent as a separate
+event immediately after insertion was dropped by the engine while the document
+kept it (0 ms: 3/3 failed; 50, 150, 300 and 500 ms: 2/2 each passed;
+`scratch/editing-modulators/diag-insert-race-*`). `add_modulator(values=...)`
+stages values before insertion (3/3 passed without pacing) and the Python call
+waits a measured 250 ms after insertion (3/3 passed). This is pacing, not an
+engine acknowledgement. Not covered: undo/redo replay, mapping
+enable/transfer-function/auxiliary scaling, track remote-control and
+mixer/modulator-parameter targets, plugin-hosted modulators, and `unit=` reads
+for modulator parameters (an explicit `HERTZ` returned unconverted values).
+
 The live synthetic fixture capture (`tests/live_java_reader_fixture.py --capture`)
 passed on a disposable scratch project. It retained only three newly authored
 tracks and a sanitized master, producing a four-track/two-note fixture with
