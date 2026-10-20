@@ -880,3 +880,35 @@ The open note-tracked pitch regression also appeared on newly inserted Polysynth
 its cause is not yet proven to be Grid-specific. The fixed-pitch Grid gate remains
 the verified immediate-DSP case. See the plan for diagnostic evidence and removed
 candidate fixes.
+
+## Native project open and close (2026-10-20)
+
+`document.open {path, activate_engine}` opens a project in a new tab through
+Bitwig's own entry `eY1.IYM(String, int tabIndex, Set<rLC>{SELECT[, ACTIVATE_ENGINE]}, F3z)`
+and returns a job; poll `document.job_status {job}`. A project that is already
+open is selected instead (`already_open: true`). The file must sit in a project
+folder: without the `.bitwig-project` marker next to it Bitwig never finishes
+opening (the job stays `running`, and a command-line open is silently dropped),
+so the bridge refuses such files. Editions without multiple projects refuse
+while a tab is open (`H3n().Klm()`).
+
+`document.close {path | unsaved, discard_changes: true}` closes a tab through
+`eY1.IYM(aBx, false, null, rdP)`, which stops the tab's engine and skips the
+interactive save branch: unsaved edits are lost and nothing is written.
+`unsaved` names a never-saved tab, such as the "New 1" a headless start opens
+from the startup template. `discard_changes` is required.
+
+Python: `JavaSong.open_project(path, activate_engine=False)`,
+`close_project(path, discard_changes=True)`, `close_unsaved(name,
+discard_changes=True)`, `projects()`, `select_project(path)`. Opening a project
+saved by another Bitwig version makes Bitwig copy it to a version backup next to
+the file (`eY1.eUA(File)`), so open copies of projects you care about.
+
+Gate `tests/live_java_documents.py` (evidence
+`scratch/document-open/gate-5/out/report.json`) passed on disposable copies:
+open in 0.8 s next to another open project, already-open detection, a probe
+track discarded on close (0.56 s; file byte-identical, edit gone on reopen),
+eight invalid requests refused (closing a closed or unknown tab, close without
+discard, unknown unsaved tab, missing file, non-project file, a `.bwproject`
+outside a project folder, unknown job), the startup template's unsaved "New 1"
+closed, and a reopen from zero tabs. The `--older` variant was not run.

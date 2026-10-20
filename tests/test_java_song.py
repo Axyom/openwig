@@ -33,7 +33,7 @@ class FakeJavaBridge:
         if method == "project.dump":
             return {"metadata": {}, "cue_markers": [], "main_tracks": []}
         if method in {"document.open", "document.close"}:
-            return {"operation": method.split(".")[1], "state": "running", "job": method, "path": params["path"]}
+            return {"operation": method.split(".")[1], "state": "running", "job": method, "path": params.get("path")}
         if method == "document.job_status":
             return {"state": getattr(self, "job_state", "complete"), "job": params["job"], "error": "boom"}
         if method in {"document.info", "document.select", "project.save_copy", "project.duplicate_range", "project.insert_time", "project.delete_range"}:
@@ -440,6 +440,19 @@ def test_close_project_requires_explicit_discard(bridge):
     path = str(Path("copies/song.bwproject").resolve())
     assert bridge.calls == [
         ("document.close", {"path": path, "discard_changes": True}),
+        ("document.job_status", {"job": "document.close"}),
+    ]
+
+
+def test_close_unsaved_targets_the_tab_name_and_requires_discard(bridge):
+    song = JavaSong(bridge=bridge)
+    bridge.calls.clear()
+    with pytest.raises(ValueError):
+        song.close_unsaved("New 1")
+    assert bridge.calls == []
+    song.close_unsaved("New 1", discard_changes=True)
+    assert bridge.calls == [
+        ("document.close", {"unsaved": "New 1", "discard_changes": True}),
         ("document.job_status", {"job": "document.close"}),
     ]
 

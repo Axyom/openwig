@@ -72,11 +72,17 @@ def main():
         assert "Openwig unsaved probe" not in track_names(s.dump()), "discarded edit came back"
         s.close_project(second, discard_changes=True)
 
+        # A .bwproject outside a project folder never finishes opening: refused up front.
+        bare = out / "bare" / second.name
+        bare.parent.mkdir(exist_ok=True)
+        bare.write_bytes(second.read_bytes())
         for method, params in [
             ("document.close", {"path": str(second), "discard_changes": True}),
             ("document.close", {"path": str(base)}),
+            ("document.close", {"unsaved": "Openwig no such tab", "discard_changes": True}),
             ("document.open", {"path": str(second.with_name("missing.bwproject"))}),
             ("document.open", {"path": str(out / "report.json")}),
+            ("document.open", {"path": str(bare)}),
             ("document.job_status", {"job": "unknown"}),
         ]:
             try:
@@ -92,6 +98,11 @@ def main():
             raise AssertionError("close without discard_changes must be refused")
 
         # From zero tabs: Bitwig shows its dashboard; opening must still work.
+        # A headless start can add a never-saved tab from the startup template.
+        unsaved = [d["name"] for d in s.projects() if not d["path"]]
+        for name in unsaved:
+            s.close_unsaved(name, discard_changes=True)
+        report["closed_unsaved_tabs"] = unsaved
         s.close_project(base, discard_changes=True)
     deadline = time.monotonic() + 30
     b = BridgeClient(port=7778); b.start()

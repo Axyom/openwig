@@ -73,7 +73,37 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
   smoke, and all five GitHub CI jobs passed.
 
-## Latest checkpoint: modulator editing (2026-10-20)
+## Latest checkpoint: native project open/close (2026-10-20)
+
+- Branch `codex/document-open-close` (worktree `../bitwig-sdk-docopen`), stacked
+  on `codex/modulator-editing`. Java: `OpenwigDocument.openDocument`,
+  `closeDocument`, `unsavedTab`; native callbacks (`F3z`, `rdP`) feed a job map
+  behind `document.job_status`. Python: `open_project`, `close_project`,
+  `close_unsaved`. See `java_bridge/README.md`, "Native project open and close".
+- Gate `tests/live_java_documents.py` passed in `scratch/document-open/gate-5/`:
+  open 0.8 s, close 0.56 s, discard proven (byte-identical file, edit gone on
+  reopen), eight invalid requests refused, unsaved "New 1" closed, reopen from
+  zero tabs.
+- Found live: a `.bwproject` copied without its folder's `.bitwig-project` marker
+  never finishes opening (the command-line open is dropped and the
+  `document.open` job stays `running`; two fixtures, gate-1 and gate-2). With the
+  marker alone it opens in 0.8 s (gate-4). The bridge now refuses such files. All
+  37 of the owner's Finished project folders have the marker.
+- Found live: the scratch host opens the owner's startup template ("Axyom
+  Template v5") as an unsaved "New 1" tab next to a command-line project;
+  `close_unsaved` removes it. The shared 6.1.5 prefs only differ from the
+  pre-corpus backup in the recent-projects list.
+- Not covered: `--older` (version backup files on open), `activate_engine=True`,
+  opening during playback or render, closing a project whose plugins hold
+  unsaved state.
+- Unit suite: 295 passed; exact-build build, offline smoke and controller syntax
+  passed. JAR `scratch/document-open/openwig-2.jar` SHA-256
+  `5d64ac678a1ad9ab19825ac598116d025beb3d7f6a8af6d20fb1f519db0481cf`.
+- Runtime: scratch host running with
+  `scratch/document-open/gate-5/base/project.bwproject` reopened from zero tabs,
+  openwig-2.jar installed.
+
+## Previous checkpoint: modulator editing (2026-10-20)
 
 - Worked in a separate worktree branch `codex/modulator-editing` (from `78b3574`);
   not merged into `codex/java-bridge-615`. See `java_bridge/README.md`,

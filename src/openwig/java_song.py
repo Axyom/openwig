@@ -222,6 +222,13 @@ class JavaSong:
         return self._wait_document_job(self.b.request("document.close", {
             "path": str(Path(path).resolve()), "discard_changes": True}, timeout=60), timeout)
 
+    def close_unsaved(self, name: str, *, discard_changes: bool = False, timeout: float = 120) -> dict:
+        """Close a never-saved project tab by name (e.g. "New 1"); its content is lost."""
+        if not discard_changes:
+            raise ValueError("close_unsaved discards the project; pass discard_changes=True")
+        return self._wait_document_job(self.b.request("document.close", {
+            "unsaved": name, "discard_changes": True}, timeout=60), timeout)
+
     def export_project(self, path) -> dict:
         """Capture a portable native project ZIP, with media and plugin states.
 

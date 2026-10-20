@@ -195,6 +195,9 @@ public final class OpenwigDocument {
     private static JSONObject openDocument(JSONObject params) {
         java.io.File file = projectFile(params);
         if (!file.isFile()) throw new IllegalArgumentException("project file not found: " + file);
+        // Without the folder marker Bitwig never finishes opening the file (verified live).
+        if (!new java.io.File(file.getParentFile(), ".bitwig-project").isFile())
+            throw new IllegalArgumentException("not a Bitwig project folder (no .bitwig-project next to the file): " + file);
         try {
             Object app = application();
             Object tab = app.getClass().getMethod("Trh", java.io.File.class).invoke(app, file);
@@ -222,13 +225,30 @@ public final class OpenwigDocument {
         }
     }
 
+    /** The one never-saved tab with this name (e.g. "New 1" from the startup template). */
+    private static Object unsavedTab(Object app, String name) throws ReflectiveOperationException {
+        Object found = null;
+        for (Object tab : (java.util.List<?>) modelGet(modelGet(app, "Lg"), "getValue")) {
+            Object raw = modelGet(tab, "wtf");
+            Object path = modelGet(raw, "BEq");
+            if ((path == null || String.valueOf(path).isEmpty()) && name.equals(String.valueOf(modelGet(raw, "IT3")))) {
+                if (found != null) throw new IllegalArgumentException("more than one unsaved project is named " + name);
+                found = tab;
+            }
+        }
+        if (found == null) throw new IllegalArgumentException("no unsaved project named " + name);
+        return found;
+    }
+
     private static JSONObject closeDocument(JSONObject params) {
         if (!params.optBoolean("discard_changes", false))
             throw new IllegalArgumentException("document.close discards unsaved changes; pass discard_changes=true");
-        java.io.File file = projectFile(params);
+        String unsaved = params.optString("unsaved", "");
+        java.io.File file = unsaved.isBlank() ? projectFile(params) : null;
         try {
             Object app = application();
-            Object tab = app.getClass().getMethod("Trh", java.io.File.class).invoke(app, file);
+            Object tab = file == null ? unsavedTab(app, unsaved)
+                    : app.getClass().getMethod("Trh", java.io.File.class).invoke(app, file);
             if (tab == null) throw new IllegalArgumentException("project is not open: " + file);
             Class<?> tabType = classForName("aBx");
             Class<?> doneType = classForName("com.bitwig.base.async.rdP");
@@ -239,7 +259,8 @@ public final class OpenwigDocument {
                         && types[1] == boolean.class && types[3] == doneType) { close = candidate; break; }
             }
             if (close == null) throw new IllegalStateException("native close method not found");
-            JSONObject status = new JSONObject().put("operation", "close").put("path", file.getPath());
+            JSONObject status = new JSONObject().put("operation", "close");
+            if (file == null) status.put("unsaved", unsaved); else status.put("path", file.getPath());
             startDocumentJob(status);
             // false skips the interactive save branch; the native path still stops the engine first.
             close.invoke(app, tab, false, null, documentCallback("com.bitwig.base.async.rdP", status));
