@@ -1,0 +1,925 @@
+"""Rebuild a project from a reader dump through native editing operations.
+
+The input is the dictionary returned by ``JavaSong.dump()``. Every field is
+either written through a native operation or reported: nothing is dropped
+silently. Plugin states and media are resolved through caller-supplied
+locations, so a dump taken on one machine can be rebuilt on another.
+
+The rebuild targets the selected, empty project. Tracks are created with
+temporary unique titles so duplicate sibling names stay addressable; the
+final step restores the real titles.
+"""
+from __future__ import annotations
+
+import math
+import re
+import time
+from collections import Counter
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from openwig.bridge import BridgeError
+from openwig.java_devices import JavaDeviceChain
+from openwig.java_song import JavaSong, JavaTrack
+
+TRACK_KINDS = {"INSTRUMENT": "instrument", "AUDIO": "audio", "HYBRID": "hybrid"}
+_ENUM_INDEX = re.compile(r"value=(-?\d+)\]$")
+
+
+@dataclass
+class Report:
+    """What was written, what the writer cannot express yet, and what failed."""
+
+    applied: Counter = field(default_factory=Counter)
+    unsupported: Counter = field(default_factory=Counter)
+    examples: dict = field(default_factory=dict)
+    failed: list = field(default_factory=list)
+    seconds: dict = field(default_factory=dict)
+
+    def ok(self, what: str, n: int = 1) -> None:
+        self.applied[what] += n
+
+    def skip(self, what: str, where: str, detail=None) -> None:
+        self.unsupported[what] += 1
+        self.examples.setdefault(what, {"where": where, "detail": detail})
+
+    def fail(self, what: str, where: str, error) -> None:
+        self.failed.append({"what": what, "where": where, "error": str(error)[:500]})
+
+    def summary(self) -> dict:
+        return {"applied": dict(self.applied), "unsupported": dict(self.unsupported),
+                "unsupported_examples": self.examples, "failed": len(self.failed),
+                "failed_first": self.failed[:40], "seconds": self.seconds}
+
+
+def _rgba(color: str):
+    """'#rrggbb' or '#rrggbbaa' -> (r, g, b, a) in 0..1; None for transparent."""
+    if not isinstance(color, str) or not color.startswith("#") or len(color) not in (7, 9):
+        return None
+    values = [int(color[i:i + 2], 16) / 255 for i in range(1, len(color), 2)]
+    if len(values) == 4 and values[3] == 0:
+        return None
+    return tuple(values) if len(values) == 4 else (*values, 1.0)
+
+
+def _enum_index(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        found = _ENUM_INDEX.search(value)
+        return int(found.group(1)) if found else None
+    return None
+
+
+def _walk_tracks(tracks, parent=None):
+    for track in tracks:
+        yield track, parent
+        yield from _walk_tracks(track.get("children") or [], track)
+
+
+class Reconstructor:
+    """Replay one reader dump into the selected project.
+
+    ``states`` is a directory holding the plugin state files named by the
+    dump (``state_path``/``state_file`` basenames). ``media`` maps an audio
+    file path from the dump to a local file (identity by default). ``only``
+    limits the rebuild to some dump track paths (their ancestors are kept),
+    which is useful for quick partial runs.
+    """
+
+    def __init__(self, song: JavaSong, dump: dict, *, states=None, media=None,
+                 only=None, log=None, settle: float = 0.0):
+        self.s = song
+        self.dump = dump
+        self.states = Path(states) if states else None
+        self.media = media or (lambda path: Path(path))
+        self.log = log or (lambda message: None)
+        self.settle = settle
+        self.report = Report()
+        self.paths: dict[int, str] = {}       # id(dump track) -> current path
+        self.titles: dict[int, str] = {}      # id(dump track) -> real title
+        self.by_dump_path: dict[str, dict] = {}
+        self.only = self._expand(only) if only else None
+        self._serial = 0
+        self._pending_bindings = []
+        self._pending_sidechains = []
+
+    # Entry point -------------------------------------------------------------
+
+    def run(self) -> Report:
+        steps = [("transport", self.transport), ("effect_tracks", self.effect_tracks),
+                 ("main_tracks", self.main_tracks), ("track_settings", self.track_settings),
+                 ("devices", self.devices), ("bindings", self.bindings),
+                 ("sidechains", self.sidechains), ("scenes", self.scenes),
+                 ("clips", self.clips), ("launcher", self.launcher),
+                 ("automation", self.automation), ("markers", self.markers),
+                 ("titles", self.restore_titles)]
+        for name, step in steps:
+            started = time.monotonic()
+            self.log(f"step {name}")
+            try:
+                step()
+            except Exception as error:  # a broken step must not hide the others
+                self.report.fail("step", name, repr(error))
+            self.report.seconds[name] = round(time.monotonic() - started, 1)
+        return self.report
+
+    # Selection ---------------------------------------------------------------
+
+    def _expand(self, only):
+        keep = set()
+        for path in only:
+            parts = path.split("/")
+            for n in range(1, len(parts) + 1):
+                keep.add("/".join(parts[:n]))
+        return keep
+
+    def _wanted(self, track) -> bool:
+        if self.only is None:
+            return True
+        path = track.get("path", "")
+        return path in self.only or any(path.startswith(p + "/") for p in self.only)
+
+    def _temp_title(self, title: str) -> str:
+        self._serial += 1
+        return f"{title} #rw{self._serial}"
+
+    def _handle(self, track) -> JavaTrack:
+        path = self.paths[id(track)]
+        return JavaTrack(self.s, None, path.rsplit("/", 1)[-1], path=path)
+
+    def _all_tracks(self):
+        """(dump track, scope) for every rebuilt track, master last."""
+        for track, _ in _walk_tracks(self.dump.get("main_tracks", [])):
+            if id(track) in self.paths:
+                yield track, "main"
+        for track in self.dump.get("effect_tracks", []):
+            if id(track) in self.paths:
+                yield track, "fx"
+        master = self.dump.get("master")
+        if master is not None and id(master) in self.paths:
+            yield master, "master"
+
+    # Project -----------------------------------------------------------------
+
+    def transport(self):
+        transport = self.dump.get("transport") or {}
+        if "tempo" in transport:
+            self.s.tempo(float(transport["tempo"]))
+            self.report.ok("tempo")
+        signature = transport.get("time_signature") or {}
+        if signature and (signature.get("numerator"), signature.get("denominator")) != (4, 4):
+            self._try("time_signature", "transport", lambda: self.s.b.request("transport.set_time_signature", {
+                "numerator": int(signature["numerator"]), "denominator": int(signature["denominator"])}))
+        groove = {}
+        if "groove_enabled" in transport:
+            groove["enabled"] = bool(transport["groove_enabled"])
+        if "shuffle" in transport:
+            groove["shuffle"] = float(transport["shuffle"])
+        if groove:
+            self._try("groove", "transport", lambda: self.s.b.request("transport.set_groove", groove))
+        metadata = {k: v for k, v in (self.dump.get("metadata") or {}).items() if v}
+        if metadata:
+            try:
+                self.s.set_metadata(**metadata)
+                self.report.ok("metadata")
+            except Exception as error:
+                self.report.fail("metadata", "project", error)
+
+    def effect_tracks(self):
+        for track in self.dump.get("effect_tracks", []):
+            title = self._temp_title(track["name"])
+            self.s.effect_track(title)
+            self.paths[id(track)] = "fx/" + title
+            self.titles[id(track)] = track["name"]
+            self.report.ok("effect_track")
+        master = self.dump.get("master")
+        if master is not None:
+            self.paths[id(master)] = "master"
+
+    def main_tracks(self):
+        for track, parent in _walk_tracks(self.dump.get("main_tracks", [])):
+            if not self._wanted(track):
+                continue
+            parent_path = self.paths.get(id(parent)) if parent is not None else None
+            if parent is not None and parent_path is None:
+                continue
+            title = self._temp_title(track["name"])
+            try:
+                if track.get("is_group"):
+                    created = self.s.group_track(title, parent=parent_path)
+                else:
+                    kind = TRACK_KINDS.get(track.get("track_type"))
+                    if kind is None:
+                        self.report.skip("track_type", track.get("path"), track.get("track_type"))
+                        kind = "hybrid"
+                    created = self.s.track(title, kind=kind, parent=parent_path)
+                path = created.path or (f"{parent_path}/{title}" if parent_path else title)
+                self.paths[id(track)] = path
+                self.titles[id(track)] = track["name"]
+                self.by_dump_path.setdefault(track.get("path"), track)
+                self.report.ok("group" if track.get("is_group") else "track")
+            except Exception as error:
+                self.report.fail("track", track.get("path"), error)
+
+    def track_settings(self):
+        fx_names = [t["name"] for t in self.dump.get("effect_tracks", [])]
+        for track, scope in self._all_tracks():
+            where = track.get("path") or scope
+            handle = self._handle(track)
+            if scope != "master":
+                rgba = _rgba(track.get("color"))
+                if rgba is not None:
+                    self._try("color", where, lambda: handle.color(*rgba))
+                if track.get("comment"):
+                    self._try("comment", where, lambda: handle.comment(track["comment"]))
+                if track.get("mute"):
+                    self._try("mute", where, lambda: handle.mute(True))
+                if track.get("solo"):
+                    self._try("solo", where, lambda: handle.solo(True))
+                if track.get("is_active") is False:
+                    self._try("active", where, lambda: handle.active(False))
+            if "volume" in track:
+                self._try("volume", where, lambda: self.s.b.request(
+                    "track.set_volume", handle._target_params(value=float(track["volume"]))))
+            if "pan" in track:
+                self._try("pan", where, lambda: self.s.b.request(
+                    "track.set_pan", handle._target_params(value=float(track["pan"]))))
+            if track.get("crossfade") not in (None, 1):
+                self.report.skip("crossfade", where, track.get("crossfade"))
+            self._input_source(handle, track, scope, where)
+            destination = (track.get("destination") or {}).get("path")
+            if scope in ("main", "fx") and destination:
+                # Tracks created inside a group still default to the master output.
+                target = self._resolve_path(destination)
+                if target is None:
+                    self.report.skip("destination", where, destination)
+                elif destination != "master" or "/" in where or scope == "fx":
+                    self._try("destination", where, lambda: handle.route_to(target))
+            for send in track.get("sends") or []:
+                amount = send.get("amount", 0)
+                if amount:
+                    index = fx_names.index(send["target"]) if send.get("target") in fx_names else send.get("index")
+                    self._try("send", where, lambda: handle.send(int(index), float(amount)))
+                if send.get("mode") not in (None, "AUTO"):
+                    self.report.skip("send_mode", where, send.get("mode"))
+
+    def _source_spec(self, source):
+        """Reader source {path, tap} -> rebuilt spec, None for 'no input', False if unresolvable."""
+        if source is None:
+            return None
+        if not isinstance(source, dict) or "path" not in source:
+            return False
+        path = self._resolve_path(source["path"])
+        if path is None:
+            return False
+        return {"path": path, "tap": source.get("tap")}
+
+    def _input_source(self, handle, track, scope, where):
+        if scope != "main":
+            return
+        source = track.get("source")
+        spec = self._source_spec(source)
+        if spec is False:
+            self.report.skip("input_source", where, source)
+        elif spec is not None or track.get("is_group"):
+            # New groups default to "All ins"; the reader reports no input as null.
+            self._try("input_source", where, lambda: self.s.b.request(
+                "track.set_source", handle._target_params(source=spec)))
+
+    def _resolve_path(self, dump_path: str):
+        """Map a dump track path (title-based) to the rebuilt track's current path."""
+        if dump_path == "master":
+            return "master"
+        if dump_path.startswith("fx/"):
+            name = dump_path[3:]
+            for track in self.dump.get("effect_tracks", []):
+                if track["name"] == name and id(track) in self.paths:
+                    return self.paths[id(track)]
+            return None
+        track = self.by_dump_path.get(dump_path)
+        return self.paths.get(id(track)) if track is not None else None
+
+    def _try(self, what, where, action):
+        try:
+            action()
+            self.report.ok(what)
+            return True
+        except Exception as error:
+            self.report.fail(what, where, error)
+            return False
+
+    # Devices -----------------------------------------------------------------
+
+    def devices(self):
+        for track, scope in self._all_tracks():
+            devices = track.get("devices") or []
+            if devices:
+                self._chain(self._handle(track), devices, track.get("path") or scope)
+
+    def _chain(self, handle, devices, where):
+        created = []
+        for position, device in enumerate(devices):
+            index = self._device(handle, position, device, where)
+            created.append((index, device))
+        for index, device in created:
+            if index is None:
+                continue
+            self._device_details(handle, index, device, where)
+
+    def _device(self, handle, position, device, where):
+        kind = device.get("kind")
+        place = f"{where}#{position}:{device.get('device_name')}"
+        try:
+            if kind == "native":
+                before = self.s.b.request("device.count", handle._track_params())["count"]
+                self.s.b.request("device.insert_factory", handle._track_params(id=device["device_id"]))
+                self.report.ok("native_device")
+                return before
+            if kind in ("vst3", "vst2", "clap"):
+                state = self._state_file(device)
+                if state is None and device.get("state_path"):
+                    self.report.skip("plugin_state_missing", place, device.get("state_path"))
+                params = {"name": device["device_name"], "format": kind, "id": str(device["device_id"])}
+                if kind == "vst3":
+                    params["id"] = params["id"].upper()
+                    if device.get("role"):
+                        params["role"] = device["role"]
+                if state is not None:
+                    params["state"] = str(state)
+                result = self.s.b.request("device.insert_plugin", handle._track_params(**params), timeout=125)
+                self.report.ok(kind)
+                if state is not None:
+                    self.report.ok("plugin_state")
+                return result["device"]
+            self.report.skip(f"{kind}_device", place, device.get("device_id"))
+        except Exception as error:
+            self.report.fail(f"{kind}_device", place, error)
+        return None
+
+    def _state_file(self, device):
+        name = Path(device.get("state_path") or device.get("state_file") or "").name
+        if not name or self.states is None:
+            return None
+        candidate = self.states / name
+        return candidate if candidate.is_file() else None
+
+    def _device_details(self, handle, index, device, where):
+        place = f"{where}#{index}:{device.get('device_name')}"
+        if device.get("grid"):
+            self._grid(handle, index, device["grid"], place)
+        if device.get("kind") == "native":
+            self._native_values(handle, index, device, place)
+        if device.get("display_name"):
+            self._try("device_name", place, lambda: handle.rename_device(index, device["display_name"]))
+        if device.get("enabled") is False:
+            self._try("device_enabled", place, lambda: handle.enable_device(index, False))
+        if device.get("active") is False:
+            self._try("device_active", place, lambda: self.s.b.request(
+                "device.set_active", handle._track_params(device=index, on=False)))
+        if device.get("preset") or device.get("displayed_preset") not in (None, "", "init"):
+            self.report.skip("preset_name", place, device.get("preset") or device.get("displayed_preset"))
+        for sidechain in device.get("sidechains") or []:
+            if sidechain.get("source") is not None:
+                self._pending_sidechains.append((handle, index, sidechain, place))
+        for content in device.get("sample_content") or []:
+            self._sample_content(handle, index, content, place)
+        banks = {}
+        chain_map = [self._nested(handle, index, chain, place, banks) for chain in device.get("chains") or []]
+        if device.get("modulators") or device.get("kind") == "native":
+            self._modulators(handle, index, device, place, chain_map)
+
+    def _grid(self, handle, index, grid, place):
+        """Replace the fresh patch with the dump's modules, then wire them.
+
+        Modules are appended in dump order, so their positional components
+        (CONTENTS/MODULES/<i>) match the dump's; module parameters follow
+        with the device values.
+        """
+        try:
+            fresh = handle.read_grid(index).get("modules") or []
+            for module in reversed(fresh):
+                handle.delete_grid_module(index, module["component"])
+            for position, module in enumerate(grid.get("modules") or []):
+                created = handle.add_grid_module(index, module["module_id"], int(module["x"]), int(module["y"]))
+                if created.get("component") != module["component"]:
+                    self.report.skip("grid_module_order", place, [module["component"], created.get("component")])
+            self.report.ok("grid_module", len(grid.get("modules") or []))
+        except Exception as error:
+            self.report.fail("grid_modules", place, error)
+            return
+        for module in grid.get("modules") or []:
+            for port in module.get("inputs") or []:
+                if port.get("source") and port.get("component"):
+                    self._try("grid_cable", place, lambda: handle.connect_grid(index, port["component"], port["source"]))
+
+    def _sample_content(self, handle, index, content, place):
+        kind = content.get("kind")
+        where = f"{place}/{content.get('component')}"
+        if kind == "empty":
+            return
+        if kind not in ("single", "multisample"):
+            self.report.skip(f"sample_{kind}", where)
+            return
+        params = handle._track_params(device=index, component=content["component"], kind=kind)
+        try:
+            if kind == "single":
+                sample = dict(content["sample"])
+                sample["file"] = str(self.media(sample["file"]))
+                params["sample"] = sample
+            else:
+                zones = []
+                for zone in content.get("zones") or []:
+                    zone = dict(zone)
+                    zone["sample"] = dict(zone["sample"], file=str(self.media(zone["sample"]["file"])))
+                    zones.append(zone)
+                params["zones"] = zones
+        except (KeyError, TypeError) as error:
+            self.report.skip("sample_missing_file", where, str(error))
+            return
+        self._try(f"sample_{kind}", where, lambda: self.s.b.request("device.load_sample", params, timeout=125))
+
+    def _native_values(self, handle, index, device, place):
+        values = device.get("values") or {}
+        if not values:
+            return
+        kinds = {p["path"]: p.get("kind") for p in device.get("parameters") or []}
+        # A device loading its definition may expose only some paths at first.
+        deadline = time.monotonic() + 10
+        available = set()
+        while True:
+            try:
+                available = {p["path"] for p in handle.list_parameters(index)}
+            except BridgeError:
+                available = set()
+            if set(values) <= available or time.monotonic() > deadline:
+                break
+            time.sleep(.1)
+        doubles = {k: float(v) * 100 for k, v in values.items()
+                   if kinds.get(k) == "double" and k in available and isinstance(v, (int, float))
+                   and not isinstance(v, bool) and math.isfinite(v)}
+        others = {}
+        for k, v in values.items():
+            if k not in available:
+                self.report.skip("parameter_unavailable", place, k)
+            elif kinds.get(k) == "boolean" and isinstance(v, bool):
+                others[k] = v
+            elif kinds.get(k) == "enum" and _enum_index(v) is not None:
+                others[k] = _enum_index(v)
+        # Switches and modes first: they can change the range a number may take.
+        if others and self._try("parameters", place, lambda: handle.parameters(index, **others)):
+            self.report.ok("parameter_values", len(others) - 1)
+        if doubles and self._try("parameters", place, lambda: handle.parameters(index, unit="PERCENTAGE_OF_RANGE", **doubles)):
+            self.report.ok("parameter_values", len(doubles) - 1)
+
+    def _structure(self, handle, index):
+        """Modulator identities and chain components of one device (cheap read)."""
+        return self.s.b.request("device.structure", handle._track_params(device=index), timeout=60)
+
+    def _bank_chain(self, handle, index, kind, bank, component, where, banks):
+        """Component path of the rebuilt chain matching one dump layer/band/pad."""
+        if bank.endswith("DRUM_PADS"):
+            found = re.search(r"PAD(\d+)$", component)
+            if not found:
+                self.report.skip("drum_pad_key", where, component)
+                return None
+            result = self.s.b.request("device.drum_pad", handle._track_params(
+                device=index, component=bank, key=int(found.group(1))))
+            self.report.ok("drum_pad")
+            return result["component"]
+        if bank not in banks:
+            # A fresh container can already hold default chains; reuse them in order.
+            existing = [c["component_path"] for c in self._structure(handle, index)["chains"]
+                        if (c.get("component_path") or "").startswith(bank + "/")]
+            banks[bank] = {"existing": existing, "used": 0}
+        state = banks[bank]
+        if state["used"] < len(state["existing"]):
+            state["used"] += 1
+            self.report.ok(f"{kind}_reused")
+            return state["existing"][state["used"] - 1]
+        if kind == "layer":
+            created = handle.create_layer(index, bank)
+        else:
+            created = self.s.b.request("device.create_band", handle._track_params(device=index, component=bank))
+        self.report.ok(f"{kind}_created")
+        return created["component"]
+
+    def _nested(self, handle, index, chain, place, banks):
+        kind = chain.get("kind")
+        component = chain.get("component_path")
+        where = f"{place}/{component}"
+        if kind == "chain":
+            created = component
+            sub = handle.chain(index, component)
+        elif kind in ("layer", "band"):
+            bank = component.rsplit("/", 1)[0]
+            try:
+                created = self._bank_chain(handle, index, kind, bank, component, where, banks)
+            except Exception as error:
+                self.report.fail(f"create_{kind}", where, error)
+                return None
+            if created is None:
+                return None
+            sub = handle.chain(index, created)
+            layer = chain.get("layer") or {}
+            changes = {}
+            if layer.get("name"):
+                changes["name"] = layer["name"]
+            mixer = layer.get("mixer") or {}
+            if mixer.get("volume", 1) != 1:
+                changes["volume"] = mixer["volume"]
+            if mixer.get("pan", 0):
+                changes["pan"] = mixer["pan"]
+            if mixer.get("muted"):
+                changes["muted"] = True
+            if changes:
+                self._try("layer_settings", where, lambda: handle.update_layer(index, created, **changes))
+        else:
+            self.report.skip("chain_kind", where, kind)
+            return None
+        if chain.get("devices"):
+            self._chain(sub, chain["devices"], where)
+        return created
+
+    @staticmethod
+    def _modulator_values(modulator):
+        """Staged values: doubles as PERCENTAGE_OF_RANGE (the reader's normalized x 100)."""
+        values = {}
+        for parameter in modulator.get("parameters") or []:
+            kind = parameter.get("kind")
+            if kind == "double" and parameter.get("normalized") is not None:
+                values[parameter["path"]] = float(parameter["normalized"]) * 100
+            elif kind == "boolean" and isinstance(parameter.get("value"), bool):
+                values[parameter["path"]] = parameter["value"]
+            elif kind == "enum":
+                enum = parameter.get("index", _enum_index(parameter.get("value")))
+                if enum is not None:
+                    values[parameter["path"]] = enum
+        return values
+
+    def _modulators(self, handle, index, device, place, chain_map):
+        wanted = device.get("modulators") or []
+        try:
+            fresh = self._structure(handle, index)["modulators"]
+        except Exception as error:
+            self.report.fail("modulators_read", place, error)
+            return
+        used = set()
+        rebuilt = {}          # dump modulator index -> rebuilt modulator object (fresh or added)
+        for modulator in wanted:
+            where = f"{place}/mod:{modulator.get('device_name')}"
+            values = self._modulator_values(modulator)
+            if any(p.get("kind") == "double" and p.get("normalized") is None for p in modulator.get("parameters") or []):
+                self.report.skip("modulator_native_values", where)
+            match = next((f for f in fresh if f["index"] not in used and f.get("modulator_id") == modulator.get("modulator_id")
+                          and (f.get("x"), f.get("y")) == (modulator.get("x"), modulator.get("y"))), None)
+            if match is not None:
+                used.add(match["index"])
+                rebuilt[modulator["index"]] = ("fresh", match["index"])
+                polarity = {p["path"]: p["bipolar"] for p in modulator.get("parameters") or [] if "bipolar" in p}
+                polarity_args = {"bipolar": polarity} if polarity else {}
+                if values and self._try("modulator_values", where, lambda: self.s.b.request(
+                        "device.modulator_parameters", handle._track_params(
+                            device=index, modulator=match["index"], values=values, unit="PERCENTAGE_OF_RANGE",
+                            **polarity_args))):
+                    self.report.ok("modulator_reused")
+                continue
+            params = handle._track_params(device=index, modulator_id=modulator["modulator_id"])
+            if "x" in modulator:
+                params.update(x=modulator["x"], y=modulator["y"])
+            if values:
+                params.update(values=values, unit="PERCENTAGE_OF_RANGE")
+            polarity = {p["path"]: p["bipolar"] for p in modulator.get("parameters") or [] if "bipolar" in p}
+            if polarity:
+                params["bipolar"] = polarity
+            try:
+                result = self.s.b.request("device.modulator_add", params, timeout=125)
+                time.sleep(.25)  # measured engine pacing after insertion (see JavaDeviceMethods.add_modulator)
+                rebuilt[modulator["index"]] = ("added", result["modulator"])
+                self.report.ok("modulator")
+            except Exception as error:
+                self.report.fail("modulator", where, error)
+        # Remove default modulators of the fresh device that the source does not have.
+        for extra in sorted((f["index"] for f in fresh if f["index"] not in used), reverse=True):
+            self._try("modulator_removed", place, lambda: self.s.b.request(
+                "device.modulator_delete", handle._track_params(device=index, modulator=extra)))
+        # Final indexes, matched by identity, cell and order.
+        current = self._structure(handle, index)["modulators"]
+        mapping = {}
+        taken = set()
+        for modulator in wanted:
+            found = next((c for c in current if c["index"] not in taken and c.get("modulator_id") == modulator.get("modulator_id")
+                          and (c.get("x"), c.get("y")) == (modulator.get("x"), modulator.get("y"))), None)
+            if found is not None:
+                taken.add(found["index"])
+                mapping[modulator["index"]] = found["index"]
+        for modulator in wanted:
+            where = f"{place}/mod:{modulator.get('device_name')}"
+            target = mapping.get(modulator["index"])
+            if target is None:
+                continue
+            name = modulator.get("device_name")
+            have = next((c.get("device_name") for c in current if c["index"] == target), None)
+            if name and name != have:
+                self._try("modulator_name", where, lambda: self.s.b.request(
+                    "device.modulator_rename", handle._track_params(device=index, modulator=target, name=name)))
+            for parameter in modulator.get("parameters") or []:
+                if parameter.get("label"):
+                    self._try("modulator_label", where, lambda: self.s.b.request("device.modulator_rename", handle._track_params(
+                        device=index, modulator=target, parameter=parameter["path"], name=parameter["label"])))
+            for binding in modulator.get("bindings") or []:
+                self._pending_bindings.append((handle, index, target, binding, where, chain_map, mapping))
+
+    def bindings(self):
+        for handle, index, modulator, binding, where, chain_map, mapping in self._pending_bindings:
+            owner = binding.get("target_owner") or {}
+            parameter = binding.get("target_parameter")
+            if not parameter or "device" not in owner:
+                self.report.skip("binding_target", where, binding)
+                continue
+            params = handle._track_params(device=index, modulator=modulator, target_parameter=parameter)
+            if "chain" in owner:
+                component = chain_map[owner["chain"]] if owner["chain"] < len(chain_map) else None
+                if component is None:
+                    self.report.skip("binding_nested_target", where, binding)
+                    continue
+                params.update(target_component=component, target_device=owner["device"])
+            elif owner["device"] != index:
+                params["target_device"] = owner["device"]
+            found = re.match(r"MODULATORS/(\d+)/(.*)$", parameter)
+            if found and "chain" not in owner and owner["device"] == index:
+                rebuilt = mapping.get(int(found.group(1)))
+                if rebuilt is None:
+                    self.report.skip("binding_modulator_target", where, binding)
+                    continue
+                params["target_parameter"] = f"MODULATORS/{rebuilt}/{found.group(2)}"
+            if binding.get("component"):
+                params["source"] = binding["component"]
+            if binding.get("amount") is not None:
+                params["native_amount"] = float(binding["amount"])
+            elif binding.get("amount_normalized") is not None:
+                params["amount"] = float(binding["amount_normalized"])
+            else:
+                self.report.skip("binding_amount", where, binding)
+                continue
+            self._try("binding", where, lambda: self.s.b.request("device.modulator_bind", params))
+
+    def sidechains(self):
+        for handle, index, sidechain, place in self._pending_sidechains:
+            spec = self._source_spec(sidechain.get("source"))
+            if spec is False or spec is None:
+                self.report.skip("sidechain_source", place, sidechain)
+                continue
+            self._try("sidechain", place, lambda: self.s.b.request("device.set_sidechain", handle._track_params(
+                device=index, component=sidechain["component_path"], source=spec)))
+
+    # Clips -------------------------------------------------------------------
+
+    def clips(self):
+        for track, scope in self._all_tracks():
+            clips = sorted(track.get("clips") or [], key=lambda c: c.get("start", 0))
+            if not clips:
+                continue
+            handle = self._handle(track)
+            where = track.get("path") or scope
+            for number, clip in enumerate(clips):
+                if clip.get("content") == "note":
+                    self._note_clip(handle, number, clip, where)
+                elif clip.get("content") == "audio":
+                    self._audio_clip(handle, number, clip, where)
+                else:
+                    self.report.skip("clip_content", where, clip.get("content"))
+
+    _NOTE_FIELDS = ("key", "channel", "start", "duration", "on_velocity", "off_velocity", "muted",
+                    "velocity_spread", "content_start", "chance", "chance_enabled", "occurrence",
+                    "occurrence_enabled", "recurrence", "recurrence_enabled", "repeat_count",
+                    "repeat_curve", "repeat_enabled")
+
+    def _notes(self, notes, where):
+        payload = []
+        for note in notes:
+            item = {k: note[k] for k in self._NOTE_FIELDS if k in note}
+            expressions = {}
+            for expression in note.get("expressions") or []:
+                name = expression.get("name") or expression.get("kind")
+                points = [[p["time"], p["value"], *([p["curvature"]] if "curvature" in p else [])]
+                          for p in expression.get("points") or []]
+                if name and points:
+                    expressions[name] = {"unit": expression.get("unit") or "NONE", "points": points}
+            if expressions:
+                item["expressions"] = expressions
+            payload.append(item)
+        return payload
+
+    def _clip_settings(self, handle, number, clip, where):
+        # Loop region first: the play offset is validated against it.
+        changes = {"loop": bool(clip.get("loop")),
+                   "loop_start": float(clip.get("loop_start", 0)),
+                   "loop_duration": float(clip.get("loop_duration") or clip["duration"])}
+        if clip.get("name"):
+            changes["name"] = clip["name"]
+        if clip.get("muted"):
+            changes["muted"] = True
+        rgba = _rgba(clip.get("color"))
+        if rgba is not None:
+            changes["color"] = clip["color"][:7]
+        if clip.get("content") == "audio":
+            for key in ("fade_in", "fade_out"):
+                if clip.get(key):
+                    changes[key] = clip[key]
+        self._try("clip_settings", where, lambda: handle.update_clip(number, **changes))
+        if clip.get("play_start_offset"):
+            self._try("clip_offset", where, lambda: handle.update_clip(
+                number, play_start_offset=float(clip["play_start_offset"]), duration=float(clip["duration"])))
+
+    def _note_clip(self, handle, number, clip, where):
+        try:
+            self.s.b.request("clip.create_arranger_with_notes", handle._track_params(
+                start=float(clip["start"]), duration=float(clip["duration"]), notes=[]))
+            self.report.ok("note_clip")
+        except Exception as error:
+            self.report.fail("note_clip", where, error)
+            return
+        notes = self._notes(clip.get("notes") or [], where)
+        if notes:
+            for start in range(0, len(notes), 4096):
+                if start:
+                    self.report.skip("note_clip_over_4096", where, len(notes))
+                    break
+                if self._try("notes", where, lambda: handle.replace_notes(number, notes[:4096])):
+                    self.report.ok("note", len(notes) - 1)
+        self._clip_settings(handle, number, clip, where)
+
+    def _audio_clip(self, handle, number, clip, where):
+        events = clip.get("audio_events") or []
+        if not events:
+            self.report.skip("empty_audio_clip", where)
+            return
+        first = events[0]
+        source = self.media(first["file"])
+        try:
+            handle.import_audio(source, start=float(clip["start"]), duration=float(clip["duration"]),
+                                source_offset=0)
+            self.report.ok("audio_clip")
+        except Exception as error:
+            self.report.fail("audio_clip", where, error)
+            return
+        self._audio_event(handle, number, 0, first, where, replace=True)
+        for position, event in enumerate(events[1:], start=1):
+            try:
+                handle.import_audio_event(number, self.media(event["file"]), start=float(event["start"]),
+                                          duration=float(event["duration"]))
+                self.report.ok("audio_event")
+            except Exception as error:
+                self.report.fail("audio_event", where, error)
+                continue
+            self._audio_event(handle, number, position, event, where, replace=False)
+        self._clip_settings(handle, number, clip, where)
+
+    def _audio_event(self, handle, number, index, event, where, *, replace):
+        changes = {"start": float(event["start"]), "duration": float(event["duration"])}
+        warp = event.get("warp_mode")
+        if warp and warp != "RAW":
+            markers = [[m["time"], m["content_time"]] for m in event.get("warp_markers") or []]
+            if event.get("reverse"):
+                # Reversed events store mirrored source times; write the forward
+                # mapping and let the native reverse mirror it again.
+                length = float(event.get("sample_duration_seconds") or 0)
+                markers = sorted([[t, length - c] for t, c in markers])
+            if len(markers) >= 2 and all(b[0] > a[0] and b[1] > a[1] for a, b in zip(markers, markers[1:])):
+                changes["warp_mode"] = warp
+                changes["warp_markers"] = markers
+            else:
+                self.report.skip("warp_markers", where, {"mode": warp, "reverse": event.get("reverse")})
+        for key in ("fade_in", "fade_out"):
+            if event.get(key):
+                changes[key] = event[key]
+        if event.get("muted"):
+            changes["muted"] = True
+        for key in ("preserve_formants", "preview_onsets"):
+            if key in event:
+                changes[key] = bool(event[key])
+        for key in ("preserve_transients_mode", "transient_rate", "warp_grain_size", "warp_tail_mode"):
+            if event.get(key):
+                changes[key] = event[key]
+        try:
+            handle.update_audio_event(number, index, **changes)
+            self.report.ok("audio_event_settings")
+        except Exception as error:
+            self.report.fail("audio_event_settings", where, error)
+        if event.get("reverse"):
+            self._try("audio_reverse", where, lambda: handle.update_audio_event(number, index, reverse=True))
+        if event.get("expressions"):
+            self.report.skip("audio_expressions", where)
+        else:
+            self._try("audio_expression_clear", where, lambda: handle.update_audio_event(
+                number, index, expressions={"gain": {"unit": "RATIO", "points": []}}))
+
+    def launcher(self):
+        for track, scope in self._all_tracks():
+            handle = self._handle(track)
+            where = track.get("path") or scope
+            for slot in track.get("clip_slots") or []:
+                clip = (slot or {}).get("clip")
+                if not clip:
+                    continue
+                if clip.get("content") == "note":
+                    self._try("launcher_clip", where, lambda: handle.put_launcher_notes(
+                        slot["index"], self._notes(clip.get("notes") or [], where), clip["duration"],
+                        name=clip.get("name") or "", loop=bool(clip.get("loop", True)),
+                        has_stop=slot.get("has_stop")))
+                else:
+                    self.report.skip("launcher_audio", where)
+
+    # Automation ----------------------------------------------------------------
+
+    def automation(self):
+        for track, scope in self._all_tracks():
+            handle = self._handle(track)
+            where = track.get("path") or scope
+            for lane in track.get("automation") or []:
+                self._lane(handle, lane, where)
+
+    def _lane(self, handle, lane, where):
+        # Bitwig stores constant lanes with an anchor at a large negative time,
+        # and the composite reader can report stray out-of-order points.
+        points, last = [], -1.0
+        for point in lane.get("points") or []:
+            time_ = point.get("time") or 0
+            if time_ < 0 or time_ < last:
+                self.report.skip("automation_point_out_of_order", where, time_)
+                continue
+            points.append(point)
+            last = time_
+        if not points:
+            return
+        target = lane.get("target_path")
+        kind = points[0].get("kind")
+        if not target or lane.get("target_status") != "model":
+            # The stored lane has no target (left behind by a deleted parameter).
+            self.report.skip("automation_orphan_lane", where, len(points))
+            return
+        if len(points) < 2:
+            self.report.skip("automation_single_point", where, target)
+            return
+        if kind not in ("real", "boolean", "enum", "integer"):
+            self.report.skip(f"automation_{kind}", where, target)
+            return
+        rows = []
+        for p in points:
+            if kind == "real":
+                rows.append([p["time"], p.get("raw_value", p["value"]), p.get("curvature", 0),
+                             p.get("interpolation", "linear")])
+            elif kind == "enum":
+                rows.append([p["time"], p.get("raw_value", p["value"])])
+            else:
+                rows.append([p["time"], p["value"]])
+        params = handle._track_params(target=target, kind=kind, points=rows)
+        if "device" in lane:
+            params["device"] = lane["device"]
+        self._try(f"automation_{lane.get('target_scope')}", where,
+                  lambda: self.s.b.request("automation.write_target", params, timeout=125))
+
+    # Scenes and markers ----------------------------------------------------------
+
+    def scenes(self):
+        existing = len(self.s.scenes())
+        for scene in self.dump.get("scenes") or []:
+            index = scene.get("index", existing)
+            while existing <= index:
+                self.s.insert_scene()
+                existing += 1
+            changes = {}
+            if scene.get("name"):
+                changes["name"] = scene["name"]
+            if scene.get("comment"):
+                changes["comment"] = scene["comment"]
+            if _rgba(scene.get("color")) is not None:
+                changes["color"] = scene["color"][:7]
+            if changes:
+                self._try("scene", f"scene {index}", lambda: self.s.update_scene(index, **changes))
+
+    def markers(self):
+        for marker in self.dump.get("cue_markers") or []:
+            color = marker.get("color")
+            self._try("cue_marker", marker.get("name", ""), lambda: self.s.add_cue_marker(
+                float(marker.get("time", marker.get("beat", 0))), marker.get("name") or " ",
+                color[:7] if _rgba(color) is not None else None))
+
+    # Titles ----------------------------------------------------------------------
+
+    def restore_titles(self):
+        ordered = sorted(((track, scope) for track, scope in self._all_tracks() if scope != "master"),
+                         key=lambda item: -self.paths[id(item[0])].count("/"))
+        for track, scope in ordered:
+            handle = self._handle(track)
+            title = self.titles[id(track)]
+            self._try("title", track.get("path") or scope, lambda: self.s.b.request(
+                "track.rename", handle._target_params(name=title)))
+
+
+def reconstruct(song: JavaSong, dump: dict, **options) -> Report:
+    """Rebuild ``dump`` into the selected project; see :class:`Reconstructor`."""
+    return Reconstructor(song, dump, **options).run()

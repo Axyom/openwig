@@ -1,0 +1,168 @@
+"""Reconstruction wire contract against a fake Java bridge (no Bitwig needed)."""
+
+from openwig.java_song import JavaSong
+from openwig.reconstruct import Reconstructor, _enum_index, _rgba
+
+
+class RebuildBridge:
+    """Answers the calls a rebuild makes and records them in order."""
+
+    def __init__(self):
+        self.calls = []
+        self.main = 0
+        self.fx = 0
+        self.devices = {}
+        self.clips = {}
+        self.modulators = {}
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def wait_connected(self, timeout):
+        return True
+
+    def request(self, method, params=None, timeout=None):
+        params = params or {}
+        self.calls.append((method, params))
+        key = (params.get("path"), str(params.get("chain")))
+        if method == "host.version":
+            return {"version": "6.1.5"}
+        if method == "document.status":
+            return {"active": True}
+        if method == "transport.set_tempo":
+            return {"bpm": params["bpm"]}
+        if method == "fxtrack.count":
+            return {"count": self.fx}
+        if method == "fxtrack.create":
+            self.fx += 1
+            return {"count": self.fx}
+        if method == "track.create_group":
+            path = f"{params['parent']}/{params['name']}" if params.get("parent") else params["name"]
+            self.main += 0 if params.get("parent") else 1
+            return {"count": self.main, "index": self.main - 1, "name": params["name"], "path": path}
+        if method == "track.count":
+            return {"count": self.main}
+        if method == "track.create":
+            if params.get("parent"):
+                return {"count": self.main, "path": f"{params['parent']}/{params['name']}"}
+            self.main += 1
+            return {"count": self.main}
+        if method == "track.snapshot":
+            return {"name": "?"}
+        if method == "device.count":
+            return {"count": self.devices.get(key, 0)}
+        if method in ("device.insert_factory", "device.insert_plugin"):
+            index = self.devices.get(key, 0)
+            self.devices[key] = index + 1
+            return {"count": index + 1, "device": index}
+        if method == "device.list_parameters":
+            return [{"path": "GAIN", "kind": "double"}, {"path": "MONO", "kind": "boolean"}]
+        if method == "device.structure":
+            return {"modulators": self.modulators.get((key, params["device"]), []), "chains": []}
+        if method == "device.modulator_add":
+            added = self.modulators.setdefault((key, params["device"]), [])
+            added.append({"index": len(added), "modulator_id": params["modulator_id"],
+                          "x": params.get("x"), "y": params.get("y"), "device_name": "LFO"})
+            return {"modulator": len(added) - 1, "count": len(added)}
+        if method == "clip.create_arranger_with_notes":
+            self.clips[key] = self.clips.get(key, 0) + 1
+            return {"count": self.clips[key]}
+        if method == "scene.snapshot":
+            return {"count": 0, "scenes": []}
+        return {}
+
+
+def dump():
+    note = {"key": 60, "channel": 0, "start": 0, "duration": 1, "on_velocity": .8, "off_velocity": .8,
+            "muted": False, "expressions": []}
+    return {
+        "transport": {"tempo": 150, "groove_enabled": True, "shuffle": .2,
+                      "time_signature": {"numerator": 4, "denominator": 4}},
+        "metadata": {},
+        "effect_tracks": [{"name": "Verb", "path": "fx/Verb", "devices": [], "sends": [], "volume": 1, "pan": .5}],
+        "master": {"devices": [], "automation": []},
+        "main_tracks": [{
+            "name": "Drums", "path": "Drums", "is_group": True, "track_type": "HYBRID", "source": None,
+            "destination": {"path": "master"}, "devices": [], "sends": [], "volume": 1, "pan": .5,
+            "children": [{
+                "name": "Kick", "path": "Drums/Kick", "is_group": False, "track_type": "INSTRUMENT",
+                "destination": {"path": "Drums"}, "volume": .5, "pan": .5, "color": "#fe55b7",
+                "sends": [{"target": "Verb", "amount": .25, "mode": "AUTO", "index": 0}],
+                "devices": [{
+                    "kind": "native", "device_id": "e4815188-ba6f-4d14-bcfc-2dcb8f778ccb", "device_name": "Tool",
+                    "display_name": "", "enabled": True, "active": True,
+                    "parameters": [{"path": "GAIN", "kind": "double"}, {"path": "MONO", "kind": "boolean"}],
+                    "values": {"GAIN": 1.5, "MONO": True},
+                    "modulators": [{"index": 0, "modulator_id": "m", "device_name": "LFO", "display_name": "LFO",
+                                    "x": 0, "y": 0, "parameters": [
+                                        {"path": "RATE", "kind": "double", "value": 0, "normalized": 2.5},
+                                        {"path": "BIPOLAR", "kind": "boolean", "value": True}],
+                                    "bindings": [{"component": "LFO", "amount": .4, "amount_normalized": .2,
+                                                  "target_parameter": "GAIN",
+                                                  "target_owner": {"path": "Drums/Kick", "device": 0}}]}],
+                    "chains": [], "sidechains": []}],
+                "clips": [{"content": "note", "start": 4, "duration": 4, "loop": False, "loop_start": 0,
+                           "loop_duration": 4, "notes": [note, dict(note, start=2, key=72)]}],
+                "automation": [{"target_path": "On", "target_status": "model", "target_scope": "device",
+                                "device": 0, "points": [
+                                    {"time": -63072000, "kind": "boolean", "value": True},
+                                    {"time": 8, "kind": "boolean", "value": False},
+                                    {"time": 2, "kind": "boolean", "value": False},
+                                    {"time": 16, "kind": "boolean", "value": True}]}],
+                "children": []}],
+        }],
+        "scenes": [{"index": 0, "name": "Drop"}],
+        "cue_markers": [{"time": 32, "name": "DROP"}],
+    }
+
+
+def calls(bridge, method):
+    return [params for name, params in bridge.calls if name == method]
+
+
+def rebuild():
+    bridge = RebuildBridge()
+    song = JavaSong(bridge=bridge)
+    report = Reconstructor(song, dump()).run()
+    return bridge, report
+
+
+def test_helpers():
+    assert _rgba("#ff0000") == (1.0, 0.0, 0.0, 1.0)
+    assert _rgba("#00000000") is None
+    assert _enum_index("CPO[member_name=value,object=Timebase,value=4]") == 4
+    assert _enum_index(3) == 3 and _enum_index(True) is None
+
+
+def test_rebuild_writes_structure_devices_and_content():
+    bridge, report = rebuild()
+    assert report.failed == [], report.failed
+    # Native devices by definition UUID; switches before numbers, numbers in the reader's scale.
+    assert calls(bridge, "device.insert_factory")[0]["id"] == "e4815188-ba6f-4d14-bcfc-2dcb8f778ccb"
+    writes = calls(bridge, "device.set_parameters")
+    assert writes[0]["params"] == {"MONO": True}
+    assert writes[1]["params"] == {"GAIN": 150.0} and writes[1]["unit"] == "PERCENTAGE_OF_RANGE"
+    # Modulators stage values (normalized x 100) and bind with the native amount.
+    add = calls(bridge, "device.modulator_add")[0]
+    assert add["values"] == {"RATE": 250.0, "BIPOLAR": True} and add["unit"] == "PERCENTAGE_OF_RANGE"
+    bind = calls(bridge, "device.modulator_bind")[0]
+    assert bind["native_amount"] == .4 and bind["target_parameter"] == "GAIN" and "target_device" not in bind
+    # Children of groups are routed explicitly; sends follow their effect track.
+    assert {"path": "Drums #rw2/Kick #rw3", "destination": "Drums #rw2"} in calls(bridge, "track.set_destination")
+    assert calls(bridge, "track.set_send")[0]["send"] == 0
+    # Clip container: loop region first, then notes.
+    assert calls(bridge, "clip.create_arranger_with_notes")[0]["start"] == 4.0
+    assert len(calls(bridge, "clip.replace_notes")[0]["notes"]) == 2
+    assert calls(bridge, "clip.update")[0]["changes"]["loop_duration"] == 4.0
+    # Automation drops the negative anchor and the stray out-of-order point.
+    lane = calls(bridge, "automation.write_target")[0]
+    assert lane["points"] == [[8, False], [16, True]] and lane["kind"] == "boolean"
+    assert report.unsupported["automation_point_out_of_order"] == 2
+    # Groove, scenes, markers and real titles at the end.
+    assert calls(bridge, "transport.set_groove")[0] == {"enabled": True, "shuffle": .2}
+    assert calls(bridge, "cue_marker.create")[0]["name"] == "DROP"
+    renames = [p["name"] for p in calls(bridge, "track.rename")]
+    assert renames == ["Kick", "Verb", "Drums"]
