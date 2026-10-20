@@ -75,8 +75,8 @@ Baseline implementation commits (use `git log` for subsequent increments):
 
 ## Latest checkpoint: native project open/close (2026-10-20)
 
-- Branch `codex/document-open-close` (worktree `../bitwig-sdk-docopen`), stacked
-  on `codex/modulator-editing`. Java: `OpenwigDocument.openDocument`,
+- Developed on `codex/document-open-close` (worktree `../bitwig-sdk-docopen`);
+  now part of `codex/java-bridge-615` (PR #5, which absorbed PRs #6 and #7). Java: `OpenwigDocument.openDocument`,
   `closeDocument`, `unsavedTab`; native callbacks (`F3z`, `rdP`) feed a job map
   behind `document.job_status`. Python: `open_project`, `close_project`,
   `close_unsaved`. See `java_bridge/README.md`, "Native project open and close".
@@ -104,8 +104,8 @@ Baseline implementation commits (use `git log` for subsequent increments):
 
 ## Previous checkpoint: modulator editing (2026-10-20)
 
-- Worked in a separate worktree branch `codex/modulator-editing` (from `78b3574`);
-  not merged into `codex/java-bridge-615`. See `java_bridge/README.md`,
+- Developed on `codex/modulator-editing` (from `78b3574`); now part of
+  `codex/java-bridge-615` (PR #5). See `java_bridge/README.md`,
   "Modulator editing", for the native entry points. CFR sources:
   `scratch/decomp/modulators/` (gDz, JDY, KaT, Hx3, AwX, AvA, CzJ, QFL, m1C/zgi,
   aB, eQt, packaging MD/LXO/Byq, Api*ValueAtom).
