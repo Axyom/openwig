@@ -99,9 +99,8 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - Unit suite: 295 passed; exact-build build, offline smoke and controller syntax
   passed. JAR `scratch/document-open/openwig-2.jar` SHA-256
   `5d64ac678a1ad9ab19825ac598116d025beb3d7f6a8af6d20fb1f519db0481cf`.
-- Runtime: scratch host running with
-  `scratch/document-open/gate-5/base/project.bwproject` reopened from zero tabs,
-  openwig-2.jar installed.
+- Runtime: scratch host stopped after the gate, openwig-2.jar still installed;
+  shared 6.1.5 prefs restored from the pre-corpus backup (recent-projects list).
 
 ## Previous checkpoint: modulator editing (2026-10-20)
 
