@@ -986,6 +986,33 @@ Writer behavior learned from a full rebuild of a 191-track project:
   Expressions); both are removed before the dump's own are added, so indexes match.
 - A Macro inserted with `bipolar` reads unipolar after insertion (the staged
   atom's flag is not cloned); it is set again on the inserted modulator.
+- Bitwig stores notes that start before the clip content, negative note
+  content starts, expression steps (two points at one beat) and transpose
+  curves on REPITCH events; the note, expression and audio event writers now
+  accept them instead of refusing the whole clip or event.
+- Modulator mappings can target a device's On switch and another device's
+  modulator (a Math input inside a nested preset); the reader walks up from the
+  target atom to its device to keep the `MODULATORS/<i>/CONTENTS/` path, and
+  `device.modulator_bind` falls back to the reader's target resolver.
+- Stored enum values can exceed the enum's entry count (a modulator Timebase
+  reads 22); the staged value is handed to the parameter's setter.
+- VST2 presets get no role through the API (`fLo` is built with the default
+  audio-effect role), so a VST2 instrument arrived as an effect and received
+  no notes; `device.insert_plugin` now sets the descriptor's role
+  (`cfH.IYM(eOc)`, the field VST3 presets take in their constructor).
+- A plugin's own sidechain input is `vgq.Oof().Idv()` (a `WYJ`, like a native
+  sidechain component); `device.set_sidechain` without `component` sets it.
+- Track faders go above 0 dB: the reader's percent-of-range volume exceeds 1
+  there (+6 dB is 1.995), and `track.set_volume` accepts it.
+- An automation clip made over a note clip's range copies that clip's cue
+  markers; its play start is set, read back, and set again from beyond the
+  end marker only when Bitwig clamped it.
+- `project.save_copy` (serialize, clone, write) loses edits the live document
+  holds: modulator names, Macro polarity and parameter labels revert after
+  reopening (values and mappings stay; mapping amounts rescale with the
+  polarity). A rebuilt project is exact while open; a faithful file needs
+  Bitwig's own save path. The command server's `IPw.tDS(path)` ("save_as")
+  was tried and wrote no file within two minutes; not wired yet.
 - `project.save_copy` of a large project stopped its audio engine in one run
   (all plugins deactivated, `document.activate_audio` never became ready);
   render from a fresh host on the saved copy instead.

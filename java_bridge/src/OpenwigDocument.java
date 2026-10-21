@@ -2793,7 +2793,18 @@ public final class OpenwigDocument {
                     Object region = modelGet(clip, "y2x");
                     if (spec.has("loop_start")) region.getClass().getMethod("eUA", double.class).invoke(region, clipTime("xeZ", spec.getDouble("loop_start")));
                     if (spec.has("loop_duration")) region.getClass().getMethod("tDS", double.class).invoke(region, clipTime("KF3", spec.getDouble("loop_duration")));
-                    if (spec.has("play_start_offset")) clip.getClass().getMethod("CJq", double.class).invoke(clip, spec.getDouble("play_start_offset"));
+                    if (spec.has("play_start_offset")) {
+                        java.lang.reflect.Method playStart = clip.getClass().getMethod("CJq", double.class);
+                        double offset = spec.getDouble("play_start_offset"), length = spec.getDouble("end") - start;
+                        // A play start landing exactly on the end marker is clamped a tick early (the
+                        // made clip can carry another clip's markers): then approach it from beyond.
+                        playStart.invoke(clip, offset);
+                        double stored = ((Number) modelGet(modelGet(modelGet(clip, "NFl"), "VtE"), "tS")).doubleValue();
+                        if (Math.abs(stored - offset) > 1e-9) {
+                            playStart.invoke(clip, offset + length);
+                            playStart.invoke(clip, offset);
+                        }
+                    }
                     insert.invoke(lane, clip);
                 }
             } catch (ReflectiveOperationException failure) {
@@ -3220,8 +3231,9 @@ public final class OpenwigDocument {
             }
             case "volume" -> {
                 double value = params == null ? Double.NaN : params.optDouble("value", Double.NaN);
-                if (!Double.isFinite(value) || value < 0 || value > 1) {
-                    throw new IllegalArgumentException("value must be between 0 and 1");
+                // 1 is 0 dB; the fader reaches +6 dB (a linear gain of 1.995).
+                if (!Double.isFinite(value) || value < 0 || value > 1.9952623149688795) {
+                    throw new IllegalArgumentException("value must be between 0 and 1.995 (+6 dB)");
                 }
                 track.mixer().getVolume().setValue(value * 100.0, Unit.PERCENTAGE_OF_RANGE);
             }
@@ -3949,7 +3961,14 @@ public final class OpenwigDocument {
                     Track track = deviceScope(resolveTrack(project, params), params);
                     Object owner = deviceTargetAt(track, params.getInt("device"));
                     Class<?> type = classForName("WYJ");
-                    Object component = deviceComponent(owner, params.getString("component"), type);
+                    Object component;
+                    if (params.optString("component", "").isEmpty()) {
+                        // A plugin's own sidechain input (vgq.Oof().Idv()), as the reader reports it.
+                        Object plugin = modelGetOrNull(owner, "Oof");
+                        component = plugin == null ? null : modelGetOrNull(plugin, "Idv");
+                        if (component == null || !type.isInstance(component))
+                            throw new IllegalArgumentException("device has no plugin sidechain input");
+                    } else component = deviceComponent(owner, params.getString("component"), type);
                     com.bitwig.extension.api.project.routing.Source source = params.isNull("source") ? null
                             : trackSource(project, params.getJSONObject("source"));
                     Object wrapper;
@@ -4292,6 +4311,17 @@ public final class OpenwigDocument {
                         int vst2Id;
                         try { vst2Id = Integer.parseInt(id); } catch (NumberFormatException invalid) { throw new IllegalArgumentException("VST2 ID must be an integer"); }
                         com.bitwig.extension.api.project.mixer.PluginPreset vst2 = project.getFactory().createVst2DevicePreset(name, vst2Id, params.optInt("version", 0));
+                        if (params.has("role")) {
+                            int role = switch (params.getString("role")) {
+                                case "audioFX" -> 0; case "noteFX" -> 1; case "instrument" -> 2; case "analyzer" -> 3;
+                                default -> throw new IllegalArgumentException("unknown device role " + params.getString("role")); };
+                            try {
+                                Object descriptor = vst2.getClass().getMethod("getTarget").invoke(vst2);
+                                Class<?> roleType = classForName("eOc");
+                                descriptor.getClass().getMethod("IYM", roleType)
+                                        .invoke(descriptor, roleType.getMethod("IYM", int.class).invoke(null, role));
+                            } catch (ReflectiveOperationException failure) { throw new IllegalStateException("VST2 role failed", failure); }
+                        }
                         if (params.has("state")) {
                             java.io.File source = new java.io.File(params.getString("state"));
                             String lower = source.getName().toLowerCase(java.util.Locale.ROOT);

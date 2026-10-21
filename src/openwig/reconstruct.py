@@ -257,7 +257,7 @@ class Reconstructor:
                     self._try("active", where, lambda: handle.active(False))
             if "volume" in track:
                 self._try("volume", where, lambda: self.s.b.request(
-                    "track.set_volume", handle._target_params(value=min(1.0, max(0.0, float(track["volume"]))))))
+                    "track.set_volume", handle._target_params(value=float(track["volume"]))))
             if "pan" in track:
                 self._try("pan", where, lambda: self.s.b.request(
                     "track.set_pan", handle._target_params(value=float(track["pan"]))))
@@ -298,8 +298,8 @@ class Reconstructor:
         spec = self._source_spec(source)
         if spec is False:
             self.report.skip("input_source", where, source)
-        elif spec is not None or track.get("is_group"):
-            # New groups default to "All ins"; the reader reports no input as null.
+        elif spec is not None or source is None:
+            # New tracks can default to "All ins"; the reader reports no input as null.
             self._try("input_source", where, lambda: self.s.b.request(
                 "track.set_source", handle._target_params(source=spec)))
 
@@ -359,8 +359,8 @@ class Reconstructor:
                 params = {"name": device["device_name"], "format": kind, "id": str(device["device_id"])}
                 if kind == "vst3":
                     params["id"] = params["id"].upper()
-                    if device.get("role"):
-                        params["role"] = device["role"]
+                if kind in ("vst3", "vst2") and device.get("role"):
+                    params["role"] = device["role"]
                 if state is not None:
                     params["state"] = str(state)
                 result = self.s.b.request("device.insert_plugin", handle._track_params(**params), timeout=125)
@@ -398,6 +398,9 @@ class Reconstructor:
         for sidechain in device.get("sidechains") or []:
             if sidechain.get("source") is not None:
                 self._pending_sidechains.append((handle, index, sidechain, place))
+        if device.get("kind") in ("vst3", "vst2", "clap") and device.get("sidechain") is not None:
+            # A plugin's own sidechain input has no component path.
+            self._pending_sidechains.append((handle, index, {"component_path": "", "source": device["sidechain"]}, place))
         for content in device.get("sample_content") or []:
             self._sample_content(handle, index, content, place)
         for impulse in device.get("impulses") or []:
