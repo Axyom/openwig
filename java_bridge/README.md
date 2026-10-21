@@ -1018,7 +1018,13 @@ Writer behavior learned from a full rebuild of a 191-track project:
   reopening (values and mappings stay; mapping amounts rescale with the
   polarity). A rebuilt project is exact while open; a faithful file needs
   Bitwig's own save path. The command server's `IPw.tDS(path)` ("save_as")
-  was tried and wrote no file within two minutes; not wired yet.
+  was tried and wrote no file within two minutes; serializing the live
+  document directly (no clone) loses the same three, so these setters change
+  fields the project file does not keep. Not solved yet.
+- A mapping target two or more chains deep is addressed by the owner's full
+  `chain_path` (container device and chain component per level, from the
+  track's own chain); `device.modulator_bind {target_chain, target_device}`
+  resolves it. A single chain index was ambiguous below the first level.
 - `project.save_copy` of a large project stopped its audio engine in one run
   (all plugins deactivated, `document.activate_audio` never became ready);
   render from a fresh host on the saved copy instead.

@@ -679,6 +679,9 @@ class Reconstructor:
                 self._pending_bindings.append((handle, index, target, binding, where, chain_map, mapping))
 
     def bindings(self):
+        def handle_is_root(handle):
+            return not getattr(handle, "_chain_steps", None)
+
         for handle, index, modulator, binding, where, chain_map, mapping in self._pending_bindings:
             owner = binding.get("target_owner") or {}
             parameter = binding.get("target_parameter")
@@ -686,7 +689,11 @@ class Reconstructor:
                 self.report.skip("binding_target", where, binding)
                 continue
             params = handle._track_params(device=index, modulator=modulator, target_parameter=parameter)
-            if "chain" in owner:
+            if len(owner.get("chain_path") or []) > 1 or (owner.get("chain_path") and not handle_is_root(handle)):
+                # A device deeper than the modulator owner's own chains: route from the track root.
+                params.update(target_chain=[{"device": s["device"], "component": s["component"]}
+                                            for s in owner["chain_path"]], target_device=owner["device"])
+            elif "chain" in owner:
                 component = chain_map[owner["chain"]] if owner["chain"] < len(chain_map) else None
                 if component is None:
                     self.report.skip("binding_nested_target", where, binding)

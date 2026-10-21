@@ -1150,9 +1150,19 @@ public final class OpenwigDocument {
                 for (int i = 0; i < members.size(); i++) {
                     Device member = (Device) members.get(i);
                     Object memberTarget = ((ApiObject) member).getTarget();
-                    if (owners != null && memberTarget != null)
-                        owners.put(memberTarget, new JSONObject().put("path", path)
-                                .put("chain", chainPosition).put("device", i));
+                    if (owners != null && memberTarget != null) {
+                        // The full route from the track's chain: each step is a container
+                        // device and the component of the chain inside it.
+                        JSONObject parent = owners.get(owner);
+                        JSONArray route = parent == null ? null : new JSONArray(parent.optJSONArray("chain_path") == null
+                                ? "[]" : parent.getJSONArray("chain_path").toString());
+                        if (route != null && parent.has("device"))
+                            route.put(new JSONObject().put("device", parent.getInt("device"))
+                                    .put("component", jsonModelValue(automationIdentifier(owner, chain))));
+                        JSONObject entry = new JSONObject().put("path", path).put("chain", chainPosition).put("device", i);
+                        if (route != null) entry.put("chain_path", route);
+                        owners.put(memberTarget, entry);
+                    }
                     devices.put(readDevice(member, i, path, context, owners, atomOwners));
                 }
             } catch (ReflectiveOperationException failure) {
@@ -1814,6 +1824,14 @@ public final class OpenwigDocument {
                     int at = integerField(params, "target_device", 0, Math.max(0, nested.size() - 1));
                     if (at >= nested.size()) throw new IllegalArgumentException("target_device index out of range");
                     targetOwner = ((ApiObject) nested.get(at)).getTarget();
+                } else if (params.has("target_chain")) {
+                    // A device anywhere in the track: chain steps from the track's own chain.
+                    ApiProject scope = project();
+                    try {
+                        Track root = deviceScope(resolveTrack(scope, new JSONObject().put("path", params.getString("path"))),
+                                new JSONObject().put("chain", params.getJSONArray("target_chain")));
+                        targetOwner = modulatorOwner(root, params, "target_device");
+                    } finally { scope.dispose(); }
                 } else targetOwner = params.has("target_device") ? modulatorOwner(track, params, "target_device") : owner;
                 String parameter = params.optString("target_parameter", "");
                 if (parameter.isBlank() || parameter.startsWith("/") || parameter.contains("..") || parameter.length() > 1024)
