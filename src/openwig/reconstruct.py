@@ -624,25 +624,35 @@ class Reconstructor:
             polarity = {p["path"]: p["bipolar"] for p in modulator.get("parameters") or [] if "bipolar" in p}
             if polarity:
                 params["bipolar"] = polarity
-            try:
-                result = self.s.b.request("device.modulator_add", params, timeout=125)
-            except Exception as error:
-                if values and "invalid value" in str(error):
-                    # Retry without the values the definition rejects; report them.
-                    self.report.skip("modulator_value_rejected", where, str(error)[-120:])
-                    params.pop("values", None)
-                    params.pop("unit", None)
-                    try:
-                        result = self.s.b.request("device.modulator_add", params, timeout=125)
-                    except Exception as retry:
-                        self.report.fail("modulator", where, retry)
-                        continue
-                else:
-                    self.report.fail("modulator", where, error)
-                    continue
+            deferred = {}
+            result = None
+            for _ in range(len(values) + 1):
+                try:
+                    result = self.s.b.request("device.modulator_add", params, timeout=125)
+                    break
+                except Exception as error:
+                    found = re.search(r"invalid value for modulator parameter: (\S+)", str(error))
+                    if not found or found.group(1) not in params.get("values", {}):
+                        self.report.fail("modulator", where, error)
+                        break
+                    # The staged definition rejects this value; set it on the inserted modulator.
+                    deferred[found.group(1)] = params["values"].pop(found.group(1))
+                    if not params["values"]:
+                        params.pop("values")
+                        params.pop("unit", None)
+            if result is None:
+                continue
             time.sleep(self._pacing)  # engine pacing after insertion (see JavaDeviceMethods.add_modulator)
             mapping[modulator["index"]] = result["modulator"]
             self.report.ok("modulator")
+            for name, value in deferred.items():
+                double = isinstance(value, float) and not isinstance(value, bool)
+                change = handle._track_params(device=index, modulator=result["modulator"], values={name: value})
+                if double:
+                    change["unit"] = "PERCENTAGE_OF_RANGE"
+                if not self._try("modulator_value_after_insert", where, lambda: self.s.b.request(
+                        "device.modulator_parameters", change)):
+                    self.report.skip("modulator_value_rejected", where, name)
             if polarity:
                 # Insertion clones the staged modulator without the polarity flag.
                 self._try("modulator_polarity", where, lambda: self.s.b.request(
@@ -838,6 +848,10 @@ class Reconstructor:
                 changes["warp_markers"] = markers
             else:
                 self.report.skip("warp_markers", where, {"mode": warp, "reverse": event.get("reverse")})
+        if warp and warp != "RAW" and event.get("content_start"):
+            changes["content_offset"] = float(event["content_start"])
+        elif warp == "RAW" and event.get("sample_play_start_seconds") and not event.get("reverse"):
+            changes["source_offset"] = float(event["sample_play_start_seconds"])
         for key in ("fade_in", "fade_out"):
             if event.get(key):
                 changes[key] = event[key]
@@ -924,6 +938,14 @@ class Reconstructor:
         if not target or lane.get("target_status") != "model":
             # The stored lane has no target (left behind by a deleted parameter).
             self.report.skip("automation_orphan_lane", where, len(points))
+            return
+        if target.startswith("MIXER/SEND_"):
+            # Sends are addressed by effect track UUIDs the dump does not map
+            # (the source's own were left pointing at deleted effect tracks).
+            self.report.skip("automation_send_lane", where, target)
+            return
+        if target.startswith("TRACK_CONTROLS_DEVICE:"):
+            self.report.skip("automation_track_controls", where, target)
             return
         if kind not in ("real", "boolean", "enum", "integer"):
             self.report.skip(f"automation_{kind}", where, target)

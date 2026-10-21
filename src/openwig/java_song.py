@@ -585,8 +585,8 @@ class JavaTrack(JavaDeviceMethods):
                     raise ValueError("expression point needs beat, value, optional curvature/interpolation")
                 beat = cls._clip_number(point[0], "expression beat")
                 cls._clip_number(point[1], "expression value")
-                if beat < 0 or beat <= last:
-                    raise ValueError("expression beats must be nonnegative and increasing")
+                if beat < 0 or beat < last:  # equal beats are steps, as Bitwig stores them
+                    raise ValueError("expression beats must be nonnegative and nondecreasing")
                 if len(point) > 2 and not -1 <= cls._clip_number(point[2], "curvature") <= 1:
                     raise ValueError("curvature must be in -1..1")
                 if len(point) > 3 and point[3] not in {"linear", "hold"}:
@@ -608,15 +608,16 @@ class JavaTrack(JavaDeviceMethods):
                     raise ValueError(f"{key} must be an integer in 0..{limit}")
             duration = cls._clip_number(note["duration"], "duration")
             start = cls._clip_number(note.get("start", 0), "start")
-            if duration <= 0 or start < 0:
-                raise ValueError("note start must be nonnegative and duration positive")
+            # Bitwig stores notes that start before the clip content (negative starts).
+            if duration <= 0:
+                raise ValueError("note duration must be positive")
             for key in ("on_velocity", "off_velocity", "velocity_spread"):
                 if key in note and not 0 <= cls._clip_number(note[key], key) <= 1:
                     raise ValueError(f"{key} must be in 0..1")
             if "muted" in note and type(note["muted"]) is not bool:
                 raise ValueError("muted must be boolean")
-            if "content_start" in note and cls._clip_number(note["content_start"], "content_start") < 0:
-                raise ValueError("content_start must be nonnegative")
+            if "content_start" in note:
+                cls._clip_number(note["content_start"], "content_start")
             cls._validate_conditions(note)
             cls._validate_expressions(note.get("expressions", {}))
         return payload

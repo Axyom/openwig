@@ -980,7 +980,19 @@ public final class OpenwigDocument {
                             .put("device", entryOwner.getInt("device")));
                 } else {
                     Object storedPath = reference == null ? null : modelGetOrNull(reference, "TEI");
-                    if (storedPath instanceof String text && !text.isEmpty()) {
+                    // Walk up from the target atom to its device: a modulator parameter
+                    // (a Math input) then keeps its MODULATORS/<i>/CONTENTS/ path.
+                    String held = null;
+                    Object cursor = parameter;
+                    for (int depth = 0; cursor != null && depth < 24; depth++, cursor = modelGetOrNull(cursor, "L_")) {
+                        if (cursor != self && (owners == null || !owners.containsKey(cursor))) continue;
+                        held = automationIdentifier(cursor, parameter);
+                        break;
+                    }
+                    if (held != null && held.startsWith("MODULATORS/")) {
+                        // Another device's modulator parameter (a Math input): keep the modulator index.
+                        binding.put("target_parameter", held);
+                    } else if (storedPath instanceof String text && !text.isEmpty()) {
                         binding.put("target_parameter",
                                 text.startsWith("CONTENTS/") ? text.substring("CONTENTS/".length()) : text);
                     } else {
@@ -1645,11 +1657,7 @@ public final class OpenwigDocument {
                     : wrapper instanceof EnumParameter ? value instanceof Integer
                     : value instanceof Number number && !(value instanceof Boolean) && Double.isFinite(number.doubleValue())
                             && (unitName != null && !unitName.isBlank() || (number.doubleValue() >= 0 && number.doubleValue() <= 1));
-            if (wrapper instanceof EnumParameter && valid) {
-                // dZZ.F1E() is the stored enum type; aJ.Trh() its entry count.
-                int count = ((Number) modelGet(modelGet(atom, "F1E"), "Trh")).intValue();
-                valid = (Integer) value >= 0 && (Integer) value < count;
-            }
+            if (wrapper instanceof EnumParameter && valid) valid = (Integer) value >= 0;
             if (!valid) throw new IllegalArgumentException("invalid value for modulator parameter: " + name);
             wrappers.put(name, wrapper);
         }
@@ -1809,8 +1817,15 @@ public final class OpenwigDocument {
                 String parameter = params.optString("target_parameter", "");
                 if (parameter.isBlank() || parameter.startsWith("/") || parameter.contains("..") || parameter.length() > 1024)
                     throw new IllegalArgumentException("target_parameter path required");
-                Object atom = parameter.startsWith("MODULATORS/") ? findTargetAtom(targetOwner, parameter)
-                        : deviceComponent(targetOwner, "CONTENTS/" + parameter, classForName("m1C"));
+                Object atom;
+                if (parameter.startsWith("MODULATORS/")) atom = findTargetAtom(targetOwner, parameter);
+                else {
+                    try { atom = deviceComponent(targetOwner, "CONTENTS/" + parameter, classForName("m1C")); }
+                    catch (IllegalArgumentException notAParameter) {
+                        // A device's On switch and other reader targets outside CONTENTS.
+                        atom = findTargetAtom(targetOwner, parameter);
+                    }
+                }
                 if (atom == null) throw new IllegalArgumentException("modulation target not found: " + parameter);
                 if (method.equals("device.modulator_unbind")) {
                     if (bindingFor(source, atom) == null) throw new IllegalArgumentException("no modulation mapping to " + parameter);
@@ -5081,8 +5096,7 @@ public final class OpenwigDocument {
                 if (curves.has(field) && changes.has(field.equals("gain") ? "gain_db" : field))
                     throw new IllegalArgumentException("expression and constant both supplied for " + field);
             }
-            if (curves.has("transpose") && (mode.name().equals("RAW") || mode.name().equals("REPITCH")))
-                throw new IllegalArgumentException("transpose expression requires a pitch-processing warp mode");
+            // A transpose curve stays stored (inactive) on RAW/REPITCH events, as Bitwig keeps it.
             writeExpressions(project.getFactory(), stagedConditions, curves, true);
         }
         final JSONObject[] result = new JSONObject[1];
@@ -5359,7 +5373,8 @@ public final class OpenwigDocument {
                 if (point.length() < 2 || point.length() > 4) throw new IllegalArgumentException("expression point needs time,value,curvature?,interpolation?");
                 double time = point.getDouble(0), value = point.getDouble(1), curvature = point.optDouble(2, 0);
                 String mode = point.optString(3, "linear");
-                if (!Double.isFinite(time) || !Double.isFinite(value) || !Double.isFinite(curvature) || time < 0 || time <= previous
+                // Equal times are steps, as Bitwig stores them.
+                if (!Double.isFinite(time) || !Double.isFinite(value) || !Double.isFinite(curvature) || time < 0 || time < previous
                         || curvature < -1 || curvature > 1 || (!mode.equals("linear") && !mode.equals("hold")))
                     throw new IllegalArgumentException("invalid expression point");
                 events.addPoint(time, value); previous = time;
@@ -5390,8 +5405,9 @@ public final class OpenwigDocument {
         double start = finiteField(data, "start", 0), duration = finiteField(data, "duration", -1);
         double on = finiteField(data, "on_velocity", .8), off = finiteField(data, "off_velocity", .5);
         double spread = finiteField(data, "velocity_spread", 0), offset = finiteField(data, "content_start", 0);
+        // Bitwig stores notes that start before the clip content and negative content starts.
         if (key != Math.rint(key) || key < 0 || key > 127 || channel != Math.rint(channel) || channel < 0 || channel > 15
-                || start < 0 || duration <= 0 || !Double.isFinite(start + duration) || offset < 0
+                || duration <= 0 || !Double.isFinite(start + duration)
                 || on < 0 || on > 1 || off < 0 || off > 1 || spread < 0 || spread > 1)
             throw new IllegalArgumentException("invalid note key/channel/time/velocity/spread/offset");
         if (data.has("muted") && !(data.get("muted") instanceof Boolean)) throw new IllegalArgumentException("note muted must be boolean");

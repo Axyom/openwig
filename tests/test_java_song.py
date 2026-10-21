@@ -163,7 +163,7 @@ def test_native_clip_copy_split_and_note_replacement_contract(bridge):
 
 @pytest.mark.parametrize("note", [{}, {"key": 128, "duration": 1}, {"key": True, "duration": 1},
     {"key": 60, "duration": 0}, {"key": 60, "duration": 1, "channel": 1.5},
-    {"key": 60, "duration": 1, "start": -1}, {"key": 60, "duration": 1, "chance": 2},
+    {"key": 60, "duration": 1, "chance": 2},
     {"key": 60, "duration": 1, "on_velocity": float("nan")},
     {"key": 60, "duration": 1, "muted": 1}, {"key": 60, "duration": 1, "unknown": 0},
     {"key": 60, "duration": 1, "expressions": {"unknown": {}}},
@@ -196,7 +196,7 @@ def test_individual_note_edits_and_expression_shapes(bridge):
 
 
 @pytest.mark.parametrize("changes", [
-    {}, {"key": 128}, {"velocity_spread": -1}, {"content_start": -1},
+    {}, {"key": 128}, {"velocity_spread": -1}, {"content_start": float("nan")},
     {"chance_enabled": 1}, {"occurrence": "UNKNOWN"}, {"recurrence": 2048},
     {"repeat_count": -128}, {"repeat_curve": float("nan")},
     {"expressions": {"gain": {"unit": "RATIO", "points": [[0, 1, 2]]}}},
@@ -704,3 +704,13 @@ def test_audio_coordinate_ambiguity_and_resolution_rejected_before_rpc(bridge, c
     with pytest.raises(ValueError):
         track.update_audio_event(0, 0, **changes)
     assert bridge.calls == []
+
+
+def test_notes_keep_what_bitwig_stores(bridge):
+    """Notes before the clip content, negative content starts and expression steps pass through."""
+    track = JavaSong(bridge=bridge).track_at("MIDI")
+    bridge.calls.clear()
+    notes = [{"key": 60, "duration": .25, "start": -.5, "content_start": -.25, "expressions": {
+        "transpose": {"unit": "SEMITONES", "points": [[0, 0], [.5, -12], [.5, 0]]}}}]
+    track.replace_notes(0, notes)
+    assert bridge.calls[-1] == ("clip.replace_notes", {"path": "MIDI", "clip": 0, "notes": notes})
