@@ -128,8 +128,16 @@ large project. Developed on `codex/project-reconstruction` (PR #8), then fast-fo
   the reader reports `user_name`. Live gate `probe_persist3.py` (scratch):
   save_copy + reopen keeps names, numbered titles, labels, polarity, values
   and mapping amounts. Not yet re-run on the full rebuild.
-- Open gaps: (1) the break level above (lead: every Sampler has "use global
-  key" on and the dump carries no project key or Sampler playback mode);
+- Added (2026-10-21): stored non-parameter fields (`device.model_fields`,
+  `device.set_model_fields`, reader `model_fields`), first for Sampler player
+  atoms. The owner's Samplers differ from a fresh 6.1.5 Sampler in five
+  player defaults (repitch digital varirate, grains, onset threshold, latch
+  initial rate, max zones in parallel), which the rebuild had left at the new
+  defaults. Live gate `probe_model_fields2.py` (scratch): written fields
+  survive save_copy + reopen.
+- Open gaps: (1) the break level above (the Reese Sampler is in Repitch mode
+  like a fresh one, but four of its player defaults differ; re-test with a
+  rebuild that writes them);
   (2) Bitwig's audio engine crashes at random when exporting the whole
   project offline (also the original); (3) the engine of a full rebuild
   stops during the build and does not restart, so the full rebuild cannot be
@@ -138,10 +146,11 @@ large project. Developed on `codex/project-reconstruction` (PR #8), then fast-fo
   track remote-control lanes, sends to deleted effect tracks, 4 mappings
   from an Infiltrator's Random modulators (NullPointerException).
 - Runtime: scratch host (BelowNormal); bridge JAR
-  `scratch/recreate/openwig-r19.jar` (this fix) installed in
-  `scratch/bitwig-6.1.5-live`. The save probe's first client never got the
-  bridge handshake while the reopened project loaded; a second connection
-  worked (seen once, not reproduced).
+  `scratch/recreate/openwig-r22.jar` (save fix + model fields) installed in
+  `scratch/bitwig-6.1.5-live`. A script that restarts the host must stop its
+  earlier `BridgeClient` first: the client reconnects by itself and takes the
+  bridge's single client slot on the new host, so a new client never gets the
+  handshake (seen twice in probes; the scratch `host.start` now does this).
 
 ## Previous checkpoint: native project open/close (2026-10-20)
 

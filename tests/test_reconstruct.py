@@ -67,6 +67,9 @@ class RebuildBridge:
             added.append({"index": len(added), "modulator_id": params["modulator_id"],
                           "x": params.get("x"), "y": params.get("y"), "device_name": "LFO"})
             return {"modulator": len(added) - 1, "count": len(added)}
+        if method == "device.model_fields":
+            return {"model_fields": [{"descriptor": "sample_player_atom", "component": "CONTENTS/PLAYER",
+                                      "fields": {"playback_mode": "repitch", "playhead_freeze": False}}]}
         if method == "clip.create_arranger_with_notes":
             self.clips[key] = self.clips.get(key, 0) + 1
             return {"count": self.clips[key]}
@@ -144,6 +147,19 @@ def test_modulator_user_names():
     assert _modulator_user_name({"device_name": "Macro 3", "display_name": "Macro"}) == ""
     assert _modulator_user_name({"device_name": "LFO", "display_name": "LFO"}) == ""
     assert _modulator_user_name({"device_name": "MonoLow", "display_name": "Button"}) == "MonoLow"
+
+
+def test_rebuild_writes_only_changed_model_fields():
+    bridge = RebuildBridge()
+    data = dump()
+    device = data["main_tracks"][0]["children"][0]["devices"][0]
+    device["model_fields"] = [{"descriptor": "sample_player_atom", "component": "CONTENTS/PLAYER",
+                               "fields": {"playback_mode": "spectral", "playhead_freeze": False}}]
+    report = Reconstructor(JavaSong(bridge=bridge), data).run()
+    assert report.failed == [], report.failed
+    (write,) = calls(bridge, "device.set_model_fields")
+    assert write["descriptor"] == "sample_player_atom" and write["index"] == 0
+    assert write["fields"] == {"playback_mode": "spectral"}
 
 
 def test_rebuild_renames_only_user_named_modulators():

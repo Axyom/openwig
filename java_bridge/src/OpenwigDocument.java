@@ -757,6 +757,8 @@ public final class OpenwigDocument {
             if (!sampleContent.isEmpty()) result.put("sample_content", sampleContent);
             JSONArray impulses = readImpulses(target);
             if (!impulses.isEmpty()) result.put("impulses", impulses);
+            JSONArray modelFields = readModelFields(target);
+            if (!modelFields.isEmpty()) result.put("model_fields", modelFields);
             Object contents = modelGet(target, "bhG");
             Object modules = modelGetOrNull(contents, "hMI");
             if (modules instanceof java.util.List<?> children)
@@ -3399,7 +3401,8 @@ public final class OpenwigDocument {
                  "device.set_active", "device.components", "transport.set_groove",
                  "transport.set_time_signature", "automation.write_target", "device.load_sample", "device.structure",
                  "project.render", "project.render_status", "debug.describe_modulator", "debug.atom_methods", "debug.atom_invoke",
-                 "device.load_impulse", "device.component_rename", "automation.write_clips" -> executeRebuild(method, p);
+                 "device.load_impulse", "device.component_rename", "automation.write_clips",
+                 "device.model_fields", "device.set_model_fields" -> executeRebuild(method, p);
             case "device.modulator_add", "device.modulator_delete", "device.modulator_move", "device.modulator_parameters", "device.modulator_bind", "device.modulator_unbind", "device.modulator_rename", "device.layer_read", "device.layer_update", "device.layer_delete", "device.layer_move", "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect", "device.grid_read", "device.read", "device.chain_banks", "device.create_layer", "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.operation_status", "device.capture_plugin_state",
                  "device.set_parameters", "device.get_parameters", "device.rename",
                  "device.set_expanded", "device.delete", "device.list_parameters" ->
@@ -3699,6 +3702,127 @@ public final class OpenwigDocument {
             out.put(item);
         }
         return out;
+    }
+
+    // ---- Plain model fields. Some device settings are stored fields of an atom, not
+    // automatable parameters: a Sampler's playback, repitch, cycles, spectral and grain
+    // modes live on its sample player atom. An atom's descriptor (kX1.nj_(), a def)
+    // lists its value fields (def.lKq(), deb, each owned by the descriptor that
+    // declares it, deC.a1y()); a field reads and writes through Bitwig's own accessors
+    // (deb.jPB(atom), deb.jPB(atom, value)), as the project serializer does.
+
+    private static final java.util.Set<String> MODEL_FIELD_ATOMS = java.util.Set.of("sample_player_atom");
+    // Runtime identity and editor state, never project content to copy.
+    private static final java.util.Set<String> MODEL_FIELD_SKIP = java.util.Set.of(
+            "managed_object_ID", "preset_identifier", "is_grid_module", "zone_to_observe", "module_analysis_output");
+
+    private static String descriptorName(Object atom) {
+        Object descriptor = modelGetOrNull(atom, "nj_");
+        Object name = descriptor == null ? null : modelGetOrNull(descriptor, "pSy");
+        return name instanceof String text ? text : null;
+    }
+
+    private static java.util.List<Object> atomsWithDescriptor(Object owner, String descriptor) {
+        java.util.List<Object> found = new java.util.ArrayList<>();
+        java.util.ArrayDeque<Object> queue = new java.util.ArrayDeque<>();
+        java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+        queue.add(modelGetOrNull(owner, "bhG"));
+        while (!queue.isEmpty() && seen.size() < 20000) {
+            Object node = queue.poll();
+            if (node == null || seen.put(node, true) != null) continue;
+            if (descriptor.equals(descriptorName(node))) { found.add(node); continue; }
+            // Nested chains hold their own devices, read separately.
+            if (automationInstance("com.bitwig.flt.document.core.master.device.YLB", node)
+                    || automationInstance("com.bitwig.flt.document.core.master.device.YhC", node)
+                    || automationInstance("com.bitwig.flt.document.core.master.device.EhV", node)) continue;
+            Object children = modelGetOrNull(node, "hMI");
+            if (children instanceof java.util.List<?> list) for (Object child : list) queue.add(child);
+        }
+        return found;
+    }
+
+    /** The atom's value fields that hold project content (runtime identity and editor state left out). */
+    private static java.util.Map<String, Object> ownValueFields(Object atom) {
+        Object descriptor = modelGet(atom, "nj_");
+        java.util.Map<String, Object> fields = new java.util.LinkedHashMap<>();
+        for (Object field : (java.util.List<?>) modelGet(descriptor, "lKq")) {
+            String name = (String) modelGet(field, "pSy");
+            if (!MODEL_FIELD_SKIP.contains(name)) fields.put(name, field);
+        }
+        return fields;
+    }
+
+    private static Object readField(Object field, Object atom) {
+        Object value;
+        try { value = field.getClass().getMethod("jPB", classForName("com.bitwig.ramona.core.kX1")).invoke(field, atom); }
+        catch (ReflectiveOperationException failure) { throw new IllegalStateException("field read failed", failure); }
+        if (value == null) return JSONObject.NULL;
+        if (value instanceof Boolean || value instanceof Number || value instanceof String) return value;
+        Object name = automationInstance("com.bitwig.ramona.core.KaT", value) ? modelGetOrNull(value, "jPB") : null;
+        return name != null ? name : String.valueOf(value);   // an enum member by its stored name
+    }
+
+    private static JSONArray readModelFields(Object owner) {
+        JSONArray out = new JSONArray();
+        for (String descriptor : MODEL_FIELD_ATOMS) {
+            for (Object atom : atomsWithDescriptor(owner, descriptor)) {
+                JSONObject fields = new JSONObject();
+                try {
+                    for (java.util.Map.Entry<String, Object> entry : ownValueFields(atom).entrySet())
+                        fields.put(entry.getKey(), readField(entry.getValue(), atom));
+                } catch (RuntimeException unreadable) {
+                    fields.put("read_error", unreadable.toString());
+                }
+                out.put(new JSONObject().put("descriptor", descriptor)
+                        .put("component", jsonModelValue(automationIdentifier(owner, atom))).put("fields", fields));
+            }
+        }
+        return out;
+    }
+
+    private static JSONObject setModelFields(Track track, Object owner, JSONObject params) {
+        String descriptor = params.getString("descriptor");
+        if (!MODEL_FIELD_ATOMS.contains(descriptor)) throw new IllegalArgumentException("unsupported model atom: " + descriptor);
+        java.util.List<Object> atoms = atomsWithDescriptor(owner, descriptor);
+        int index = params.optInt("index", 0);
+        if (index < 0 || index >= atoms.size()) throw new IllegalArgumentException("no " + descriptor + " at index " + index);
+        Object atom = atoms.get(index);
+        java.util.Map<String, Object> fields = ownValueFields(atom);
+        JSONObject changes = params.getJSONObject("fields");
+        java.util.Map<Object, Object> staged = new java.util.LinkedHashMap<>();
+        JSONArray skipped = new JSONArray();
+        Class<?> enumField = classForName("den");
+        for (String name : changes.keySet()) {
+            Object field = fields.get(name);
+            if (field == null) throw new IllegalArgumentException("unknown field: " + name);
+            // Only settable fields (deP.SOE()) have a public setter; the others are
+            // derived (a Sampler's max_zones_playing_in_parallel follows its zones).
+            if (!Boolean.TRUE.equals(modelGetOrNull(field, "SOE"))) { skipped.put(name); continue; }
+            Object current = readField(field, atom);
+            Object wanted = changes.get(name);
+            Object value;
+            if (enumField != null && enumField.isInstance(field)) {
+                Object item = invokeNative(modelGet(field, "tDS"), declaredMethod(classForName("deo"), "jPB", String.class), String.valueOf(wanted));
+                if (item == null) throw new IllegalArgumentException("unknown member " + wanted + " for " + name);
+                value = item;
+            } else if (current instanceof Boolean) value = changes.getBoolean(name);
+            else if (current instanceof Integer) value = changes.getInt(name);
+            else if (current instanceof Long) value = changes.getLong(name);
+            else if (current instanceof Double || current instanceof Float) value = changes.getDouble(name);
+            else if (current instanceof String) value = changes.getString(name);
+            else throw new IllegalArgumentException("unsupported field type: " + name);
+            staged.put(field, value);
+        }
+        Class<?> atomType = classForName("com.bitwig.ramona.core.kX1");
+        DirectAccess.runInUndo(track.clipTimeline(), () -> {
+            for (java.util.Map.Entry<Object, Object> entry : staged.entrySet()) {
+                try { entry.getKey().getClass().getMethod("jPB", atomType, Object.class).invoke(entry.getKey(), atom, entry.getValue()); }
+                catch (ReflectiveOperationException failure) { throw new IllegalStateException("field write failed", failure); }
+            }
+        });
+        JSONObject after = new JSONObject();
+        for (java.util.Map.Entry<String, Object> entry : fields.entrySet()) after.put(entry.getKey(), readField(entry.getValue(), atom));
+        return new JSONObject().put("descriptor", descriptor).put("index", index).put("fields", after).put("skipped", skipped);
     }
 
     // ---- Convolution impulses: an MM component holds gnS impulse resources that
@@ -4176,6 +4300,14 @@ public final class OpenwigDocument {
                     yield out.put("atoms", atoms);
                 }
                 case "project.render" -> startRender(project, params);
+                case "device.model_fields" -> {
+                    Track track = deviceScope(resolveTrack(project, params), params);
+                    yield new JSONObject().put("model_fields", readModelFields(deviceTargetAt(track, params.getInt("device"))));
+                }
+                case "device.set_model_fields" -> {
+                    Track track = deviceScope(resolveTrack(project, params), params);
+                    yield setModelFields(track, deviceTargetAt(track, params.getInt("device")), params);
+                }
                 case "device.load_impulse" -> loadImpulse(deviceScope(resolveTrack(project, params), params), params);
                 case "device.component_rename" -> {
                     // Named stored components (Grid modules) share urr's undoable name setter.

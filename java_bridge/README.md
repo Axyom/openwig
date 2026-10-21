@@ -955,7 +955,14 @@ Bridge methods added for it (all path-addressed, `chain` steps for nested chains
 - `device.load_sample {component, kind: single|multisample, sample | zones}`:
   Sampler content through `ApiSamplerResourceComponent` (file, root key, key
   track, gain, detune, start/end, loop mode/start/end/crossfade; zones with
-  key/velocity/select ranges). `device.load_impulse {component, impulse}`:
+  key/velocity/select ranges). `device.model_fields` and
+  `device.set_model_fields {descriptor, index?, fields}`: stored fields that are
+  not parameters, per atom descriptor (`sample_player_atom`: a Sampler's
+  playback, repitch, cycles, spectral and grain modes), read and written
+  through Bitwig's field descriptors (`kX1.nj_()` → `def.lKq()`, `deb.jPB`).
+  Only settable fields (`deP.SOE()`) are written; derived ones come back in
+  `skipped`, and runtime identity (`managed_object_ID`) is never reported.
+  `device.load_impulse {component, impulse}`:
   Convolution impulses as package references (vendor, package, type, path).
 - `automation.write_target {target, kind: real|boolean|enum|integer, points}`:
   any lane the reader reports (`On`, `CONTENTS/...`, nested
@@ -975,7 +982,8 @@ Bridge methods added for it (all path-addressed, `chain` steps for nested chains
 The reader now adds normalized modulator values and enum indexes, Macro
 polarity and labels, modulator user names (`user_name`, empty when the
 modulator shows its numbered title), modulator-to-modulator binding paths,
-sampler content (`sample_content`) and Convolution impulses (`impulses`).
+sampler content (`sample_content`), Convolution impulses (`impulses`) and
+stored non-parameter fields (`model_fields`, Sampler player atoms so far).
 
 Writer behavior learned from a full rebuild of a 191-track project:
 
@@ -1032,6 +1040,15 @@ Writer behavior learned from a full rebuild of a 191-track project:
   insertion, set after insertion, left unipolar) and an LFO, renamed,
   relabelled and mapped, then `save_copy` and reopen: user names, numbered
   titles, labels, polarity, values and mapping amounts all identical.
+- A Sampler's player settings are stored fields, not parameters, and the
+  defaults changed across versions: the owner's Samplers hold repitch digital
+  varirate off, 64 grains, onset threshold 0 and latch initial rate off, a
+  fresh 6.1.5 Sampler on/256/2/on. The reader reports them (`model_fields`) and
+  the reconstructor writes those that differ from the fresh device. Live gate
+  (`probe_model_fields2.py`, scratch): playback mode Spectral and playhead
+  freeze written, then save_copy + reopen identical; `use_select_fade` and
+  `max_zones_playing_in_parallel` have no public setter and are reported as
+  skipped.
 - A mapping target two or more chains deep is addressed by the owner's full
   `chain_path` (container device and chain component per level, from the
   track's own chain); `device.modulator_bind {target_chain, target_device}`

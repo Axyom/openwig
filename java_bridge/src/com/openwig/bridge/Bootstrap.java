@@ -367,7 +367,8 @@ public final class Bootstrap {
                      "track.set_active", "track.set_destination", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.operation_status", "device.capture_plugin_state", "device.layer_read", "device.layer_update", "device.layer_delete", "device.layer_move", "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect", "device.grid_read", "device.chain_banks", "device.create_layer",
                      "modulator.catalog", "device.modulator_add", "device.modulator_delete", "device.modulator_move", "device.modulator_parameters", "device.modulator_bind", "device.modulator_unbind", "device.modulator_rename",
                      "track.set_source", "device.set_sidechain", "device.create_band", "device.drum_pad", "device.set_active",
-                     "device.components", "transport.set_groove", "transport.set_time_signature", "automation.write_target", "device.load_sample", "device.structure", "project.render", "project.render_status", "debug.describe_modulator", "debug.atom_methods", "debug.atom_invoke", "device.load_impulse", "device.component_rename", "automation.write_clips" -> {
+                     "device.components", "transport.set_groove", "transport.set_time_signature", "automation.write_target", "device.load_sample", "device.structure", "project.render", "project.render_status", "debug.describe_modulator", "debug.atom_methods", "debug.atom_invoke", "device.load_impulse", "device.component_rename", "automation.write_clips",
+                     "device.model_fields", "device.set_model_fields" -> {
                     JSONObject params = request.optJSONObject("params");
                     long timeout = method.equals("project.save_copy") ? 600
                             : method.equals("project.import_dawproject") ? 300 : 30;

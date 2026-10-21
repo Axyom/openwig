@@ -419,6 +419,8 @@ class Reconstructor:
             self._pending_sidechains.append((handle, index, {"component_path": "", "source": device["sidechain"]}, place))
         for content in device.get("sample_content") or []:
             self._sample_content(handle, index, content, place)
+        if device.get("model_fields"):
+            self._model_fields(handle, index, device["model_fields"], place)
         for impulse in device.get("impulses") or []:
             spec = impulse.get("impulse") or {}
             if spec.get("vendor"):
@@ -486,6 +488,40 @@ class Reconstructor:
             self.report.skip("sample_missing_file", where, str(error))
             return
         self._try(f"sample_{kind}", where, lambda: self.s.b.request("device.load_sample", params, timeout=125))
+
+    def _model_fields(self, handle, index, wanted, place):
+        """Stored fields that are not parameters (a Sampler's playback mode and its
+        repitch, cycles, spectral and grain settings): only those that differ from the
+        fresh device are written, atom by atom in reader order."""
+        try:
+            fresh = self.s.b.request("device.model_fields", handle._track_params(device=index))["model_fields"]
+        except Exception as error:
+            self.report.fail("model_fields_read", place, error)
+            return
+        seen = Counter()
+        for atom in wanted:
+            descriptor = atom.get("descriptor")
+            position = seen[descriptor]
+            seen[descriptor] += 1
+            current = [a for a in fresh if a.get("descriptor") == descriptor]
+            if position >= len(current):
+                self.report.skip("model_fields_atom", place, atom.get("component"))
+                continue
+            have = current[position].get("fields") or {}
+            changes = {k: v for k, v in (atom.get("fields") or {}).items() if k in have and have[k] != v}
+            if not changes:
+                continue
+            where = f"{place}/{atom.get('component')}"
+            try:
+                result = self.s.b.request("device.set_model_fields", handle._track_params(
+                    device=index, descriptor=descriptor, index=position, fields=changes))
+            except Exception as error:
+                self.report.fail("model_fields", where, error)
+                continue
+            self.report.ok("model_fields")
+            for name in result.get("skipped") or []:
+                # Derived fields have no setter (a Sampler's max_zones_playing_in_parallel).
+                self.report.skip("model_field_derived", where, name)
 
     def _native_values(self, handle, index, device, place):
         values = device.get("values") or {}
