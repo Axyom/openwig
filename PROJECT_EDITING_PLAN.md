@@ -94,37 +94,46 @@ large project. Branch `codex/project-reconstruction` (from `codex/java-bridge-61
   labels, modulator binding paths, `sample_content`, `impulses`.
 - Evidence (scratch only, never committed): `scratch/recreate/<project>/`.
   Source = a corpus copy of one of the owner's released projects (outside the
-  repo), opened read-only, never saved. First full rebuild (r12, `report-target-9.json`, 57 min): 191 tracks,
-  2027 native devices, 216 VST3, 14 VST2, 2 CLAP, 63 samplers, 1912
-  modulators, 1078 bindings, 8 sidechains, 20 drum pads, 136 Grid modules,
-  8722 clips, 23894 notes, 4220 audio events. Its comparison with the source
-  (`compare.py`) found 13298 field differences, which led to r13 and r14:
-  - r13: negative clip fades and audio event starts (stored by Bitwig) were
-    rejected, which dropped whole clip/event updates (loops, names, warps);
-    note and audio expressions were not written; fresh devices' default
-    modulators shifted indexes (Polysynth, Phase-4); fixed chains kept a fresh
-    container's default devices (Vocoder); a play start equal to the clip end
-    landed one tick early (Bitwig's end-marker clamp); Macro polarity after
-    insertion; launcher stop buttons; full failure list in the report.
-  - r14: automation clips (878 in 35 of 135 lanes: kick layer switching, bass
-    filters, Phase-4 pitch) were merged into lane points by the reader and
-    dropped by the writer; curved points (217) were written flat. Reader and
-    writer now handle both (`automation.write_clips`).
-- Kick group gate with r14 (11 tracks with FX and master, `report-target-10`):
-  0 failures, all 10 automation clips identical; remaining differences are
-  cosmetic (layer titles, Grid module width), out-of-subset destinations and
-  one lane point Bitwig adds at an automation clip's end (same value).
-- Audio check blocked: offline export of the full project crashes Bitwig's
-  audio engine at random (also for the original copy; see the bridge README).
-  `project.render` itself works (small projects, project subsets) and now
-  passes start + length (the export job takes start and end beats).
-- Not covered yet: device preset names, exact track colors (API snaps to the
-  palette), launcher audio clips, file-based (non-package) impulses, sliced
-  sampler content, orphan lanes (no target), 76 track input sources the reader
-  cannot resolve ("All ins").
-- Runtime: scratch host (BelowNormal) running the full r14 rebuild
-  (`build-full-r14.log`); bridge JAR `scratch/recreate/openwig-r14.jar`
-  installed in `scratch/bitwig-6.1.5-live`.
+  repo), opened read-only, never saved: 191 tracks, 2027 native devices, 216
+  VST3, 14 VST2, 2 CLAP, 63 samplers, 2026 modulators, 8722 clips, 24883
+  notes, 4221 audio events, 878 automation clips.
+- Progress, full rebuild compared field by field with the source
+  (`compare.py`): r12 13298 differences and 1788 failures; r14 1229/386;
+  r15 797/1; r16 781/1; r17 (Macro mappings) restored 4868 mappings (1172
+  before). What each round fixed is in the commits and in
+  `java_bridge/README.md` ("Writer behavior learned"): negative fades and
+  event starts, note/audio expressions, expression steps, notes before the
+  clip content, default modulators and default chain devices, end-marker
+  clamps, automation clips and curve shapes, VST2 instrument roles, plugin
+  sidechain inputs, faders above 0 dB, empty inputs, slice offsets, Macro
+  mappings (an exact class-name test skipped all 1263), mappings to device
+  On switches and to modulators in other or deeper devices.
+- Remaining structural differences are equivalent or cosmetic: a lane point
+  Bitwig adds at an automation clip's end, a collinear warp marker merged,
+  inactive warp markers, layer titles, Grid module sizes, plus two
+  unresolvable routings (a sidechain source the reader cannot resolve, a
+  reference track routed to hardware).
+- Audio, same subset of tracks rendered from the original copy and from the
+  live rebuild (Kick, Basses, Pre-Master with FX and master; offline export):
+  intro -0.2 dB, drop 0.0 dB, drop 2 -0.2 dB, but breaks, buildups and the
+  theme 5 to 9 dB quieter. Traced to one sampler bass track that plays long
+  notes there (-13.4 vs -22.0 dB over the first break) although its devices,
+  values, clips, automation (incl. automation clips) and mappings read
+  identical. Open.
+- Open gaps: (1) the break level above; (2) modulator names, Macro polarity
+  and parameter labels do not survive a written project file (save_copy or a
+  direct write of the live document), so saved rebuilds scale macros
+  differently; renders must come from the live document; (3) Bitwig's audio
+  engine crashes at random when exporting the whole project offline (also the
+  original); (4) the engine of a full rebuild stops during the build and does
+  not restart, so the full rebuild cannot be rendered live, only subsets;
+  (5) not written: device preset names, exact track colors, launcher audio
+  clips, file-based impulses, sliced samples, track remote-control lanes,
+  sends to deleted effect tracks, 4 mappings from an Infiltrator's Random
+  modulators (NullPointerException).
+- Runtime: scratch host (BelowNormal); bridge JAR
+  `scratch/recreate/openwig-r18b.jar` (r18 plus an unverified direct-write
+  experiment) installed in `scratch/bitwig-6.1.5-live`.
 
 ## Previous checkpoint: native project open/close (2026-10-20)
 
