@@ -80,6 +80,21 @@ def _enum_index(value):
     return None
 
 
+def _modulator_user_name(modulator: dict) -> str:
+    """The name a user gave a modulator ('' when it shows its automatic title).
+
+    Bitwig derives the displayed ``device_name`` from ``user_name``, or numbers
+    the definition's name among equal modulators ("Macro 3"). Dumps made before
+    the reader reported ``user_name`` are read from the title itself.
+    """
+    if "user_name" in modulator:
+        return modulator["user_name"] or ""
+    title, base = modulator.get("device_name") or "", modulator.get("display_name") or ""
+    if title == base or re.fullmatch(re.escape(base) + r" \d+", title):
+        return ""
+    return title
+
+
 def _walk_tracks(tracks, parent=None):
     for track in tracks:
         yield track, parent
@@ -667,8 +682,8 @@ class Reconstructor:
             target = mapping.get(modulator["index"])
             if target is None:
                 continue
-            name = modulator.get("device_name")
-            if name and name != modulator.get("display_name"):
+            name = _modulator_user_name(modulator)
+            if name:
                 self._try("modulator_name", where, lambda: self.s.b.request(
                     "device.modulator_rename", handle._track_params(device=index, modulator=target, name=name)))
             for parameter in modulator.get("parameters") or []:

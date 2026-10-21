@@ -1,7 +1,7 @@
 """Reconstruction wire contract against a fake Java bridge (no Bitwig needed)."""
 
 from openwig.java_song import JavaSong
-from openwig.reconstruct import Reconstructor, _enum_index, _rgba
+from openwig.reconstruct import Reconstructor, _enum_index, _modulator_user_name, _rgba
 
 
 class RebuildBridge:
@@ -135,6 +135,28 @@ def test_helpers():
     assert _rgba("#00000000") is None
     assert _enum_index("CPO[member_name=value,object=Timebase,value=4]") == 4
     assert _enum_index(3) == 3 and _enum_index(True) is None
+
+
+def test_modulator_user_names():
+    # The reader's user_name wins; older dumps tell automatic titles from the title itself.
+    assert _modulator_user_name({"device_name": "Macro 3", "display_name": "Macro", "user_name": ""}) == ""
+    assert _modulator_user_name({"device_name": "Macro 3", "display_name": "Macro", "user_name": "Macro 3"}) == "Macro 3"
+    assert _modulator_user_name({"device_name": "Macro 3", "display_name": "Macro"}) == ""
+    assert _modulator_user_name({"device_name": "LFO", "display_name": "LFO"}) == ""
+    assert _modulator_user_name({"device_name": "MonoLow", "display_name": "Button"}) == "MonoLow"
+
+
+def test_rebuild_renames_only_user_named_modulators():
+    bridge = RebuildBridge()
+    data = dump()
+    device = data["main_tracks"][0]["children"][0]["devices"][0]
+    first = device["modulators"][0]
+    device["modulators"] = [dict(first, device_name="LFO 1", bindings=[]),
+                            dict(first, index=1, device_name="Wobble", bindings=[])]
+    report = Reconstructor(JavaSong(bridge=bridge), data).run()
+    assert report.failed == [], report.failed
+    assert [(p["modulator"], p["name"]) for p in calls(bridge, "device.modulator_rename")
+            if "parameter" not in p] == [(1, "Wobble")]
 
 
 def test_rebuild_writes_structure_devices_and_content():

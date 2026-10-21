@@ -852,6 +852,9 @@ public final class OpenwigDocument {
                     .put("id", jsonModelValue(modelGet(modulator, "UNI")))
                     .put("device_name", modelGet(modulator, "HT3"))
                     .put("display_name", modelGet(modulator, "ruM"))
+                    // urr.RLC() is user_device_name, the name the file keeps; device_name
+                    // is recomputed from it (or numbered from the definition) on load.
+                    .put("user_name", modelGet(modulator, "RLC"))
                     .put("preset", modelGet(modulator, "SVb"))
                     .put("x", modelGet(modulator, "AOA")).put("y", modelGet(modulator, "KF3"));
             try {
@@ -1683,7 +1686,15 @@ public final class OpenwigDocument {
             Object atom = atoms.get(name);
             if (atom == null || !automationInstance("HEi", atom))
                 throw new IllegalArgumentException("not a bipolar-capable parameter: " + name);
-            try { atom.getClass().getMethod("AOA", boolean.class).invoke(atom, polarity.getBoolean(name)); }
+            boolean bipolar = polarity.getBoolean(name);
+            // A Macro knob (TOM) copies its flag from its bipolar panel value (HEi.tY1(),
+            // the Macro's BIPOLAR atom) when it attaches or loads, so the panel value is what
+            // the project file keeps; the knob follows it through its listener.
+            Object panel = modelGetOrNull(atom, "tY1");
+            try {
+                if (panel != null) panel.getClass().getMethod("Gcr", boolean.class).invoke(panel, bipolar);
+                atom.getClass().getMethod("AOA", boolean.class).invoke(atom, bipolar);
+            }
             catch (ReflectiveOperationException failure) { throw new IllegalStateException("polarity write failed", failure); }
         }
     }
@@ -1792,17 +1803,27 @@ public final class OpenwigDocument {
                 if (params.has("parameter")) {
                     Object atom = modulatorAtoms(modulator).get(params.getString("parameter"));
                     if (atom == null) throw new IllegalArgumentException("unknown modulator parameter: " + params.getString("parameter"));
+                    // A Macro knob relabels itself from its name panel value (HEi.kAg()) when it
+                    // attaches or loads, so the panel value is what the project file keeps.
+                    Object panel = automationInstance("HEi", atom) ? modelGetOrNull(atom, "kAg") : null;
                     DirectAccess.runInUndo(track.clipTimeline(), () -> {
-                        try { atom.getClass().getMethod("tDS", String.class).invoke(atom, name); }
+                        try {
+                            if (panel != null) panel.getClass().getMethod("Qcu", String.class).invoke(panel, name);
+                            atom.getClass().getMethod("tDS", String.class).invoke(atom, name);
+                        }
                         catch (ReflectiveOperationException failure) { throw new IllegalStateException("parameter label failed", failure); }
                     });
                     return new JSONObject().put("modulator", index).put("parameter", params.getString("parameter")).put("label", modelGet(atom, "rqQ"));
                 }
+                // urr.qFH writes user_device_name, which the file keeps; the displayed
+                // device_name (HT3) is recomputed from it. An empty name restores the
+                // definition's numbered title.
                 DirectAccess.runInUndo(track.clipTimeline(), () -> {
-                    try { modulator.getClass().getMethod("eUA", String.class).invoke(modulator, name); }
+                    try { modulator.getClass().getMethod("qFH", String.class).invoke(modulator, name); }
                     catch (ReflectiveOperationException failure) { throw new IllegalStateException("modulator rename failed", failure); }
                 });
-                return new JSONObject().put("modulator", index).put("name", modelGet(modulator, "HT3"));
+                return new JSONObject().put("modulator", index).put("name", modelGet(modulator, "HT3"))
+                        .put("user_name", modelGet(modulator, "RLC"));
             }
             case "device.modulator_bind", "device.modulator_unbind" -> {
                 java.util.Map<String, Object> sources = modulationSources(modulator);

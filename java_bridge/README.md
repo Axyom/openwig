@@ -937,11 +937,14 @@ Bridge methods added for it (all path-addressed, `chain` steps for nested chains
   Selector), `device.drum_pad {key, name?}`: a Drum Machine pad chain
   (`ApiDrumPads.getDrumPad(key).getDeviceChain()`).
 - `device.set_active {on}`, `device.component_rename {component, name}` (Grid
-  modules), `device.modulator_rename {modulator, name}` and, with `parameter`,
-  a parameter label (`pxJ.tDS`, a Macro knob named "0 to 1").
+  modules), `device.modulator_rename {modulator, name}` (the user name,
+  `urr.qFH`; an empty name restores the numbered title) and, with `parameter`,
+  a parameter label (`pxJ.tDS`, a Macro knob named "0 to 1"; on a Macro knob
+  also its name panel value, `HEi.kAg().Qcu`).
 - `device.modulator_add`/`device.modulator_parameters` take `unit` for staged
-  values and `bipolar` ({param: bool}) for Macro knobs (`HEi.AOA`), applied
-  before values; booleans and enums are applied before numbers.
+  values and `bipolar` ({param: bool}) for Macro knobs (the knob's bipolar
+  panel value `HEi.tY1().Gcr`, then `HEi.AOA`), applied before values;
+  booleans and enums are applied before numbers.
 - `device.modulator_bind {target_component, target_device}` reaches devices
   inside the modulator owner's nested chains, `target_parameter` may be
   `MODULATORS/<i>/CONTENTS/<param>` (modulator-to-modulator), and
@@ -970,8 +973,9 @@ Bridge methods added for it (all path-addressed, `chain` steps for nested chains
   the bridge passes `start + length`.
 
 The reader now adds normalized modulator values and enum indexes, Macro
-polarity and labels, modulator-to-modulator binding paths, sampler content
-(`sample_content`) and Convolution impulses (`impulses`).
+polarity and labels, modulator user names (`user_name`, empty when the
+modulator shows its numbered title), modulator-to-modulator binding paths,
+sampler content (`sample_content`) and Convolution impulses (`impulses`).
 
 Writer behavior learned from a full rebuild of a 191-track project:
 
@@ -984,8 +988,10 @@ Writer behavior learned from a full rebuild of a 191-track project:
 - Fresh containers can hold default devices in fixed chains (a Vocoder carrier's
   noise and receiver) and fresh devices default modulators (a Polysynth's LFO and
   Expressions); both are removed before the dump's own are added, so indexes match.
-- A Macro inserted with `bipolar` reads unipolar after insertion (the staged
-  atom's flag is not cloned); it is set again on the inserted modulator.
+- A Macro inserted with `bipolar` read unipolar after insertion while only the
+  knob's own flag was written (the clone re-derives it from the panel value,
+  see below); with the panel value written it carries through insertion. The
+  reconstructor still sets it again on the inserted modulator.
 - Bitwig stores notes that start before the clip content, negative note
   content starts, expression steps (two points at one beat) and transpose
   curves on REPITCH events; the note, expression and audio event writers now
@@ -1013,14 +1019,19 @@ Writer behavior learned from a full rebuild of a 191-track project:
   silent). It now matches the type, as `device.modulator_bind` always did.
 - Mapping a Macro relabels its knob after the target; the reconstructor writes
   labels after all mappings.
-- `project.save_copy` (serialize, clone, write) loses edits the live document
-  holds: modulator names, Macro polarity and parameter labels revert after
-  reopening (values and mappings stay; mapping amounts rescale with the
-  polarity). A rebuilt project is exact while open; a faithful file needs
-  Bitwig's own save path. The command server's `IPw.tDS(path)` ("save_as")
-  was tried and wrote no file within two minutes; serializing the live
-  document directly (no clone) loses the same three, so these setters change
-  fields the project file does not keep. Not solved yet.
+- Modulator names, Macro polarity and Macro knob labels used to revert when a
+  written project was reopened (values and mappings stayed; mapping amounts
+  rescaled with the polarity). The file was not at fault: the writer set
+  fields Bitwig derives again on load. A modulator's displayed `device_name`
+  is recomputed from `user_device_name` (`urr.RLC`/`qFH`) or numbered from
+  its definition (`KNf.UG1`); a Macro knob (`TOM`, a `HEi`) copies its
+  polarity from its bipolar panel value (the Macro's BIPOLAR atom,
+  `HEi.tY1()`) and its label from its name panel value (`HEi.kAg()`) when it
+  attaches or loads. The writer now sets those sources. Live gate
+  (`scratch/recreate/probe_persist3.py`): three Macros (polarity staged before
+  insertion, set after insertion, left unipolar) and an LFO, renamed,
+  relabelled and mapped, then `save_copy` and reopen: user names, numbered
+  titles, labels, polarity, values and mapping amounts all identical.
 - A mapping target two or more chains deep is addressed by the owner's full
   `chain_path` (container device and chain component per level, from the
   track's own chain); `device.modulator_bind {target_chain, target_device}`

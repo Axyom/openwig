@@ -77,7 +77,8 @@ Baseline implementation commits (use `git log` for subsequent increments):
 
 Owner request (2026-10-21): rebuild one of the owner's released tracks from its dump and
 fix the gaps found. This is milestone 6 (documented JSON reconstruction) applied to a real,
-large project. Branch `codex/project-reconstruction` (from `codex/java-bridge-615`).
+large project. Developed on `codex/project-reconstruction` (PR #8), then fast-forwarded into
+`codex/java-bridge-615` at the owner's request: work continues on PR #5's branch, no new PRs.
 
 - `openwig.reconstruct.Reconstructor` rebuilds a `JavaSong.dump()` into the
   selected empty project through native edits; everything it cannot write is
@@ -120,20 +121,27 @@ large project. Branch `codex/project-reconstruction` (from `codex/java-bridge-61
   notes there (-13.4 vs -22.0 dB over the first break) although its devices,
   values, clips, automation (incl. automation clips) and mappings read
   identical. Open.
-- Open gaps: (1) the break level above; (2) modulator names, Macro polarity
-  and parameter labels do not survive a written project file (save_copy or a
-  direct write of the live document), so saved rebuilds scale macros
-  differently; renders must come from the live document; (3) Bitwig's audio
-  engine crashes at random when exporting the whole project offline (also the
-  original); (4) the engine of a full rebuild stops during the build and does
-  not restart, so the full rebuild cannot be rendered live, only subsets;
-  (5) not written: device preset names, exact track colors, launcher audio
-  clips, file-based impulses, sliced samples, track remote-control lanes,
-  sends to deleted effect tracks, 4 mappings from an Infiltrator's Random
-  modulators (NullPointerException).
+- Fixed (2026-10-21): modulator names, Macro polarity and Macro knob labels
+  now survive a written project file. The writer had set fields Bitwig
+  re-derives on load (displayed name from `user_device_name`, knob polarity
+  and label from the knob's panel values); it now writes those sources, and
+  the reader reports `user_name`. Live gate `probe_persist3.py` (scratch):
+  save_copy + reopen keeps names, numbered titles, labels, polarity, values
+  and mapping amounts. Not yet re-run on the full rebuild.
+- Open gaps: (1) the break level above (lead: every Sampler has "use global
+  key" on and the dump carries no project key or Sampler playback mode);
+  (2) Bitwig's audio engine crashes at random when exporting the whole
+  project offline (also the original); (3) the engine of a full rebuild
+  stops during the build and does not restart, so the full rebuild cannot be
+  rendered live, only subsets; (4) not written: device preset names, exact
+  track colors, launcher audio clips, file-based impulses, sliced samples,
+  track remote-control lanes, sends to deleted effect tracks, 4 mappings
+  from an Infiltrator's Random modulators (NullPointerException).
 - Runtime: scratch host (BelowNormal); bridge JAR
-  `scratch/recreate/openwig-r18b.jar` (r18 plus an unverified direct-write
-  experiment) installed in `scratch/bitwig-6.1.5-live`.
+  `scratch/recreate/openwig-r19.jar` (this fix) installed in
+  `scratch/bitwig-6.1.5-live`. The save probe's first client never got the
+  bridge handshake while the reopened project loaded; a second connection
+  worked (seen once, not reproduced).
 
 ## Previous checkpoint: native project open/close (2026-10-20)
 
