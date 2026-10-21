@@ -73,7 +73,60 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
   smoke, and all five GitHub CI jobs passed.
 
-## Latest checkpoint: native project open/close (2026-10-20)
+## Latest checkpoint: editable reconstruction from reader dumps (2026-10-21)
+
+Owner request (2026-10-21): rebuild one of the owner's released tracks from its dump and
+fix the gaps found. This is milestone 6 (documented JSON reconstruction) applied to a real,
+large project. Branch `codex/project-reconstruction` (from `codex/java-bridge-615`).
+
+- `openwig.reconstruct.Reconstructor` rebuilds a `JavaSong.dump()` into the
+  selected empty project through native edits; everything it cannot write is
+  counted in its report (with an example), nothing is dropped silently. The
+  reader dump is the schema; plugin states and media resolve from caller paths.
+- Gaps fixed on the way (see `java_bridge/README.md`, "Project reconstruction
+  from reader dumps"): native devices by UUID, VST2 and CLAP with state, VST3
+  roles, selector chains, drum pads, device activation, sampler content,
+  Convolution impulses, sidechain and input sources, Macro polarity, parameter
+  labels, modulator/Grid renames, nested and modulator-to-modulator modulation
+  targets with native amounts, groove/time signature, automation on any reader
+  target (real/boolean/enum, anchor-free), offline export (`project.render`).
+  Reader additions: normalized modulator values, enum indexes, polarity,
+  labels, modulator binding paths, `sample_content`, `impulses`.
+- Evidence (scratch only, never committed): `scratch/recreate/<project>/`.
+  Source = a corpus copy of one of the owner's released projects (outside the
+  repo), opened read-only, never saved. First full rebuild (r12, `report-target-9.json`, 57 min): 191 tracks,
+  2027 native devices, 216 VST3, 14 VST2, 2 CLAP, 63 samplers, 1912
+  modulators, 1078 bindings, 8 sidechains, 20 drum pads, 136 Grid modules,
+  8722 clips, 23894 notes, 4220 audio events. Its comparison with the source
+  (`compare.py`) found 13298 field differences, which led to r13 and r14:
+  - r13: negative clip fades and audio event starts (stored by Bitwig) were
+    rejected, which dropped whole clip/event updates (loops, names, warps);
+    note and audio expressions were not written; fresh devices' default
+    modulators shifted indexes (Polysynth, Phase-4); fixed chains kept a fresh
+    container's default devices (Vocoder); a play start equal to the clip end
+    landed one tick early (Bitwig's end-marker clamp); Macro polarity after
+    insertion; launcher stop buttons; full failure list in the report.
+  - r14: automation clips (878 in 35 of 135 lanes: kick layer switching, bass
+    filters, Phase-4 pitch) were merged into lane points by the reader and
+    dropped by the writer; curved points (217) were written flat. Reader and
+    writer now handle both (`automation.write_clips`).
+- Kick group gate with r14 (11 tracks with FX and master, `report-target-10`):
+  0 failures, all 10 automation clips identical; remaining differences are
+  cosmetic (layer titles, Grid module width), out-of-subset destinations and
+  one lane point Bitwig adds at an automation clip's end (same value).
+- Audio check blocked: offline export of the full project crashes Bitwig's
+  audio engine at random (also for the original copy; see the bridge README).
+  `project.render` itself works (small projects, project subsets) and now
+  passes start + length (the export job takes start and end beats).
+- Not covered yet: device preset names, exact track colors (API snaps to the
+  palette), launcher audio clips, file-based (non-package) impulses, sliced
+  sampler content, orphan lanes (no target), 76 track input sources the reader
+  cannot resolve ("All ins").
+- Runtime: scratch host (BelowNormal) running the full r14 rebuild
+  (`build-full-r14.log`); bridge JAR `scratch/recreate/openwig-r14.jar`
+  installed in `scratch/bitwig-6.1.5-live`.
+
+## Previous checkpoint: native project open/close (2026-10-20)
 
 - Developed on `codex/document-open-close` (worktree `../bitwig-sdk-docopen`);
   now part of `codex/java-bridge-615` (PR #5, which absorbed PRs #6 and #7). Java: `OpenwigDocument.openDocument`,

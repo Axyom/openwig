@@ -166,3 +166,65 @@ def test_rebuild_writes_structure_devices_and_content():
     assert calls(bridge, "cue_marker.create")[0]["name"] == "DROP"
     renames = [p["name"] for p in calls(bridge, "track.rename")]
     assert renames == ["Kick", "Verb", "Drums"]
+
+
+class DefaultsBridge(RebuildBridge):
+    """A fresh native device arrives with one default modulator (a Polysynth's LFO)."""
+
+    def request(self, method, params=None, timeout=None):
+        params = params or {}
+        if method == "device.insert_factory":
+            result = super().request(method, params, timeout)
+            key = (params.get("path"), str(params.get("chain")))
+            self.modulators[(key, result["device"])] = [{"index": 0, "modulator_id": "default", "device_name": "LFO 1"}]
+            return result
+        if method == "device.modulator_delete":
+            self.calls.append((method, params))
+            key = (params.get("path"), str(params.get("chain")))
+            self.modulators[(key, params["device"])].pop(params["modulator"])
+            return {"count": len(self.modulators[(key, params["device"])])}
+        return super().request(method, params, timeout)
+
+
+def test_rebuild_replaces_default_modulators_and_steps_past_the_end_marker():
+    bridge = DefaultsBridge()
+    data = dump()
+    kick = data["main_tracks"][0]["children"][0]
+    kick["clips"][0].update(duration=2, loop_start=2, loop_duration=2, play_start_offset=2)
+    report = Reconstructor(JavaSong(bridge=bridge), data).run()
+    assert report.failed == [], report.failed
+    # The fresh default goes first, so the dump's modulator lands at its own index.
+    names = [name for name, _ in bridge.calls]
+    assert names.index("device.modulator_delete") < names.index("device.modulator_add")
+    assert calls(bridge, "device.modulator_bind")[0]["modulator"] == 0
+    # A play start exactly on the end marker is approached from beyond it.
+    offsets = [p["changes"]["play_start_offset"] for p in calls(bridge, "clip.update")
+               if "play_start_offset" in p["changes"]]
+    assert offsets == [4.0, 2.0]
+
+
+def test_rebuild_writes_lane_points_then_automation_clips():
+    bridge = RebuildBridge()
+    data = dump()
+    kick = data["main_tracks"][0]["children"][0]
+    real = lambda t, v, **extra: dict({"time": t, "kind": "real", "value": v / 10, "raw_value": v,
+                                       "interpolation": "linear"}, **extra)
+    kick["automation"] = [{
+        "target_path": "CONTENTS/GAIN", "target_status": "model", "target_scope": "device", "device": 0,
+        # The composite walk interleaves clip-relative points; only base_points and clips are written.
+        "points": [real(0, 0), real(1.5, 3), real(8, 0), real(1.5, 3), real(16, 0)],
+        "base_points": [real(0, 0), real(8, 0, model_interpolation="hold", curvature=0), real(16, 0)],
+        "clips": [{"start": 4, "end": 8, "loop": True, "loop_start": 0, "loop_duration": 2,
+                   "play_start_offset": 0, "points": [real(0, 0), real(1.5, 3, curvature=.4)]},
+                  {"start": 12, "end": 16, "loop": False, "loop_start": 0, "loop_duration": 4,
+                   "play_start_offset": 0, "points": [real(0, 0), real(1.5, 3)]}]}]
+    report = Reconstructor(JavaSong(bridge=bridge), data).run()
+    assert report.failed == [], report.failed
+    lane = calls(bridge, "automation.write_target")[0]
+    assert lane["points"] == [[0, 0, 0, "linear"], [8, 0, 0, "hold"], [16, 0, 0, "linear"]]
+    clips = calls(bridge, "automation.write_clips")[0]
+    assert clips["target"] == "CONTENTS/GAIN" and clips["kind"] == "real" and "points" not in clips
+    assert clips["clips"][0]["points"] == [[0, 0, 0, "linear"], [1.5, 3, .4, "linear"]]
+    assert clips["clips"][0]["loop"] is True and clips["clips"][1]["start"] == 12
+    assert report.applied["automation_clip"] == 2
+    assert "automation_point_out_of_order" not in report.unsupported

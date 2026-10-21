@@ -47,9 +47,16 @@ class Report:
         self.failed.append({"what": what, "where": where, "error": str(error)[:500]})
 
     def summary(self) -> dict:
+        kinds = Counter()
+        for item in self.failed:
+            error = item["error"]
+            cause = error[error.find("Exception: ") + 11:] if "Exception: " in error else error
+            kinds[f"{item['what']}: {cause[:90]}"] += 1
         return {"applied": dict(self.applied), "unsupported": dict(self.unsupported),
                 "unsupported_examples": self.examples, "failed": len(self.failed),
-                "failed_first": self.failed[:40], "seconds": self.seconds}
+                "failed_by_kind": dict(kinds.most_common()), "failed_first": self.failed[:40],
+                "failed_all": self.failed,
+                "seconds": self.seconds}
 
 
 def _rgba(color: str):
@@ -109,6 +116,13 @@ class Reconstructor:
     # Entry point -------------------------------------------------------------
 
     def run(self) -> Report:
+        # A running engine drops parameter writes that follow an insertion too
+        # closely (measured 250 ms); with the engine off only the document counts.
+        try:
+            audio = self.s.b.request("document.audio_status")
+            self._pacing = .25 if audio.get("connected") or audio.get("ready") else 0.0
+        except Exception:
+            self._pacing = .25
         steps = [("transport", self.transport), ("effect_tracks", self.effect_tracks),
                  ("main_tracks", self.main_tracks), ("track_settings", self.track_settings),
                  ("devices", self.devices), ("bindings", self.bindings),
@@ -243,7 +257,7 @@ class Reconstructor:
                     self._try("active", where, lambda: handle.active(False))
             if "volume" in track:
                 self._try("volume", where, lambda: self.s.b.request(
-                    "track.set_volume", handle._target_params(value=float(track["volume"]))))
+                    "track.set_volume", handle._target_params(value=min(1.0, max(0.0, float(track["volume"]))))))
             if "pan" in track:
                 self._try("pan", where, lambda: self.s.b.request(
                     "track.set_pan", handle._target_params(value=float(track["pan"]))))
@@ -386,6 +400,13 @@ class Reconstructor:
                 self._pending_sidechains.append((handle, index, sidechain, place))
         for content in device.get("sample_content") or []:
             self._sample_content(handle, index, content, place)
+        for impulse in device.get("impulses") or []:
+            spec = impulse.get("impulse") or {}
+            if spec.get("vendor"):
+                self._try("impulse", place, lambda: self.s.b.request("device.load_impulse", handle._track_params(
+                    device=index, component=impulse["component"], impulse=spec)))
+            elif spec:
+                self.report.skip("impulse_file", place, spec)
         banks = {}
         chain_map = [self._nested(handle, index, chain, place, banks) for chain in device.get("chains") or []]
         if device.get("modulators") or device.get("kind") == "native":
@@ -406,6 +427,12 @@ class Reconstructor:
                 created = handle.add_grid_module(index, module["module_id"], int(module["x"]), int(module["y"]))
                 if created.get("component") != module["component"]:
                     self.report.skip("grid_module_order", place, [module["component"], created.get("component")])
+                    continue
+                fresh_name = next((m.get("name") for m in created.get("grid", {}).get("modules", [])
+                                   if m.get("component") == created["component"]), None)
+                if module.get("name") and module["name"] != fresh_name:
+                    self._try("grid_module_name", place, lambda: self.s.b.request("device.component_rename", handle._track_params(
+                        device=index, component=module["component"], name=module["name"])))
             self.report.ok("grid_module", len(grid.get("modules") or []))
         except Exception as error:
             self.report.fail("grid_modules", place, error)
@@ -539,6 +566,14 @@ class Reconstructor:
         else:
             self.report.skip("chain_kind", where, kind)
             return None
+        # Fixed and reused chains can hold the fresh container's defaults
+        # (a Vocoder carrier's noise and receiver); the dump lists the exact chain.
+        try:
+            for extra in reversed(range(self.s.b.request("device.count", sub._track_params())["count"])):
+                sub.delete_device(extra)
+                self.report.ok("default_device_removed")
+        except Exception as error:
+            self.report.fail("default_device_removed", where, error)
         if chain.get("devices"):
             self._chain(sub, chain["devices"], where)
         return created
@@ -560,32 +595,27 @@ class Reconstructor:
         return values
 
     def _modulators(self, handle, index, device, place, chain_map):
+        """Rebuild a device's modulators in source order.
+
+        A fresh device can carry default modulators (a Sampler's Vibrato).
+        They are removed first, so indexes match the source exactly; the
+        source's own list (with its bindings) brings back what it had.
+        """
         wanted = device.get("modulators") or []
         try:
             fresh = self._structure(handle, index)["modulators"]
         except Exception as error:
             self.report.fail("modulators_read", place, error)
             return
-        used = set()
-        rebuilt = {}          # dump modulator index -> rebuilt modulator object (fresh or added)
+        for extra in sorted((f["index"] for f in fresh), reverse=True):
+            self._try("modulator_removed", place, lambda: self.s.b.request(
+                "device.modulator_delete", handle._track_params(device=index, modulator=extra)))
+        mapping = {}
         for modulator in wanted:
             where = f"{place}/mod:{modulator.get('device_name')}"
             values = self._modulator_values(modulator)
             if any(p.get("kind") == "double" and p.get("normalized") is None for p in modulator.get("parameters") or []):
                 self.report.skip("modulator_native_values", where)
-            match = next((f for f in fresh if f["index"] not in used and f.get("modulator_id") == modulator.get("modulator_id")
-                          and (f.get("x"), f.get("y")) == (modulator.get("x"), modulator.get("y"))), None)
-            if match is not None:
-                used.add(match["index"])
-                rebuilt[modulator["index"]] = ("fresh", match["index"])
-                polarity = {p["path"]: p["bipolar"] for p in modulator.get("parameters") or [] if "bipolar" in p}
-                polarity_args = {"bipolar": polarity} if polarity else {}
-                if values and self._try("modulator_values", where, lambda: self.s.b.request(
-                        "device.modulator_parameters", handle._track_params(
-                            device=index, modulator=match["index"], values=values, unit="PERCENTAGE_OF_RANGE",
-                            **polarity_args))):
-                    self.report.ok("modulator_reused")
-                continue
             params = handle._track_params(device=index, modulator_id=modulator["modulator_id"])
             if "x" in modulator:
                 params.update(x=modulator["x"], y=modulator["y"])
@@ -596,33 +626,35 @@ class Reconstructor:
                 params["bipolar"] = polarity
             try:
                 result = self.s.b.request("device.modulator_add", params, timeout=125)
-                time.sleep(.25)  # measured engine pacing after insertion (see JavaDeviceMethods.add_modulator)
-                rebuilt[modulator["index"]] = ("added", result["modulator"])
-                self.report.ok("modulator")
             except Exception as error:
-                self.report.fail("modulator", where, error)
-        # Remove default modulators of the fresh device that the source does not have.
-        for extra in sorted((f["index"] for f in fresh if f["index"] not in used), reverse=True):
-            self._try("modulator_removed", place, lambda: self.s.b.request(
-                "device.modulator_delete", handle._track_params(device=index, modulator=extra)))
-        # Final indexes, matched by identity, cell and order.
-        current = self._structure(handle, index)["modulators"]
-        mapping = {}
-        taken = set()
-        for modulator in wanted:
-            found = next((c for c in current if c["index"] not in taken and c.get("modulator_id") == modulator.get("modulator_id")
-                          and (c.get("x"), c.get("y")) == (modulator.get("x"), modulator.get("y"))), None)
-            if found is not None:
-                taken.add(found["index"])
-                mapping[modulator["index"]] = found["index"]
+                if values and "invalid value" in str(error):
+                    # Retry without the values the definition rejects; report them.
+                    self.report.skip("modulator_value_rejected", where, str(error)[-120:])
+                    params.pop("values", None)
+                    params.pop("unit", None)
+                    try:
+                        result = self.s.b.request("device.modulator_add", params, timeout=125)
+                    except Exception as retry:
+                        self.report.fail("modulator", where, retry)
+                        continue
+                else:
+                    self.report.fail("modulator", where, error)
+                    continue
+            time.sleep(self._pacing)  # engine pacing after insertion (see JavaDeviceMethods.add_modulator)
+            mapping[modulator["index"]] = result["modulator"]
+            self.report.ok("modulator")
+            if polarity:
+                # Insertion clones the staged modulator without the polarity flag.
+                self._try("modulator_polarity", where, lambda: self.s.b.request(
+                    "device.modulator_parameters", handle._track_params(
+                        device=index, modulator=result["modulator"], bipolar=polarity)))
         for modulator in wanted:
             where = f"{place}/mod:{modulator.get('device_name')}"
             target = mapping.get(modulator["index"])
             if target is None:
                 continue
             name = modulator.get("device_name")
-            have = next((c.get("device_name") for c in current if c["index"] == target), None)
-            if name and name != have:
+            if name and name != modulator.get("display_name"):
                 self._try("modulator_name", where, lambda: self.s.b.request(
                     "device.modulator_rename", handle._track_params(device=index, modulator=target, name=name)))
             for parameter in modulator.get("parameters") or []:
@@ -697,17 +729,23 @@ class Reconstructor:
                     "occurrence_enabled", "recurrence", "recurrence_enabled", "repeat_count",
                     "repeat_curve", "repeat_enabled")
 
+    @staticmethod
+    def _expressions(items):
+        curves = {}
+        for expression in items or []:
+            name = expression.get("expression")
+            points = [[p["time"], p["value"], p.get("curvature", 0), p.get("interpolation", "linear")]
+                      for p in expression.get("points") or [] if (p.get("time") or 0) >= 0]
+            if name and points:
+                curves[name] = {"unit": "SEMITONES" if expression.get("unit") == "semitones" else "RATIO",
+                                "points": points}
+        return curves
+
     def _notes(self, notes, where):
         payload = []
         for note in notes:
             item = {k: note[k] for k in self._NOTE_FIELDS if k in note}
-            expressions = {}
-            for expression in note.get("expressions") or []:
-                name = expression.get("name") or expression.get("kind")
-                points = [[p["time"], p["value"], *([p["curvature"]] if "curvature" in p else [])]
-                          for p in expression.get("points") or []]
-                if name and points:
-                    expressions[name] = {"unit": expression.get("unit") or "NONE", "points": points}
+            expressions = self._expressions(note.get("expressions"))
             if expressions:
                 item["expressions"] = expressions
             payload.append(item)
@@ -725,14 +763,21 @@ class Reconstructor:
         rgba = _rgba(clip.get("color"))
         if rgba is not None:
             changes["color"] = clip["color"][:7]
-        if clip.get("content") == "audio":
-            for key in ("fade_in", "fade_out"):
-                if clip.get(key):
-                    changes[key] = clip[key]
         self._try("clip_settings", where, lambda: handle.update_clip(number, **changes))
+        if clip.get("content") == "audio":
+            fades = {k: float(clip[k]) for k in ("fade_in", "fade_out") if clip.get(k)}
+            if fades:
+                self._try("clip_fades", where, lambda: self.s.b.request(
+                    "clip.update", handle._track_params(clip=number, changes=fades)))
         if clip.get("play_start_offset"):
+            offset, duration = float(clip["play_start_offset"]), float(clip["duration"])
+            if abs(offset - duration) < 1e-9:
+                # Bitwig moves the play start before the end marker unless the target lies
+                # beyond it; landing exactly on it is clamped one tick early. Step past it first.
+                self._try("clip_offset_step", where, lambda: handle.update_clip(
+                    number, play_start_offset=offset + duration, duration=duration))
             self._try("clip_offset", where, lambda: handle.update_clip(
-                number, play_start_offset=float(clip["play_start_offset"]), duration=float(clip["duration"])))
+                number, play_start_offset=offset, duration=duration))
 
     def _note_clip(self, handle, number, clip, where):
         try:
@@ -804,18 +849,16 @@ class Reconstructor:
         for key in ("preserve_transients_mode", "transient_rate", "warp_grain_size", "warp_tail_mode"):
             if event.get(key):
                 changes[key] = event[key]
-        try:
-            handle.update_audio_event(number, index, **changes)
-            self.report.ok("audio_event_settings")
-        except Exception as error:
-            self.report.fail("audio_event_settings", where, error)
+        self._try("audio_event_settings", where, lambda: self.s.b.request(
+            "audio_event.update", handle._track_params(clip=number, event=index, changes=changes), timeout=125))
         if event.get("reverse"):
             self._try("audio_reverse", where, lambda: handle.update_audio_event(number, index, reverse=True))
-        if event.get("expressions"):
-            self.report.skip("audio_expressions", where)
-        else:
-            self._try("audio_expression_clear", where, lambda: handle.update_audio_event(
-                number, index, expressions={"gain": {"unit": "RATIO", "points": []}}))
+        curves = self._expressions(event.get("expressions"))
+        # Import leaves a gain curve the source may not have; clear it unless replaced.
+        curves.setdefault("gain", {"unit": "RATIO", "points": []})
+        self._try("audio_expressions", where, lambda: self.s.b.request(
+            "audio_event.update", handle._track_params(clip=number, event=index, changes={"expressions": curves}),
+            timeout=125))
 
     def launcher(self):
         for track, scope in self._all_tracks():
@@ -824,6 +867,9 @@ class Reconstructor:
             for slot in track.get("clip_slots") or []:
                 clip = (slot or {}).get("clip")
                 if not clip:
+                    if slot and slot.get("has_stop") is False:
+                        self._try("launcher_stop_button", where, lambda: self.s.b.request(
+                            "launcher.clear", handle._track_params(slot=slot["index"], has_stop=False)))
                     continue
                 if clip.get("content") == "note":
                     self._try("launcher_clip", where, lambda: handle.put_launcher_notes(
@@ -842,45 +888,70 @@ class Reconstructor:
             for lane in track.get("automation") or []:
                 self._lane(handle, lane, where)
 
+    @staticmethod
+    def _rows(kind, points):
+        """Writer rows: raw values, with the stored curve shape when the reader has it."""
+        rows = []
+        for p in points:
+            if kind == "real":
+                rows.append([p["time"], p.get("raw_value", p["value"]), p.get("curvature", 0),
+                             p.get("model_interpolation", p.get("interpolation", "linear"))])
+            elif kind == "enum":
+                rows.append([p["time"], p.get("raw_value", p["value"])])
+            else:
+                rows.append([p["time"], p["value"]])
+        return rows
+
     def _lane(self, handle, lane, where):
-        # Bitwig stores constant lanes with an anchor at a large negative time,
-        # and the composite reader can report stray out-of-order points.
+        # Bitwig stores constant lanes with an anchor at a large negative time.
+        # Lanes with automation clips list the lane's own points apart from the
+        # clips' (the composite "points" interleave both).
+        clips = lane.get("clips") or []
+        source = lane["base_points"] if clips and "base_points" in lane else lane.get("points") or []
         points, last = [], -1.0
-        for point in lane.get("points") or []:
+        for point in source:
             time_ = point.get("time") or 0
             if time_ < 0 or time_ < last:
                 self.report.skip("automation_point_out_of_order", where, time_)
                 continue
             points.append(point)
             last = time_
-        if not points:
+        kinds = [p.get("kind") for p in points] + [p.get("kind") for c in clips for p in c.get("points") or []]
+        if not kinds:
             return
         target = lane.get("target_path")
-        kind = points[0].get("kind")
+        kind = kinds[0]
         if not target or lane.get("target_status") != "model":
             # The stored lane has no target (left behind by a deleted parameter).
             self.report.skip("automation_orphan_lane", where, len(points))
             return
-        if len(points) < 2:
-            self.report.skip("automation_single_point", where, target)
-            return
         if kind not in ("real", "boolean", "enum", "integer"):
             self.report.skip(f"automation_{kind}", where, target)
             return
-        rows = []
-        for p in points:
-            if kind == "real":
-                rows.append([p["time"], p.get("raw_value", p["value"]), p.get("curvature", 0),
-                             p.get("interpolation", "linear")])
-            elif kind == "enum":
-                rows.append([p["time"], p.get("raw_value", p["value"])])
-            else:
-                rows.append([p["time"], p["value"]])
-        params = handle._track_params(target=target, kind=kind, points=rows)
+        if len(points) < 2:
+            if not clips:
+                self.report.skip("automation_single_point", where, target)
+                return
+            # The lane needs its own points to exist; hold the first clip value around the clips.
+            first = (points or clips[0]["points"])[0]
+            end = max(c["end"] for c in clips)
+            points = [dict(first, time=0.0), dict(first, time=float(end))]
+            self.report.skip("automation_base_synthesized", where, target)
+        params = handle._track_params(target=target, kind=kind, points=self._rows(kind, points))
         if "device" in lane:
             params["device"] = lane["device"]
-        self._try(f"automation_{lane.get('target_scope')}", where,
-                  lambda: self.s.b.request("automation.write_target", params, timeout=125))
+        if not self._try(f"automation_{lane.get('target_scope')}", where,
+                         lambda: self.s.b.request("automation.write_target", params, timeout=125)):
+            return
+        if clips:
+            payload = [{"start": c["start"], "end": c["end"], "loop": bool(c.get("loop")),
+                        "loop_start": c.get("loop_start", 0), "loop_duration": c.get("loop_duration", c["end"] - c["start"]),
+                        "play_start_offset": c.get("play_start_offset", 0),
+                        "points": self._rows(kind, c.get("points") or [])} for c in clips]
+            request = dict(params, clips=payload)
+            request.pop("points")
+            if self._try("automation_clips", where, lambda: self.s.b.request("automation.write_clips", request, timeout=125)):
+                self.report.ok("automation_clip", len(clips))
 
     # Scenes and markers ----------------------------------------------------------
 

@@ -912,3 +912,103 @@ eight invalid requests refused (closing a closed or unknown tab, close without
 discard, unknown unsaved tab, missing file, non-project file, a `.bwproject`
 outside a project folder, unknown job), the startup template's unsaved "New 1"
 closed, and a reopen from zero tabs. The `--older` variant was not run.
+
+## Project reconstruction from reader dumps (2026-10-21)
+
+`openwig.reconstruct.Reconstructor(song, dump, states=dir).run()` rebuilds a
+`JavaSong.dump()` into the selected, empty project through native edits and
+returns a report: what was written, what the writer cannot express (counted,
+with an example each) and what failed. Plugin states resolve from `states` by
+file name, media through an optional `media` mapping. Tracks are created with
+temporary unique titles, so duplicate sibling names stay addressable, and get
+their real titles last.
+
+Bridge methods added for it (all path-addressed, `chain` steps for nested chains):
+
+- `device.insert_factory {id}`: native device by definition UUID (the reader's
+  `device_id`; renamed and preset devices keep their definition's UUID).
+- `device.insert_plugin {format: vst2|clap, id, state}`: VST2 through the API
+  preset (`.fxb`/`.fxp` state) and CLAP built like Bitwig's DAWproject importer
+  (`cq.IYM(name, pby.jPB("clap:<id>"), version, file)` with a copy of the
+  `.clap-preset` in the plugin-states folder). VST3 takes `role`
+  (`instrument`, `audioFX`, `noteFX`, `analyzer`); without it a VST3 instrument
+  arrives as an audio effect.
+- `device.create_band {component}`: a chain in any chain bank (FX/Instrument
+  Selector), `device.drum_pad {key, name?}`: a Drum Machine pad chain
+  (`ApiDrumPads.getDrumPad(key).getDeviceChain()`).
+- `device.set_active {on}`, `device.component_rename {component, name}` (Grid
+  modules), `device.modulator_rename {modulator, name}` and, with `parameter`,
+  a parameter label (`pxJ.tDS`, a Macro knob named "0 to 1").
+- `device.modulator_add`/`device.modulator_parameters` take `unit` for staged
+  values and `bipolar` ({param: bool}) for Macro knobs (`HEi.AOA`), applied
+  before values; booleans and enums are applied before numbers.
+- `device.modulator_bind {target_component, target_device}` reaches devices
+  inside the modulator owner's nested chains, `target_parameter` may be
+  `MODULATORS/<i>/CONTENTS/<param>` (modulator-to-modulator), and
+  `native_amount` keeps amounts beyond the clamped -1..1 normalized range.
+- `device.set_sidechain {component, source: {path, tap} | null}` and
+  `track.set_source {source}`: taps `pre_fader`, `post_fader`,
+  `post_fx_notes`, `pre_fx`, or the track itself.
+- `device.load_sample {component, kind: single|multisample, sample | zones}`:
+  Sampler content through `ApiSamplerResourceComponent` (file, root key, key
+  track, gain, detune, start/end, loop mode/start/end/crossfade; zones with
+  key/velocity/select ranges). `device.load_impulse {component, impulse}`:
+  Convolution impulses as package references (vendor, package, type, path).
+- `automation.write_target {target, kind: real|boolean|enum|integer, points}`:
+  any lane the reader reports (`On`, `CONTENTS/...`, nested
+  `.../DEVICE_CHAIN/<i>:...`, `MODULATORS/<i>/CONTENTS/VALUE`, mixer targets),
+  with raw values; a new lane's beat-zero anchor is removed.
+- `transport.set_groove {enabled, shuffle, accent_amount, accent_phase}`,
+  `transport.set_time_signature {numerator, denominator}`.
+- `device.structure`: modulator identities and chain components without the
+  project-wide indexes of `device.read` (fast enough to call per device).
+- `project.render {path, start, length, track?, tap?, bit_depth?}` and
+  `project.render_status {job}`: offline export through Bitwig's own
+  "Exporting audio" job (`Ovo`), as its render tests do; nothing plays through
+  the audio device. The job's "open folder" step is disabled. The job takes
+  start and end beats (verified: start 4, end 8 renders 4 beats at 150 BPM);
+  the bridge passes `start + length`.
+
+The reader now adds normalized modulator values and enum indexes, Macro
+polarity and labels, modulator-to-modulator binding paths, sampler content
+(`sample_content`) and Convolution impulses (`impulses`).
+
+Writer behavior learned from a full rebuild of a 191-track project:
+
+- Clip fades can be stored negative (Bitwig reports them as such) and audio
+  events can start before their clip; `clip.update` and `audio_event.update`
+  accept both, as Bitwig stores them.
+- `Clip.setPlayStartOffset` moves the play start before the end marker unless
+  the target lies beyond it, so a play start exactly on the end marker lands one
+  tick early; the reconstructor steps past it first.
+- Fresh containers can hold default devices in fixed chains (a Vocoder carrier's
+  noise and receiver) and fresh devices default modulators (a Polysynth's LFO and
+  Expressions); both are removed before the dump's own are added, so indexes match.
+- A Macro inserted with `bipolar` reads unipolar after insertion (the staged
+  atom's flag is not cloned); it is set again on the inserted modulator.
+- `project.save_copy` of a large project stopped its audio engine in one run
+  (all plugins deactivated, `document.activate_audio` never became ready);
+  render from a fresh host on the saved copy instead.
+- Offline export of the full 191-track project (and of its original) crashes
+  `BitwigAudioEngine` at random when the bounce starts: exception 0xC0000409
+  (BEX64) at one fixed offset inside the engine itself, never in a plugin
+  module. Subsets of the project render; the same subset can crash or pass, so
+  it is a race, not one culprit (bisection by track converged on an audio
+  track that renders alone).
+
+Automation clips (Bitwig's "Insert Automation Clip"):
+
+- A lane (`W2C.oLP()`, a `jmN`) holds its own points (`ExU()`, an `Olb`) and
+  automation clips (`UFD`, an `xh3` clip): each has a point lane (`MnS()`) in
+  clip content time, a loop region (`y2x()`), loop switch (`Nsg`/`KF3`) and
+  play start (`NFl().VtE()` / `CJq`). The composite read interleaves clip
+  points with the lane's, so the reader now adds `base_points` and `clips`
+  (start, end, loop, loop_start, loop_duration, play_start_offset, points) to
+  lanes that have clips, and `model_interpolation`/`curvature` to real points
+  (the exporter's `interpolation` stays linear).
+- `automation.write_clips {target, kind, clips}` writes them after the lane's
+  own points (`automation.write_target`), the way the UI does it:
+  `jmN.IYM(start, length)` makes the clip, its point lane is refilled
+  (`GUX`/`MJZ`/`NME`/`xmH` points), loop and play start are set, then
+  `jmN.IYM(XEQ)` inserts it. When the lane has no point at a clip's end, Bitwig
+  adds one there with the current value (the lane needs an output value).

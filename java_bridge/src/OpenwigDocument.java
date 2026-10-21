@@ -755,6 +755,8 @@ public final class OpenwigDocument {
             result.put("parameters", available).put("values", values);
             JSONArray sampleContent = readSampleContent(target);
             if (!sampleContent.isEmpty()) result.put("sample_content", sampleContent);
+            JSONArray impulses = readImpulses(target);
+            if (!impulses.isEmpty()) result.put("impulses", impulses);
             Object contents = modelGet(target, "bhG");
             Object modules = modelGetOrNull(contents, "hMI");
             if (modules instanceof java.util.List<?> children)
@@ -921,7 +923,7 @@ public final class OpenwigDocument {
             String unit = automationUnit(modelGetOrNull(atom, "ViH"));
             if (unit != null) parameter.put("unit", unit);
             // A Macro knob (HEi) can be bipolar, which widens its range to -1..1.
-            if (atom.getClass().getSimpleName().equals("HEi")) parameter.put("bipolar", modelGet(atom, "HT3"));
+            if (automationInstance("HEi", atom)) parameter.put("bipolar", modelGet(atom, "HT3"));
             Object label = modelGetOrNull(atom, "rqQ");
             if (label instanceof String text && !text.isEmpty()) parameter.put("label", text);
             // The writer takes normalized numbers and enum indexes; native
@@ -1660,7 +1662,7 @@ public final class OpenwigDocument {
         java.util.Map<String, Object> atoms = modulatorAtoms(modulator);
         for (String name : polarity.keySet()) {
             Object atom = atoms.get(name);
-            if (atom == null || !atom.getClass().getSimpleName().equals("HEi"))
+            if (atom == null || !automationInstance("HEi", atom))
                 throw new IllegalArgumentException("not a bipolar-capable parameter: " + name);
             try { atom.getClass().getMethod("AOA", boolean.class).invoke(atom, polarity.getBoolean(name)); }
             catch (ReflectiveOperationException failure) { throw new IllegalStateException("polarity write failed", failure); }
@@ -2607,6 +2609,13 @@ public final class OpenwigDocument {
             JSONArray points = readModelPoints(timeline, type, unit);
             out.put(item.put("unit", jsonModelValue(unit)).put("time_unit", "beats")
                     .put("points", points).put("point_count", points.length()).put("status", "read"));
+            java.util.List<?> clips = automationInstance("jmN", timeline) ? (java.util.List<?>) modelGet(timeline, "IYM") : null;
+            if (clips != null && !clips.isEmpty()) {
+                // The composite walk interleaves clip-relative points with the lane's own.
+                JSONArray read = new JSONArray();
+                for (Object clip : clips) read.put(readAutomationClip(clip, type, unit));
+                item.put("base_points", readModelPoints(((jmN) timeline).ExU(), type, unit)).put("clips", read);
+            }
         }
         return out;
     }
@@ -2684,6 +2693,104 @@ public final class OpenwigDocument {
         }
     }
 
+    // ---- Automation clips (UFD, an xh3 clip on a jmN lane): their own point
+    // lane (MnS) in clip content time, loop region and play start like note clips.
+
+    private static JSONObject readAutomationClip(Object clip, Object type, String unit) {
+        Object region = modelGet(clip, "y2x");
+        return new JSONObject().put("start", modelGet(clip, "tS")).put("end", modelGet(clip, "qwZ"))
+                .put("loop", modelGet(clip, "Nsg"))
+                .put("loop_start", modelGet(region, "tS")).put("loop_duration", modelGet(region, "UBi"))
+                .put("play_start_offset", modelGet(modelGet(modelGet(clip, "NFl"), "VtE"), "tS"))
+                .put("points", readModelPoints(modelGet(clip, "MnS"), type, unit));
+    }
+
+    private static double clipTime(String helper, double value) {
+        // ApiClip passes loop times through anb's rounding helpers; use them when present.
+        try {
+            return ((Number) classForName("anb").getMethod(helper, double.class).invoke(null, value)).doubleValue();
+        } catch (ReflectiveOperationException | NullPointerException absent) {
+            return value;
+        }
+    }
+
+    private static Object automationPoint(String kind, JSONArray point) throws ReflectiveOperationException {
+        double time = point.getDouble(0);
+        return switch (kind) {
+            case "real" -> {
+                GUX made = (GUX) classForName("GUX").getMethod("IYM", double.class, double.class).invoke(null, time, point.getDouble(1));
+                boolean hold = point.optString(3, "linear").equals("hold");
+                made.IYM(hold ? HWV.IYM : HWV.jPB);
+                made.jPB(hold ? 0 : point.optDouble(2, 0));
+                yield made;
+            }
+            case "boolean" -> classForName("MJZ").getMethod("IYM", double.class, boolean.class).invoke(null, time, point.getBoolean(1));
+            case "enum" -> classForName("NME").getMethod("IYM", double.class, int.class).invoke(null, time, point.getInt(1));
+            case "integer" -> classForName("xmH").getMethod("IYM", double.class, int.class).invoke(null, time, point.getInt(1));
+            default -> throw new IllegalArgumentException("unknown automation kind: " + kind);
+        };
+    }
+
+    // Bitwig's "Insert Automation Clip" (kXT): jmN.IYM(start, length) makes the
+    // clip, which is then inserted into the lane. The lane's own points come
+    // first (automation.write_target); they hold the value around the clips.
+    private static JSONObject writeAutomationClips(ApiProject project, JSONObject params) {
+        Track track = resolveTrack(project, params);
+        Object owner = params.has("device") ? deviceTargetAt(track, params.getInt("device")) : ((ApiObject) track).getTarget();
+        String target = params.getString("target");
+        Object atom = findTargetAtom(owner, target);
+        if (atom == null) throw new IllegalArgumentException("automation target not found: " + target);
+        W2C laneOwner = ((m1C) atom).Noo();
+        if (laneOwner == null || laneOwner.oLP() == null) throw new IllegalArgumentException("write the lane's points before its clips");
+        jmN lane = laneOwner.oLP();
+        String kind = params.getString("kind");
+        JSONArray clips = params.getJSONArray("clips");
+        double previousEnd = -1;
+        for (int i = 0; i < clips.length(); i++) {
+            JSONObject clip = clips.getJSONObject(i);
+            double start = clip.getDouble("start"), end = clip.getDouble("end");
+            if (!(start >= 0) || !(end > start) || start < previousEnd - 1e-9)
+                throw new IllegalArgumentException("automation clips must be sorted, positive and not overlap");
+            previousEnd = end;
+            double last = -Double.MAX_VALUE;
+            for (Object item : clip.getJSONArray("points")) {
+                double time = ((JSONArray) item).getDouble(0);
+                if (!Double.isFinite(time) || time < last) throw new IllegalArgumentException("clip points must be sorted");
+                last = time;
+            }
+        }
+        Class<?> event = classForName("No");
+        DirectAccess.runInUndo(track.clipTimeline(), () -> {
+            try {
+                java.lang.reflect.Method make = lane.getClass().getMethod("IYM", double.class, double.class);
+                java.lang.reflect.Method insert = lane.getClass().getMethod("IYM", classForName("XEQ"));
+                for (int i = 0; i < clips.length(); i++) {
+                    JSONObject spec = clips.getJSONObject(i);
+                    double start = spec.getDouble("start");
+                    Object clip = make.invoke(lane, start, spec.getDouble("end") - start);
+                    Object content = modelGet(clip, "MnS");
+                    java.lang.reflect.Method remove = content.getClass().getMethod("jPB", event);
+                    java.lang.reflect.Method add = content.getClass().getMethod("IYM", event, int.class);
+                    for (Object old : new java.util.ArrayList<>((java.util.List<?>) modelGet(content, "IYM"))) remove.invoke(content, old);
+                    JSONArray points = spec.getJSONArray("points");
+                    for (int j = 0; j < points.length(); j++) add.invoke(content, automationPoint(kind, points.getJSONArray(j)), j);
+                    clip.getClass().getMethod("KF3", boolean.class).invoke(clip, spec.optBoolean("loop", false));
+                    Object region = modelGet(clip, "y2x");
+                    if (spec.has("loop_start")) region.getClass().getMethod("eUA", double.class).invoke(region, clipTime("xeZ", spec.getDouble("loop_start")));
+                    if (spec.has("loop_duration")) region.getClass().getMethod("tDS", double.class).invoke(region, clipTime("KF3", spec.getDouble("loop_duration")));
+                    if (spec.has("play_start_offset")) clip.getClass().getMethod("CJq", double.class).invoke(clip, spec.getDouble("play_start_offset"));
+                    insert.invoke(lane, clip);
+                }
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException("automation clip write failed: " + failure, failure);
+            }
+        });
+        JSONArray read = new JSONArray();
+        Object type = modelGet(modelGet(lane, "Nsg"), "NFl");
+        for (Object clip : (java.util.List<?>) modelGet(lane, "IYM")) read.put(readAutomationClip(clip, type, automationUnit(type)));
+        return new JSONObject().put("target", target).put("clips", read);
+    }
+
     private static JSONObject readModelPoint(Object point, Object type, String unit) {
         if (point == null) return new JSONObject().put("status", "null_point")
                 .put("time", JSONObject.NULL).put("value", JSONObject.NULL);
@@ -2693,7 +2800,9 @@ public final class OpenwigDocument {
             double raw = ((Number) modelGet(point, "IYM")).doubleValue();
             return out.put("kind", "real").put("raw_value", raw)
                     .put("value", convertAutomationReal(raw, type, unit))
-                    .put("interpolation", "linear"); // This is the exporter's interpolation.
+                    .put("interpolation", "linear") // This is the exporter's interpolation.
+                    .put("model_interpolation", ((Enum<?>) modelGet(point, "AOA")).name().equals("IYM") ? "hold" : "linear")
+                    .put("curvature", modelGet(point, "dT_"));
         }
         if (automationInstance("MJZ", point))
             return out.put("kind", "boolean").put("value", modelGet(point, "eUA"));
@@ -3222,7 +3331,8 @@ public final class OpenwigDocument {
             case "track.set_source", "device.set_sidechain", "device.create_band", "device.drum_pad",
                  "device.set_active", "device.components", "transport.set_groove",
                  "transport.set_time_signature", "automation.write_target", "device.load_sample", "device.structure",
-                 "project.render", "project.render_status", "debug.describe_modulator", "debug.atom_methods", "debug.atom_invoke" -> executeRebuild(method, p);
+                 "project.render", "project.render_status", "debug.describe_modulator", "debug.atom_methods", "debug.atom_invoke",
+                 "device.load_impulse", "device.component_rename", "automation.write_clips" -> executeRebuild(method, p);
             case "device.modulator_add", "device.modulator_delete", "device.modulator_move", "device.modulator_parameters", "device.modulator_bind", "device.modulator_unbind", "device.modulator_rename", "device.layer_read", "device.layer_update", "device.layer_delete", "device.layer_move", "device.grid_add", "device.grid_move", "device.grid_delete", "device.grid_connect", "device.grid_read", "device.read", "device.chain_banks", "device.create_layer", "device.count", "device.snapshot", "device.set_enabled", "device.insert_factory", "device.insert_plugin", "device.plugin_parameters", "device.export_plugin_state", "device.plugin_state_status", "device.operation_status", "device.capture_plugin_state",
                  "device.set_parameters", "device.get_parameters", "device.rename",
                  "device.set_expanded", "device.delete", "device.list_parameters" ->
@@ -3524,6 +3634,107 @@ public final class OpenwigDocument {
         return out;
     }
 
+    // ---- Convolution impulses: an MM component holds gnS impulse resources that
+    // point at a package file (AnI vendor/package + hQU type/path) or a local file.
+
+    private static java.util.List<Object> componentsOfType(Object owner, String className) {
+        java.util.List<Object> found = new java.util.ArrayList<>();
+        Class<?> type = classForName(className);
+        if (type == null) return found;
+        java.util.ArrayDeque<Object> queue = new java.util.ArrayDeque<>();
+        java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
+        queue.add(modelGetOrNull(owner, "bhG"));
+        while (!queue.isEmpty() && seen.size() < 20000) {
+            Object node = queue.poll();
+            if (node == null || seen.put(node, true) != null) continue;
+            if (type.isInstance(node)) { found.add(node); continue; }
+            if (automationInstance("com.bitwig.flt.document.core.master.device.YLB", node)
+                    || automationInstance("com.bitwig.flt.document.core.master.device.YhC", node)
+                    || automationInstance("com.bitwig.flt.document.core.master.device.EhV", node)) continue;
+            Object children = modelGetOrNull(node, "hMI");
+            if (children instanceof java.util.List<?> list) for (Object child : list) queue.add(child);
+        }
+        return found;
+    }
+
+    private static JSONObject impulseReference(Object resource) {
+        if (resource == null) return null;
+        JSONObject out = new JSONObject();
+        Object reference = modelGetOrNull(modelGetOrNull(resource, "xeZ"), "Gcr");   // gnS -> OTi -> SOk
+        Class<?> locationType = classForName("com.bitwig.flt.document.core.master.fe");
+        Object location = null;
+        if (reference != null && locationType != null)
+            for (java.lang.reflect.Method m : reference.getClass().getMethods())
+                if (m.getParameterCount() == 0 && locationType.isAssignableFrom(m.getReturnType())) {
+                    try { location = m.invoke(reference); } catch (ReflectiveOperationException ignored) { }
+                    if (location != null) break;
+                }
+        if (location == null) return out.put("unresolved", true);
+        Object packaged = modelGetOrNull(location, "AOA");
+        if (packaged != null) {
+            Object identity = modelGetOrNull(packaged, "IYM"), path = modelGetOrNull(packaged, "jPB");
+            out.put("vendor", modelGet(identity, "IYM")).put("package", modelGet(identity, "jPB"))
+                    .put("version", modelGet(identity, "Gcr"))
+                    .put("type", String.valueOf(modelGet(modelGet(path, "IYM"), "IYM"))).put("path", modelGet(path, "jPB"));
+        }
+        Object file = modelGetOrNull(location, "xeZ");
+        if (file instanceof java.io.File f) out.put("file", f.getPath());
+        return out;
+    }
+
+    private static JSONArray readImpulses(Object owner) {
+        JSONArray out = new JSONArray();
+        for (Object component : componentsOfType(owner, "com.bitwig.flt.document.core.master.device.MM")) {
+            JSONObject item = new JSONObject().put("component", jsonModelValue(automationIdentifier(owner, component)));
+            try {
+                JSONObject current = impulseReference(modelGetOrNull(component, "kxC"));
+                JSONObject alternate = impulseReference(modelGetOrNull(component, "Lg"));
+                if (current != null) item.put("impulse", current);
+                if (alternate != null) item.put("alternate", alternate);
+            } catch (RuntimeException unreadable) {
+                item.put("read_error", unreadable.toString());
+            }
+            out.put(item);
+        }
+        return out;
+    }
+
+    private static Object packagedImpulse(JSONObject spec) {
+        try {
+            Class<?> identityType = classForName("com.bitwig.flt.packaging.core.AnI");
+            Object identity = identityType.getConstructor(String.class, String.class, int.class)
+                    .newInstance(spec.getString("vendor"), spec.getString("package"), spec.optInt("version", 1));
+            Class<?> kindType = classForName("com.bitwig.flt.packaging.core.YCX");
+            Object kind = null;
+            for (java.lang.reflect.Field field : kindType.getFields())
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers()) && kindType.isAssignableFrom(field.getType())) {
+                    Object candidate = field.get(null);
+                    if (spec.optString("type", "impulses").equals(String.valueOf(modelGet(candidate, "IYM")))) kind = candidate;
+                }
+            if (kind == null) throw new IllegalArgumentException("unknown package resource type " + spec.optString("type"));
+            Class<?> resourceType = classForName("com.bitwig.flt.packaging.core.MU2");
+            Object resource = resourceType.getConstructor(identityType, kindType, String.class).newInstance(identity, kind, spec.getString("path"));
+            Object reference = classForName("com.bitwig.flt.document.core.master.SOk").getMethod("IYM", resourceType).invoke(null, resource);
+            Class<?> impulseType = classForName("gnS");
+            return impulseType.getMethod("IYM", reference.getClass()).invoke(null, reference);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("impulse reference failed: " + failure, failure);
+        }
+    }
+
+    private static JSONObject loadImpulse(Track track, JSONObject params) {
+        Object owner = deviceTargetAt(track, params.getInt("device"));
+        Object component = deviceComponent(owner, params.getString("component"), classForName("com.bitwig.flt.document.core.master.device.MM"));
+        JSONObject spec = params.getJSONObject("impulse");
+        if (!spec.has("vendor")) throw new IllegalArgumentException("only package impulses are supported");
+        Object impulse = packagedImpulse(spec);
+        DirectAccess.runInUndo(track.clipTimeline(), () -> {
+            try { component.getClass().getMethod("AOA", classForName("gnS")).invoke(component, impulse); }
+            catch (ReflectiveOperationException failure) { throw new IllegalStateException("impulse load failed", failure); }
+        });
+        return new JSONObject().put("content", readImpulses(owner));
+    }
+
     private static void applySampleSettings(Object api, Object model, JSONObject sample) {
         if (sample.has("sample_start") && sample.has("sample_end")) {
             // Widen first so start/end never cross while being moved.
@@ -3662,7 +3873,8 @@ public final class OpenwigDocument {
                 : callApi(callApi(document, "Qjx"), "WS");
         try {
             Class<?> jobType = classForName("Ovo");
-            Object job = jobType.getConstructors()[0].newInstance(document, java.util.List.of(track), new String[]{base}, true, start, length);
+            // The job takes the range as start and end beats.
+            Object job = jobType.getConstructors()[0].newInstance(document, java.util.List.of(track), new String[]{base}, true, start, start + length);
             // Ovo opens the output folder in Explorer when it succeeds; keep the desktop quiet.
             java.lang.reflect.Field folder = jobType.getDeclaredField("IYM");
             folder.setAccessible(true);
@@ -3825,6 +4037,7 @@ public final class OpenwigDocument {
                     yield new JSONObject().put("numerator", params.getInt("numerator")).put("denominator", params.getInt("denominator"));
                 }
                 case "automation.write_target" -> writeTargetAutomation(project, params);
+                case "automation.write_clips" -> writeAutomationClips(project, params);
                 case "device.load_sample" -> loadSampleContent(project, deviceScope(resolveTrack(project, params), params), params);
                 case "debug.atom_methods", "debug.atom_invoke" -> {
                     Track track = deviceScope(resolveTrack(project, params), params);
@@ -3889,6 +4102,20 @@ public final class OpenwigDocument {
                     yield out.put("atoms", atoms);
                 }
                 case "project.render" -> startRender(project, params);
+                case "device.load_impulse" -> loadImpulse(deviceScope(resolveTrack(project, params), params), params);
+                case "device.component_rename" -> {
+                    // Named stored components (Grid modules) share urr's undoable name setter.
+                    Track track = deviceScope(resolveTrack(project, params), params);
+                    Object owner = deviceTargetAt(track, params.getInt("device"));
+                    Class<?> named = classForName("com.bitwig.flt.document.core.master.device.urr");
+                    Object component = deviceComponent(owner, params.getString("component"), named);
+                    String name = params.getString("name");
+                    DirectAccess.runInUndo(track.clipTimeline(), () -> {
+                        try { named.getMethod("eUA", String.class).invoke(component, name); }
+                        catch (ReflectiveOperationException failure) { throw new IllegalStateException("rename failed", failure); }
+                    });
+                    yield new JSONObject().put("component", params.getString("component")).put("name", modelGet(component, "HT3"));
+                }
                 case "project.render_status" -> {
                     JSONObject status = renderJobs.get(params.getString("job"));
                     if (status == null) throw new IllegalArgumentException("unknown render job");
@@ -4603,7 +4830,8 @@ public final class OpenwigDocument {
                 throw new IllegalArgumentException("fades require an audio clip");
             double fadeIn = finiteField(changes, "fade_in", audio ? ((AudioClip) clip).getFadeInTime() : 0);
             double fadeOut = finiteField(changes, "fade_out", audio ? ((AudioClip) clip).getFadeOutTime() : 0);
-            if (fadeIn < 0 || fadeOut < 0 || fadeIn > duration || fadeOut > duration)
+            // Bitwig reports some stored clip fades as negative times; accept what it reports.
+            if (Math.abs(fadeIn) > duration || Math.abs(fadeOut) > duration)
                 throw new IllegalArgumentException("fades must fit within the clip duration");
             Color color = changes.has("color") ? parseColor(changes) : null;
             if (launcher && changes.has("start")) throw new IllegalArgumentException("launcher clips have no arranger start");
@@ -4811,7 +5039,8 @@ public final class OpenwigDocument {
                 ? com.bitwig.extension.api.project.timeline.WarpGrainSize.valueOf(changes.getString("warp_grain_size")) : null;
         com.bitwig.extension.api.project.timeline.WarpTailMode tail = changes.has("warp_tail_mode")
                 ? com.bitwig.extension.api.project.timeline.WarpTailMode.valueOf(changes.getString("warp_tail_mode")) : null;
-        if (start < 0 || duration <= 0 || !Double.isFinite(start + duration) || fadeIn < 0 || fadeOut < 0 || fadeIn > duration || fadeOut > duration)
+        // Events may start before their clip (content slid left); Bitwig stores negative starts.
+        if (duration <= 0 || !Double.isFinite(start + duration) || fadeIn < 0 || fadeOut < 0 || fadeIn > duration || fadeOut > duration)
             throw new IllegalArgumentException("invalid audio event range/fades");
         boolean reversed = (Boolean) modelGet(modelGet(((ApiObject) existing).getTarget(), "jsk"), "wtf");
         if (changes.has("source_offset") && (offset < 0 || offset > existing.getAudioFileDurationInSeconds()
