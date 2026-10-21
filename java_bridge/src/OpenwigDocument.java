@@ -954,7 +954,8 @@ public final class OpenwigDocument {
         Object children = contents == null ? null : modelGet(contents, "hMI");
         if (!(children instanceof java.util.List<?> components)) return bindings;
         for (Object component : components) {
-            if (component == null || !"Hx3".equals(component.getClass().getSimpleName())) continue;
+            // Macro sources use an Hx3 subclass; an exact class-name test skipped every Macro mapping.
+            if (component == null || !automationInstance("com.bitwig.flt.document.core.master.device.Hx3", component)) continue;
             Object entries = modelGetOrNull(component, "gTC");
             if (!(entries instanceof java.util.List<?> list)) continue;
             String key = (String) modelGetOrNull(component, "az_");

@@ -111,6 +111,7 @@ class Reconstructor:
         self.only = self._expand(only) if only else None
         self._serial = 0
         self._pending_bindings = []
+        self._pending_labels = []
         self._pending_sidechains = []
 
     # Entry point -------------------------------------------------------------
@@ -672,8 +673,8 @@ class Reconstructor:
                     "device.modulator_rename", handle._track_params(device=index, modulator=target, name=name)))
             for parameter in modulator.get("parameters") or []:
                 if parameter.get("label"):
-                    self._try("modulator_label", where, lambda: self.s.b.request("device.modulator_rename", handle._track_params(
-                        device=index, modulator=target, parameter=parameter["path"], name=parameter["label"])))
+                    # Mapping a Macro relabels it after its target; labels go in after the mappings.
+                    self._pending_labels.append((handle, index, target, parameter["path"], parameter["label"], where))
             for binding in modulator.get("bindings") or []:
                 self._pending_bindings.append((handle, index, target, binding, where, chain_map, mapping))
 
@@ -710,6 +711,9 @@ class Reconstructor:
                 self.report.skip("binding_amount", where, binding)
                 continue
             self._try("binding", where, lambda: self.s.b.request("device.modulator_bind", params))
+        for handle, index, modulator, path, label, where in self._pending_labels:
+            self._try("modulator_label", where, lambda: self.s.b.request("device.modulator_rename", handle._track_params(
+                device=index, modulator=modulator, parameter=path, name=label)))
 
     def sidechains(self):
         for handle, index, sidechain, place in self._pending_sidechains:

@@ -1007,6 +1007,12 @@ Writer behavior learned from a full rebuild of a 191-track project:
 - An automation clip made over a note clip's range copies that clip's cue
   markers; its play start is set, read back, and set again from beyond the
   end marker only when Bitwig clamped it.
+- Macro modulators keep their mappings in a subclass of `Hx3`; the reader
+  matched the class name exactly and so reported no mapping for any Macro (1263
+  in one project, among them a master Tool's volume, which left the rebuild
+  silent). It now matches the type, as `device.modulator_bind` always did.
+- Mapping a Macro relabels its knob after the target; the reconstructor writes
+  labels after all mappings.
 - `project.save_copy` (serialize, clone, write) loses edits the live document
   holds: modulator names, Macro polarity and parameter labels revert after
   reopening (values and mappings stay; mapping amounts rescale with the
