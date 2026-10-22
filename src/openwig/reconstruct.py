@@ -127,6 +127,9 @@ class Reconstructor:
         self._serial = 0
         self._pending_bindings = []
         self._pending_labels = []
+        # Deactivated tracks and devices unload their plugins, whose parameters mappings and
+        # automation need: deactivate them last.
+        self._deactivations = []
         self._pending_sidechains = []
 
     # Entry point -------------------------------------------------------------
@@ -145,7 +148,7 @@ class Reconstructor:
                  ("sidechains", self.sidechains), ("scenes", self.scenes),
                  ("clips", self.clips), ("launcher", self.launcher),
                  ("automation", self.automation), ("markers", self.markers),
-                 ("titles", self.restore_titles)]
+                 ("deactivate", self.deactivate), ("titles", self.restore_titles)]
         for name, step in steps:
             started = time.monotonic()
             self.log(f"step {name}")
@@ -270,7 +273,7 @@ class Reconstructor:
                 if track.get("solo"):
                     self._try("solo", where, lambda: handle.solo(True))
                 if track.get("is_active") is False:
-                    self._try("active", where, lambda: handle.active(False))
+                    self._deactivations.append(("active", where, lambda handle=handle: handle.active(False)))
             if "volume" in track:
                 self._try("volume", where, lambda: self.s.b.request(
                     "track.set_volume", handle._target_params(value=float(track["volume"]))))
@@ -407,8 +410,8 @@ class Reconstructor:
         if device.get("enabled") is False:
             self._try("device_enabled", place, lambda: handle.enable_device(index, False))
         if device.get("active") is False:
-            self._try("device_active", place, lambda: self.s.b.request(
-                "device.set_active", handle._track_params(device=index, on=False)))
+            self._deactivations.append(("device_active", place, lambda: self.s.b.request(
+                "device.set_active", handle._track_params(device=index, on=False))))
         if device.get("preset") or device.get("displayed_preset") not in (None, "", "init"):
             self.report.skip("preset_name", place, device.get("preset") or device.get("displayed_preset"))
         for sidechain in device.get("sidechains") or []:
@@ -728,6 +731,10 @@ class Reconstructor:
                     self._pending_labels.append((handle, index, target, parameter["path"], parameter["label"], where))
             for binding in modulator.get("bindings") or []:
                 self._pending_bindings.append((handle, index, target, binding, where, chain_map, mapping))
+
+    def deactivate(self):
+        for what, where, action in self._deactivations:
+            self._try(what, where, action)
 
     def bindings(self):
         def handle_is_root(handle):

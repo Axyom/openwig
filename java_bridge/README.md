@@ -1077,6 +1077,9 @@ Writer behavior learned from a full rebuild of a 191-track project:
   modulator's own device reports `target_owner.self: true`, and for a device
   inside a chain its `chain` and `chain_path` (before, the top-level device at
   the same index); verified by an engine-on rebuild of nested Infiltrators.
+  Bitwig does not load plugins on a deactivated track (`plugin_parameters`
+  reports `load_state` `NOT_LOADED`), so their parameters cannot be mapped or
+  automated; the reconstructor deactivates tracks and devices last.
 - `project.save_copy` of a large project stopped its audio engine in one run
   (all plugins deactivated, `document.activate_audio` never became ready);
   render from a fresh host on the saved copy instead.

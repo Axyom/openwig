@@ -220,11 +220,15 @@ leaves a `done` marker and is skipped).
   also placed a nested device's own mappings on the top-level device at the same
   index; `target_owner` now carries the nested device's chain and route and
   `self: true`, and the rebuild binds self targets on the modulator's device.
-  Come Here's Bass group rebuilt engine on: nested Infiltrator mappings bind;
-  4 remain because one rebuilt Infiltrator instance never loaded its plugin
-  (0 parameters, its twin in the same chain has 153).
-- Open: mappings onto plugin parameters engine-off (by design); a rebuilt
-  plugin instance that never loads (above); input sources that resolve to
+  Come Here's Bass group rebuilt engine on: nested Infiltrator mappings bind.
+- Deactivated tracks and devices (r24): Bitwig does not load plugins on a
+  deactivated track (`device.plugin_parameters` reports `NOT_LOADED` for every
+  plugin on Come Here's two deactivated Bass tracks, `LOADED` for every plugin on
+  active ones), so mappings onto them failed with "modulation target not found".
+  The rebuild now deactivates tracks and devices in a last `deactivate` step,
+  after mappings and automation. Come Here's Bass group rebuilt engine on: 0
+  failures, no binding, activation or parameter-count differences.
+- Open: mappings onto plugin parameters engine-off (by design); input sources that resolve to
   nothing (missing hardware inputs); launcher audio clips; two warp-marker sets
   that do not increase within their source file; a clip fade longer than its
   clip; Bitwig's lane points at automation-clip edges (cosmetic, on the line).

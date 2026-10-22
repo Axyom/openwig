@@ -317,3 +317,19 @@ def test_self_bindings_of_a_nested_device_stay_on_that_device():
     assert [p["target_parameter"] for p in sent] == ["ROOT_GENERIC_MODULE/PID5", "MODULATORS/0/CONTENTS/VALUE"]
     assert all("target_chain" not in p and "target_device" not in p and "target_component" not in p for p in sent)
     assert sent[0]["source"] == "RANDOM" and sent[0]["native_amount"] == 1
+
+
+def test_rebuild_deactivates_tracks_and_devices_after_mappings_and_automation():
+    # A deactivated track or device unloads its plugins, and with them the parameters
+    # that mappings and automation target.
+    bridge = RebuildBridge()
+    data = dump()
+    kick = data["main_tracks"][0]["children"][0]
+    kick["is_active"] = False
+    kick["devices"][0]["active"] = False
+    report = Reconstructor(JavaSong(bridge=bridge), data).run()
+    assert report.failed == [], report.failed
+    order = [name for name, _ in bridge.calls]
+    last_edit = max(order.index("device.modulator_bind"), len(order) - 1 - order[::-1].index("automation.write_target"))
+    assert order.index("track.set_active") > last_edit
+    assert order.index("device.set_active") > last_edit
