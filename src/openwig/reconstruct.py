@@ -804,6 +804,15 @@ class Reconstructor:
                     "occurrence_enabled", "recurrence", "recurrence_enabled", "repeat_count",
                     "repeat_curve", "repeat_enabled")
 
+    # Launch settings of a clip Bitwig creates; only differing ones are written.
+    _LAUNCH_DEFAULTS = {"launch_quantization": "DEFAULT", "launch_mode": "DEFAULT", "next_action": "STOP",
+                        "next_action_time": 16, "use_loop_start_as_quantization_reference": False}
+
+    @classmethod
+    def _launch_changes(cls, clip):
+        settings = clip.get("launch_settings") or {}
+        return {k: v for k, v in settings.items() if k in cls._LAUNCH_DEFAULTS and v != cls._LAUNCH_DEFAULTS[k]}
+
     @staticmethod
     def _expressions(items):
         curves = {}
@@ -826,32 +835,38 @@ class Reconstructor:
             payload.append(item)
         return payload
 
-    def _clip_settings(self, handle, number, clip, where):
-        # Loop region first: the play offset is validated against it.
+    def _clip_settings(self, handle, number, clip, where, *, launcher=False):
+        """Container settings of an arranger clip, or of the launcher clip in slot ``number``."""
+        update = handle.update_launcher_clip if launcher else handle.update_clip
+        # Loop region first: the play offset is validated against it. The name is always
+        # written: an audio import titles the clip after its file.
         changes = {"loop": bool(clip.get("loop")),
                    "loop_start": float(clip.get("loop_start", 0)),
-                   "loop_duration": float(clip.get("loop_duration") or clip["duration"])}
-        if clip.get("name"):
-            changes["name"] = clip["name"]
+                   "loop_duration": float(clip.get("loop_duration") or clip["duration"]),
+                   "name": clip.get("name") or ""}
         if clip.get("muted"):
             changes["muted"] = True
         rgba = _rgba(clip.get("color"))
         if rgba is not None:
             changes["color"] = clip["color"][:7]
-        self._try("clip_settings", where, lambda: handle.update_clip(number, **changes))
+        self._try("clip_settings", where, lambda: update(number, **changes))
+        launch = self._launch_changes(clip)
+        if launch:
+            self._try("clip_launch_settings", where, lambda: update(number, **launch))
         if clip.get("content") == "audio":
             fades = {k: float(clip[k]) for k in ("fade_in", "fade_out") if clip.get(k)}
             if fades:
                 self._try("clip_fades", where, lambda: self.s.b.request(
-                    "clip.update", handle._track_params(clip=number, changes=fades)))
+                    "clip.update", handle._track_params(**{"slot" if launcher else "clip": number},
+                                                        changes=fades)))
         if clip.get("play_start_offset"):
             offset, duration = float(clip["play_start_offset"]), float(clip["duration"])
             if abs(offset - duration) < 1e-9:
                 # Bitwig moves the play start before the end marker unless the target lies
                 # beyond it; landing exactly on it is clamped one tick early. Step past it first.
-                self._try("clip_offset_step", where, lambda: handle.update_clip(
+                self._try("clip_offset_step", where, lambda: update(
                     number, play_start_offset=offset + duration, duration=duration))
-            self._try("clip_offset", where, lambda: handle.update_clip(
+            self._try("clip_offset", where, lambda: update(
                 number, play_start_offset=offset, duration=duration))
 
     def _note_clip(self, handle, number, clip, where):
@@ -925,7 +940,8 @@ class Reconstructor:
         for key in ("preserve_formants", "preview_onsets"):
             if key in event:
                 changes[key] = bool(event[key])
-        for key in ("preserve_transients_mode", "transient_rate", "warp_grain_size", "warp_tail_mode"):
+        for key in ("preserve_transients_mode", "transient_rate", "warp_grain_size", "warp_tail_mode",
+                    "formant_envelope_resolution"):
             if event.get(key):
                 changes[key] = event[key]
         self._try("audio_event_settings", where, lambda: self.s.b.request(
@@ -951,10 +967,12 @@ class Reconstructor:
                             "launcher.clear", handle._track_params(slot=slot["index"], has_stop=False)))
                     continue
                 if clip.get("content") == "note":
-                    self._try("launcher_clip", where, lambda: handle.put_launcher_notes(
-                        slot["index"], self._notes(clip.get("notes") or [], where), clip["duration"],
-                        name=clip.get("name") or "", loop=bool(clip.get("loop", True)),
-                        has_stop=slot.get("has_stop")))
+                    if self._try("launcher_clip", where, lambda: handle.put_launcher_notes(
+                            slot["index"], self._notes(clip.get("notes") or [], where), clip["duration"],
+                            name=clip.get("name") or "", loop=bool(clip.get("loop", True)),
+                            has_stop=slot.get("has_stop"))):
+                        # The new clip loops its full length; the source loop can differ.
+                        self._clip_settings(handle, slot["index"], clip, where, launcher=True)
                 else:
                     self.report.skip("launcher_audio", where)
 

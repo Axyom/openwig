@@ -694,6 +694,9 @@ Live-verified launcher surface on a disposable synthetic project:
   RETURN_TO_ARRANGEMENT, PLAY_* and block variants), `next_action_time`,
   `use_loop_start_as_quantization_reference`, and the slot's `has_stop`.
   Settings are readable through every clip reader (`launch_settings`).
+  Arranger clips hold them too (they apply once the clip is in a slot), so
+  `clip.update` (`update_clip`, `update_launcher_clip`) takes the same
+  settings except `has_stop`.
 - `track.update_launcher_clip(slot, **changes)` and
   `delete_launcher_clip(slot)` address slot clips through the arranger clip
   operations; launcher clips have no arranger `start`. The audio-event
@@ -1017,7 +1020,8 @@ Writer behavior learned from a full rebuild of a 191-track project:
 - A plugin's own sidechain input is `vgq.Oof().Idv()` (a `WYJ`, like a native
   sidechain component); `device.set_sidechain` without `component` sets it.
 - Track faders go above 0 dB: the reader's percent-of-range volume exceeds 1
-  there (+6 dB is 1.995), and `track.set_volume` accepts it.
+  there, and a fader at its top reads 2 (a project stored 1.999999999999999);
+  `track.set_volume` takes 0..2 (it stopped at 1.995 before).
 - An automation clip made over a note clip's range copies that clip's cue
   markers; its play start is set, read back, and set again from beyond the
   end marker only when Bitwig clamped it.
@@ -1053,6 +1057,20 @@ Writer behavior learned from a full rebuild of a 191-track project:
   `chain_path` (container device and chain component per level, from the
   track's own chain); `device.modulator_bind {target_chain, target_device}`
   resolves it. A single chain index was ambiguous below the first level.
+- Rebuilds of three more projects (2026-10-21/22) found: clip launch settings
+  were never written (every clip kept a new clip's; 708 arranger clips of one
+  project launch FROM_START); an audio import titles its clip after the file,
+  so empty names must be written too; a launcher clip's loop can be longer
+  than the clip; audio events' formant envelope resolution was not written.
+  Live gate (`probe_r23.py`, scratch): arranger and launcher launch settings,
+  a 32-beat launcher clip looping 64, an empty audio clip name, formant
+  resolution 8 and fader 2.0 written, then save + reopen identical.
+  A Polymer's parameters live in sub-modules (`MODULES/<i>/CONTENTS/CUTOFF`)
+  and a mapping stores its target relative to the module, so the reader's
+  `target_parameter` (`CUTOFF`) was ambiguous on the device and the bind
+  failed; the reader now reports the device-relative path when its walk up
+  from the target atom reaches the located owner device (verified on a fresh
+  dump; binding those paths is not live-tested yet).
 - `project.save_copy` of a large project stopped its audio engine in one run
   (all plugins deactivated, `document.activate_audio` never became ready);
   render from a fresh host on the saved copy instead.

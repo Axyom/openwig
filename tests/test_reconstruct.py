@@ -241,6 +241,30 @@ def test_rebuild_replaces_default_modulators_and_steps_past_the_end_marker():
     assert offsets == [4.0, 2.0]
 
 
+def test_rebuild_writes_clip_names_loops_and_launch_settings():
+    bridge = RebuildBridge()
+    data = dump()
+    kick = data["main_tracks"][0]["children"][0]
+    defaults = {"launch_quantization": "DEFAULT", "launch_mode": "DEFAULT", "next_action": "STOP",
+                "next_action_time": 16, "use_loop_start_as_quantization_reference": False}
+    kick["clips"][0]["launch_settings"] = dict(defaults, launch_mode="FROM_START")
+    kick["clips"].append(dict(kick["clips"][0], start=12, launch_settings=defaults))
+    kick["clip_slots"] = [{"index": 1, "has_stop": True, "clip": {
+        "content": "note", "duration": 4, "loop": True, "loop_start": 0, "loop_duration": 16, "notes": [],
+        "launch_settings": dict(defaults, next_action="PLAY_NEXT", next_action_time=8)}}]
+    report = Reconstructor(JavaSong(bridge=bridge), data).run()
+    assert report.failed == [], report.failed
+    updates = [(p.get("clip"), p.get("slot"), p["changes"]) for p in calls(bridge, "clip.update")]
+    # Names are always written (an audio import titles the clip after its file).
+    assert updates[0] == (0, None, {"loop": False, "loop_start": 0.0, "loop_duration": 4.0, "name": ""})
+    # Launch settings: only those differing from a new clip, arranger clips included.
+    assert [u for u in updates if u[2].keys() & {"launch_mode", "next_action"}] == [
+        (0, None, {"launch_mode": "FROM_START"}),
+        (None, 1, {"next_action": "PLAY_NEXT", "next_action_time": 8})]
+    # A launcher clip's loop can be longer than the clip it was created as.
+    assert (None, 1, {"loop": True, "loop_start": 0.0, "loop_duration": 16.0, "name": ""}) in updates
+
+
 def test_rebuild_writes_lane_points_then_automation_clips():
     bridge = RebuildBridge()
     data = dump()

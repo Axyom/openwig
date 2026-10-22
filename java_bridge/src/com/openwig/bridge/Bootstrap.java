@@ -414,11 +414,12 @@ public final class Bootstrap {
                         }
                         field = "send";
                     } else {
-                        double value = params.optDouble("value", Double.NaN);
-                        if (!Double.isFinite(value) || value < 0 || value > 1) {
-                            throw new IllegalArgumentException("value must be between 0 and 1");
-                        }
                         field = method.equals("track.set_volume") ? "volume" : "pan";
+                        double value = params.optDouble("value", Double.NaN);
+                        double top = field.equals("volume") ? 2 : 1;
+                        if (!Double.isFinite(value) || value < 0 || value > top) {
+                            throw new IllegalArgumentException("value must be between 0 and " + (int) top);
+                        }
                     }
                     response.put("result", onDocumentEvent(
                             () -> DirectAccess.updateTrack(index, field, params)));

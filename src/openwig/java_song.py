@@ -475,16 +475,45 @@ class JavaTrack(JavaDeviceMethods):
             raise ValueError(f"{key} must be a finite number")
         return float(value)
 
+    _LAUNCH_ENUMS = {
+        "launch_quantization": {"DEFAULT", "OFF", "BARS_8", "BARS_4", "BARS_2", "BAR",
+                                "HALF", "QUARTER", "EIGHT", "SIXTEENTH"},
+        "launch_mode": {"DEFAULT", "FROM_START", "CONTINUE_OR_FROM_START",
+                        "CONTINUE_OR_SYNCED", "SYNCED"},
+        "next_action": {"STOP", "RETURN_TO_ARRANGEMENT", "RETURN_TO_PREVIOUS_CLIP",
+                        "PLAY_NEXT", "PLAY_PREVIOUS", "PLAY_FIRST", "PLAY_LAST",
+                        "PLAY_RANDOM", "PLAY_OTHER", "ROUND_ROBIN",
+                        "PLAY_FIRST_IN_BLOCK", "PLAY_LAST_IN_BLOCK", "PLAY_RANDOM_IN_BLOCK",
+                        "PLAY_OTHER_IN_BLOCK", "ROUND_ROBIN_IN_BLOCK",
+                        "PLAY_FIRST_IN_PREVIOUS_BLOCK", "PLAY_RANDOM_IN_PREVIOUS_BLOCK",
+                        "PLAY_FIRST_IN_NEXT_BLOCK", "PLAY_RANDOM_IN_NEXT_BLOCK",
+                        "PLAY_FIRST_IN_OTHER_BLOCK", "PLAY_RANDOM_IN_OTHER_BLOCK"},
+    }
+    _LAUNCH_SETTINGS = set(_LAUNCH_ENUMS) | {"next_action_time", "use_loop_start_as_quantization_reference"}
+
+    @classmethod
+    def _validate_launch_setting(cls, key: str, value) -> None:
+        if key in cls._LAUNCH_ENUMS:
+            if not isinstance(value, str) or value not in cls._LAUNCH_ENUMS[key]:
+                raise ValueError(f"unsupported {key}")
+        elif key == "next_action_time":
+            if cls._clip_number(value, key) < 0:
+                raise ValueError("next_action_time must be nonnegative")
+        elif type(value) is not bool:
+            raise ValueError(f"{key} must be boolean")
+
     @classmethod
     def _validate_clip_changes(cls, changes: dict, *, launcher: bool) -> None:
         allowed = {"start", "duration", "name", "muted", "loop", "loop_start",
                    "loop_duration", "play_start_offset", "color", "fade_in", "fade_out"}
         if launcher:
             allowed -= {"start"}
-        if not changes or changes.keys() - allowed:
+        if not changes or changes.keys() - allowed - cls._LAUNCH_SETTINGS:
             raise ValueError("provide supported clip changes")
         for key, value in changes.items():
-            if key in {"muted", "loop"}:
+            if key in cls._LAUNCH_SETTINGS:
+                cls._validate_launch_setting(key, value)
+            elif key in {"muted", "loop"}:
                 if type(value) is not bool:
                     raise ValueError(f"{key} must be boolean")
             elif key in {"name", "color"}:
@@ -502,7 +531,9 @@ class JavaTrack(JavaDeviceMethods):
 
         Moving clips changes their sorted indexes. Overlapping another clip is
         rejected. Resizing trims the container, preserving its content events.
-        Color is snapped to Bitwig's palette. Returns the updated clip data.
+        Color is snapped to Bitwig's palette. Arranger clips also keep the
+        launch settings of update_launch_settings (except ``has_stop``), which
+        apply once the clip is in a launcher slot. Returns the updated clip data.
         """
         self._clip_index(index)
         self._validate_clip_changes(changes, launcher=False)
@@ -901,32 +932,10 @@ class JavaTrack(JavaDeviceMethods):
         ``use_loop_start_as_quantization_reference`` and ``has_stop``.
         """
         self._slot_index(slot)
-        enums = {
-            "launch_quantization": {"DEFAULT", "OFF", "BARS_8", "BARS_4", "BARS_2", "BAR",
-                                    "HALF", "QUARTER", "EIGHT", "SIXTEENTH"},
-            "launch_mode": {"DEFAULT", "FROM_START", "CONTINUE_OR_FROM_START",
-                            "CONTINUE_OR_SYNCED", "SYNCED"},
-            "next_action": {"STOP", "RETURN_TO_ARRANGEMENT", "RETURN_TO_PREVIOUS_CLIP",
-                            "PLAY_NEXT", "PLAY_PREVIOUS", "PLAY_FIRST", "PLAY_LAST",
-                            "PLAY_RANDOM", "PLAY_OTHER", "ROUND_ROBIN",
-                            "PLAY_FIRST_IN_BLOCK", "PLAY_LAST_IN_BLOCK", "PLAY_RANDOM_IN_BLOCK",
-                            "PLAY_OTHER_IN_BLOCK", "ROUND_ROBIN_IN_BLOCK",
-                            "PLAY_FIRST_IN_PREVIOUS_BLOCK", "PLAY_RANDOM_IN_PREVIOUS_BLOCK",
-                            "PLAY_FIRST_IN_NEXT_BLOCK", "PLAY_RANDOM_IN_NEXT_BLOCK",
-                            "PLAY_FIRST_IN_OTHER_BLOCK", "PLAY_RANDOM_IN_OTHER_BLOCK"},
-        }
-        allowed = set(enums) | {"next_action_time", "use_loop_start_as_quantization_reference", "has_stop"}
-        if not changes or changes.keys() - allowed:
+        if not changes or changes.keys() - self._LAUNCH_SETTINGS - {"has_stop"}:
             raise ValueError("provide supported launch settings")
         for key, value in changes.items():
-            if key in enums:
-                if not isinstance(value, str) or value not in enums[key]:
-                    raise ValueError(f"unsupported {key}")
-            elif key == "next_action_time":
-                if self._clip_number(value, key) < 0:
-                    raise ValueError("next_action_time must be nonnegative")
-            elif type(value) is not bool:
-                raise ValueError(f"{key} must be boolean")
+            self._validate_launch_setting(key, value)
         return self.s.b.request("launcher.settings", self._track_params(slot=slot, changes=changes), timeout=125)
 
     def launch_slot(self, slot: int) -> dict:

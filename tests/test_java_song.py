@@ -92,7 +92,9 @@ def test_clip_edits_and_audio_import_wire_contract(bridge, tmp_path):
     bridge.calls.clear()
     changes = dict(start=8, duration=4, loop=True, loop_start=.5,
                    loop_duration=2, play_start_offset=.25, muted=False,
-                   name="Edited", color="#aa55ee", fade_in=.25, fade_out=.5)
+                   name="Edited", color="#aa55ee", fade_in=.25, fade_out=.5,
+                   launch_mode="FROM_START", next_action="PLAY_NEXT", next_action_time=8,
+                   use_loop_start_as_quantization_reference=True)
     track.update_clip(2, **changes)
     track.delete_clip(1)
     track.import_audio(source, start=16, source_offset=.5, gain_db=-6,
@@ -120,7 +122,8 @@ def test_clip_edits_reject_invalid_indexes_without_rpc(bridge, index):
 @pytest.mark.parametrize("changes", [dict(), dict(unknown=1), dict(start=-1),
     dict(duration=0), dict(loop_duration=-1), dict(fade_in=-1),
     dict(start=float("nan")), dict(duration=float("inf")), dict(loop=1),
-    dict(muted="yes"), dict(name=2), dict(start=True)])
+    dict(muted="yes"), dict(name=2), dict(start=True), dict(launch_mode="NOPE"),
+    dict(next_action_time=-1), dict(use_loop_start_as_quantization_reference=1), dict(has_stop=False)])
 def test_clip_changes_rejected_before_rpc(bridge, changes):
     track = JavaSong(bridge=bridge).track_at("Audio")
     bridge.calls.clear()

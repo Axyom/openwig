@@ -152,6 +152,69 @@ large project. Developed on `codex/project-reconstruction` (PR #8), then fast-fo
   bridge's single client slot on the new host, so a new client never gets the
   handshake (seen twice in probes; the scratch `host.start` now does this).
 
+### Catalog rebuilds and engine-off mode (2026-10-21/22)
+
+Owner request (2026-10-21): rebuild more of the owner's tracks. Corpus copies
+(outside the repo) are dumped, rebuilt in full into a fresh target and compared
+field by field, one at a time, through a resumable scratch queue
+(`run_queue.sh` → `run_catalog.sh` → `pipeline_catalog.sh`; a finished track
+leaves a `done` marker and is skipped).
+
+| Track | Engine | Tracks | Edits | Failed | Differences | Largest groups |
+|---|---|---|---|---|---|---|
+| Come Here | on | 52 | 25k | 15 | 280 | input sources 25, clip names 22, launcher audio 20, next action 19 |
+| Get Busy (remix) | off | 63 | 14,682 | 36 | 858 | launch mode 708, formant resolution 59, plugin mappings 17 |
+| For You | off | 116 | not finished | | | stopped twice by low memory at the clips step |
+
+- Engine-off mode (scratch `host.start(engine=False)`, `run.py --no-engine`):
+  the scratch Bitwig starts on a small holder project, then opens the source or
+  target next to it with `document.open {activate_engine: false}`, so plugins
+  and samples never load. The holder is required: when a project opens beside
+  a pristine "New 1" tab, Bitwig closes that tab and hands its engine to the new
+  project (`eY1.IYM(VBQ, int, Set)`), and a single tab always gets the engine.
+  Come Here rebuilt engine-off: 1.3 GB peak instead of 5.5 GB, 163 s instead of
+  441 s. The cost: plugin parameters exist only with the engine, so mappings and
+  automation onto plugin parameters fail (Come Here: 36 failures instead of 15)
+  and dumps list no plugin parameters. Large projects still need memory (Get
+  Busy's build peaked at 3.8 GB).
+- Memory guard (scratch `memguard.py`): each scratch-Bitwig step waits for
+  free RAM; if available memory stays under a floor it stops the step and the
+  scratch Bitwig and retries with a higher need; if the Claude Code command
+  that started the queue is gone, it stops everything (exit 75). Processes are
+  found and stopped with Win32 calls, because WMI queries fail under memory
+  pressure (seen: the guard crashed instead of stopping cleanly).
+- Gaps found and fixed (unit-tested; scratch live gate `probe_r23.py` passed on
+  2026-10-22, live and after save and reopen, except the Polymer item):
+  - Clip launch settings were never written, so every clip kept a new clip's
+    (Get Busy: 708 arranger clips launch FROM_START). `clip.update` now takes
+    launch settings for arranger and launcher clips, and the rebuild writes
+    those that differ from a new clip's.
+  - Imported audio clips kept their file name as title; names are now always
+    written (Come Here: 22).
+  - Launcher clips looped their full length; the source loop can be longer
+    than the clip (Come Here: loop 64 on a 32-beat clip). Loop region, play
+    start, color and mute now follow the arranger path.
+  - Audio events' formant envelope resolution is written (Get Busy: 59 at 8).
+  - A fader at its top reads 1.999999999999999; `track.set_volume` refused
+    anything above 1.995 (and the bridge's index path anything above 1) and now
+    takes up to 2.
+  - Polymer mappings: 5 Macro mappings into a Polymer two chains deep failed
+    with "modulation target not found: CUTOFF". Its parameters live in
+    sub-modules (`MODULES/4/CONTENTS/CUTOFF`, `MODULES/5/CONTENTS/CUTOFF`)
+    and the reader reported the module-relative `CUTOFF`. The reader now
+    reports the device-relative path when the walk from the target reaches the
+    located owner. A fresh Come Here dump now reports all 5 Polymer targets
+    with their module paths, plus Hard Kick's `MODULES/2/CONTENTS/TIME` and 4
+    chain mutes as `CHAIN_LIST/CHAINn/MIXER/MUTE` (before: `MIXER/MUTE`). The
+    writer side is not verified yet: the Bass group rebuild was stopped by the
+    memory guard (builds take free RAM from 5.3 GB to under 2.5 GB).
+- Open: mappings onto plugin parameters engine-off (by design); an
+  Infiltrator's Random modulators and a Hard Kick Generator mapping
+  (NullPointerException, engine on as well); input sources that resolve to
+  nothing (missing hardware inputs); launcher audio clips; two warp-marker sets
+  that do not increase within their source file; a clip fade longer than its
+  clip; Bitwig's lane points at automation-clip edges (cosmetic, on the line).
+
 ## Previous checkpoint: native project open/close (2026-10-20)
 
 - Developed on `codex/document-open-close` (worktree `../bitwig-sdk-docopen`);

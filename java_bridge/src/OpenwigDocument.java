@@ -989,10 +989,12 @@ public final class OpenwigDocument {
                     // Walk up from the target atom to its device: a modulator parameter
                     // (a Math input) then keeps its MODULATORS/<i>/CONTENTS/ path.
                     String held = null;
+                    Object heldOwner = null;
                     Object cursor = parameter;
                     for (int depth = 0; cursor != null && depth < 24; depth++, cursor = modelGetOrNull(cursor, "L_")) {
                         if (cursor != self && (owners == null || !owners.containsKey(cursor))) continue;
                         held = automationIdentifier(cursor, parameter);
+                        heldOwner = cursor;
                         break;
                     }
                     if (held != null && held.startsWith("MODULATORS/")) {
@@ -1032,6 +1034,17 @@ public final class OpenwigDocument {
                     if (located != null) binding.put("target_owner", located);
                     else if (parameter != null)
                         binding.put("target_owner", new JSONObject().put("resolved", false));
+                    // A parameter of a device's sub-module (a Polymer MODULES/<i>/CONTENTS/...) is stored
+                    // relative to its module, which is ambiguous on the device; use the path from the
+                    // owning device (its parameter-list path) when that device is the located owner.
+                    String stored = binding.optString("target_parameter", "");
+                    boolean sameOwner = located != null && heldOwner != null && (heldOwner == self
+                            ? !located.has("chain") && located.optInt("device", -1) == deviceIndex && path.equals(located.optString("path"))
+                            : owners.get(heldOwner) == located);
+                    if (sameOwner && held != null && held.startsWith("CONTENTS/") && !stored.isEmpty()) {
+                        String full = held.substring("CONTENTS/".length());
+                        if (full.endsWith("/" + stored)) binding.put("target_parameter", full);
+                    }
                 }
                 if (amount instanceof Number number) binding.put("amount", number.doubleValue());
                 // AvA.LZe(): amount over the target's modulation span, clamped to -1..1.
@@ -3273,9 +3286,9 @@ public final class OpenwigDocument {
             }
             case "volume" -> {
                 double value = params == null ? Double.NaN : params.optDouble("value", Double.NaN);
-                // 1 is 0 dB; the fader reaches +6 dB (a linear gain of 1.995).
-                if (!Double.isFinite(value) || value < 0 || value > 1.9952623149688795) {
-                    throw new IllegalArgumentException("value must be between 0 and 1.995 (+6 dB)");
+                // 1 is 0 dB; a fader at its top reads 2 (a project stores 1.999999999999999).
+                if (!Double.isFinite(value) || value < 0 || value > 2) {
+                    throw new IllegalArgumentException("value must be between 0 and 2 (the fader's top, about +6 dB)");
                 }
                 track.mixer().getVolume().setValue(value * 100.0, Unit.PERCENTAGE_OF_RANGE);
             }
@@ -5030,7 +5043,9 @@ public final class OpenwigDocument {
             java.util.Set<String> allowed = java.util.Set.of("start", "duration", "name", "muted", "loop",
                     "loop_start", "loop_duration", "play_start_offset", "color", "fade_in", "fade_out");
             for (String key : changes.keySet())
-                if (!allowed.contains(key)) throw new IllegalArgumentException("unknown clip field: " + key);
+                if (!allowed.contains(key) && !LAUNCH_SETTINGS.contains(key)) throw new IllegalArgumentException("unknown clip field: " + key);
+            // Arranger clips keep launch settings too (they apply once the clip is in a launcher slot).
+            Runnable settings = launchSettingsEdit(clip, changes);
             for (String key : new String[]{"muted", "loop"})
                 if (changes.has(key) && !(changes.get(key) instanceof Boolean))
                     throw new IllegalArgumentException(key + " must be a boolean");
@@ -5076,6 +5091,7 @@ public final class OpenwigDocument {
                 if (launcher && changes.has("duration")) clip.setDuration(duration);
                 if (changes.has("fade_in")) ((AudioClip) clip).setFadeInTime(fadeIn);
                 if (changes.has("fade_out")) ((AudioClip) clip).setFadeOutTime(fadeOut);
+                settings.run();
                 if (reposition) timeline.addEvent(clip);
             });
             return readClip(clip);
@@ -5382,6 +5398,28 @@ public final class OpenwigDocument {
                 .put("use_loop_start_as_quantization_reference", clip.useLoopStartAsQuantizationReference());
     }
 
+    private static final java.util.Set<String> LAUNCH_SETTINGS = java.util.Set.of("launch_quantization", "launch_mode",
+            "next_action", "next_action_time", "use_loop_start_as_quantization_reference");
+
+    /** Validates the launch settings in changes; the returned edit runs inside the caller's undo transaction. */
+    private static Runnable launchSettingsEdit(Clip clip, JSONObject changes) {
+        String reference = "use_loop_start_as_quantization_reference";
+        if (changes.has(reference) && !(changes.get(reference) instanceof Boolean)) throw new IllegalArgumentException(reference + " must be boolean");
+        Object quantization = changes.has("launch_quantization") ? namedNativeEnum("RXG", changes.getString("launch_quantization")) : null;
+        Object mode = changes.has("launch_mode") ? namedNativeEnum("xSr", changes.getString("launch_mode")) : null;
+        Object action = changes.has("next_action") ? namedNativeEnum("bP", changes.getString("next_action")) : null;
+        double time = finiteField(changes, "next_action_time", 0);
+        if (time < 0) throw new IllegalArgumentException("next action time must be nonnegative");
+        Object raw = ((ApiObject) clip).getTarget();
+        return () -> {
+            if (quantization != null) invokeModelSetter(raw, "IYM", classForName("RXG"), quantization);
+            if (mode != null) invokeModelSetter(raw, "jPB", classForName("xSr"), mode);
+            if (action != null) invokeModelSetter(raw, "IYM", classForName("bP"), action);
+            if (changes.has("next_action_time")) invokeModelSetter(raw, "p3P", double.class, time);
+            if (changes.has(reference)) clip.setUseLoopStartAsQuantizationReference(changes.getBoolean(reference));
+        };
+    }
+
     private static JSONObject editLauncher(String method, JSONObject params) {
         ApiProject project = project();
         try {
@@ -5410,24 +5448,12 @@ public final class OpenwigDocument {
             if (method.equals("launcher.settings")) {
                 if (existing == null || existing.getClip() == null) throw new IllegalArgumentException("launcher slot is empty");
                 JSONObject changes = params.getJSONObject("changes");
-                java.util.Set<String> allowed = java.util.Set.of("launch_quantization", "launch_mode", "next_action", "next_action_time",
-                        "use_loop_start_as_quantization_reference", "has_stop");
-                for (String key : changes.keySet()) if (!allowed.contains(key)) throw new IllegalArgumentException("unknown launch setting: " + key);
-                for (String key : new String[]{"has_stop", "use_loop_start_as_quantization_reference"})
-                    if (changes.has(key) && !(changes.get(key) instanceof Boolean)) throw new IllegalArgumentException(key + " must be boolean");
-                Object quantization = changes.has("launch_quantization") ? namedNativeEnum("RXG", changes.getString("launch_quantization")) : null;
-                Object mode = changes.has("launch_mode") ? namedNativeEnum("xSr", changes.getString("launch_mode")) : null;
-                Object action = changes.has("next_action") ? namedNativeEnum("bP", changes.getString("next_action")) : null;
-                double time = finiteField(changes, "next_action_time", 0);
-                if (time < 0) throw new IllegalArgumentException("next action time must be nonnegative");
-                Clip clip = existing.getClip();
-                Object raw = ((ApiObject) clip).getTarget();
+                for (String key : changes.keySet())
+                    if (!LAUNCH_SETTINGS.contains(key) && !key.equals("has_stop")) throw new IllegalArgumentException("unknown launch setting: " + key);
+                if (changes.has("has_stop") && !(changes.get("has_stop") instanceof Boolean)) throw new IllegalArgumentException("has_stop must be boolean");
+                Runnable settings = launchSettingsEdit(existing.getClip(), changes);
                 DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
-                    if (quantization != null) invokeModelSetter(raw, "IYM", classForName("RXG"), quantization);
-                    if (mode != null) invokeModelSetter(raw, "jPB", classForName("xSr"), mode);
-                    if (action != null) invokeModelSetter(raw, "IYM", classForName("bP"), action);
-                    if (changes.has("next_action_time")) invokeModelSetter(raw, "p3P", double.class, time);
-                    if (changes.has("use_loop_start_as_quantization_reference")) clip.setUseLoopStartAsQuantizationReference(changes.getBoolean("use_loop_start_as_quantization_reference"));
+                    settings.run();
                     if (changes.has("has_stop")) existing.setHasStopButton(changes.getBoolean("has_stop"));
                 });
                 return launcherSnapshot(existing, index);
