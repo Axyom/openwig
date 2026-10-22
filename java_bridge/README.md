@@ -1070,7 +1070,7 @@ Writer behavior learned from a full rebuild of a 191-track project:
   `target_parameter` (`CUTOFF`) was ambiguous on the device and the bind
   failed; the reader now reports the device-relative path when its walk up
   from the target atom reaches the located owner device (verified on a fresh
-  dump; binding those paths is not live-tested yet).
+  dump, and a rebuild binds all 5 Polymer mappings of that project).
 - `project.save_copy` of a large project stopped its audio engine in one run
   (all plugins deactivated, `document.activate_audio` never became ready);
   render from a fresh host on the saved copy instead.
