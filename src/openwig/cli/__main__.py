@@ -3,8 +3,6 @@
 Subcommands:
     install        copy the bundled controller into Bitwig's user-scripts dir
     uninstall      remove the previously-installed controller
-    doctor         check Python deps + controller install + bridge connection +
-                   Bitwig version compatibility
     version        print the SDK version and supported Bitwig versions
 """
 from __future__ import annotations
@@ -30,14 +28,10 @@ def _cmd_uninstall(args) -> int:
     return _install.uninstall_controller(dry_run=args.dry_run)
 
 
-def _cmd_doctor(_args) -> int:
-    return _install.doctor()
-
-
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="openwig",
-        description="Algorithmic composition for Bitwig Studio - install + diagnostics.",
+        description="Algorithmic composition for Bitwig Studio - controller install.",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -49,9 +43,6 @@ def main(argv: list[str] | None = None) -> int:
     p_un = sub.add_parser("uninstall", help="remove the controller from Bitwig's user-scripts dir")
     p_un.add_argument("--dry-run", action="store_true")
     p_un.set_defaults(func=_cmd_uninstall)
-
-    p_doc = sub.add_parser("doctor", help="diagnose install + bridge + Bitwig version")
-    p_doc.set_defaults(func=_cmd_doctor)
 
     p_ver = sub.add_parser("version", help="print SDK version + supported Bitwig versions")
     p_ver.set_defaults(func=_cmd_version)

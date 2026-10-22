@@ -10,7 +10,10 @@ Goes where Bitwig's official Controller API can't: build arrangements, devices,
 automation, and full multi-track songs from a Python program, then
 render to `.wav`.
 
-Free and open source (GPL-3.0). Windows only. Early alpha.
+Free and open source (GPL-3.0). Windows (fully supported) and Linux (experimental). Early alpha.
+
+Current development goal and agent handoff:
+[`PROJECT_EDITING_PLAN.md`](PROJECT_EDITING_PLAN.md).
 
 **[Documentation →](https://axyom.github.io/openwig/)**
 
@@ -44,7 +47,22 @@ print(s.render("first.wav"))
 
 | openwig | Bitwig Studio | Python | OS |
 |------------|---------------|--------|----|
-| 0.1.x      | **6.0.6**     | 3.11+  | Windows |
+| 0.1.x      | **6.0.6**     | 3.11+  | Windows; Linux experimental (`render()` needs pulseaudio-utils) |
+
+An experimental, exact-build Java bridge for **Bitwig 6.1.5 on Windows** is
+under development in [java_bridge](java_bridge/README.md). Its live-tested
+operations currently include tempo read/write, instrument-track creation,
+track mixer controls, native factory device insertion, and arranger-clip
+creation with MIDI notes, plus device state and clip/note count readback.
+It also discovers and edits named native device parameters; FM-4 numeric and
+boolean values have passed live round-trip checks.
+It can also clear main/effect tracks and master devices in a disposable project.
+The experimental Python `JavaSong` API exercises that subset directly. Native
+`save_project`, `export_project` and offline `write_project` now save and restore
+full 6.1.5 projects with collected media and plugin state; see the
+[verified scope and examples](java_bridge/README.md#full-native-project-writing-615). The
+full `Song` API still uses the controller bridge while the Java backend is
+being completed.
 
 ## Install
 
@@ -53,13 +71,13 @@ pip install openwig
 python -m openwig install   # copies the controller into Bitwig's user dir
 ```
 
-Then in Bitwig: **Settings → Controllers → openwig → Add → OpenwigBridge** (one time), and run `python -m openwig doctor` (**required**: validates + caches the obfuscated symbols for your exact build; openwig refuses to run until it has, and you re-run it after a Bitwig update).
+Then in Bitwig: **Settings → Controllers → openwig → Add → OpenwigBridge** (one time). The controller's obfuscated-name mapping is shipped as data for a specific Bitwig build; a re-obfuscated Bitwig update needs a refreshed mapping.
 
 Full guide (requirements, troubleshooting, uninstall): **[Install docs →](https://axyom.github.io/openwig/install/)**
 
 ## Contributing
 
-Issues and PRs welcome. Currently Windows + Bitwig 6, tested on Bitwig 6.0.6 only.
+Issues and PRs welcome. Tested on Windows + Bitwig 6.0.6; Linux support is experimental (the code paths exist and are unit-tested, but no one has validated against a live Linux Bitwig yet - reports welcome).
 
 Found a bug or have a question? Open an [issue](https://github.com/Axyom/openwig/issues) for bugs, or start a thread in [Discussions](https://github.com/Axyom/openwig/discussions) for questions, ideas, and feedback.
 
