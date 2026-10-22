@@ -164,7 +164,8 @@ leaves a `done` marker and is skipped).
 |---|---|---|---|---|---|---|
 | Come Here | on | 52 | 25k | 15 | 280 | input sources 25, clip names 22, launcher audio 20, next action 19 |
 | Get Busy (remix) | off | 63 | 14,682 | 36 | 858 | launch mode 708, formant resolution 59, plugin mappings 17 |
-| For You | off | 116 | not finished | | | stopped twice by low memory at the clips step |
+| Get Busy (remix), r23 | off | 63 | | 35 | 90 | plugin mappings 17, warp float offsets 20, orphan lanes 5 |
+| For You | off | 116 | not finished | | | stopped by the memory guard (scratch Bitwig up to 3.6 GB) |
 
 - Engine-off mode (scratch `host.start(engine=False)`, `run.py --no-engine`):
   the scratch Bitwig starts on a small holder project, then opens the source or
@@ -184,7 +185,7 @@ leaves a `done` marker and is skipped).
   found and stopped with Win32 calls, because WMI queries fail under memory
   pressure (seen: the guard crashed instead of stopping cleanly).
 - Gaps found and fixed (unit-tested; scratch live gate `probe_r23.py` passed on
-  2026-10-22, live and after save and reopen, except the Polymer item):
+  2026-10-22, live and after save and reopen; the Polymer item by rebuild):
   - Clip launch settings were never written, so every clip kept a new clip's
     (Get Busy: 708 arranger clips launch FROM_START). `clip.update` now takes
     launch settings for arranger and launcher clips, and the rebuild writes
@@ -206,14 +207,20 @@ leaves a `done` marker and is skipped).
     located owner. A fresh Come Here dump now reports all 5 Polymer targets
     with their module paths, plus Hard Kick's `MODULES/2/CONTENTS/TIME` and 4
     chain mutes as `CHAIN_LIST/CHAINn/MIXER/MUTE` (before: `MIXER/MUTE`). The
-    writer side is not verified yet: the Bass group rebuild was stopped by the
-    memory guard (builds take free RAM from 5.3 GB to under 2.5 GB).
+    rebuilt Bass group (r23) writes all 5 Polymer mappings; the one left on
+    that Macro targets a plugin parameter (`ROOT_GENERIC_MODULE/PIDbdf5`),
+    which fails engine-off by design. Remaining Bass group failures: 16
+    Infiltrator Random NullPointerExceptions.
 - Open: mappings onto plugin parameters engine-off (by design); an
   Infiltrator's Random modulators and a Hard Kick Generator mapping
   (NullPointerException, engine on as well); input sources that resolve to
   nothing (missing hardware inputs); launcher audio clips; two warp-marker sets
   that do not increase within their source file; a clip fade longer than its
   clip; Bitwig's lane points at automation-clip edges (cosmetic, on the line).
+- Not finished for lack of memory (memory guard floor 2.5 GB, 16 GB PC):
+  For You's engine-off build (scratch Bitwig up to 3.6 GB) and the Oneiros
+  r22 subset test with r23 (engine on, scratch Bitwig up to 7 GB with 8.7 GB
+  available at the start). Both need a PC with more free RAM.
 
 ## Previous checkpoint: native project open/close (2026-10-20)
 
