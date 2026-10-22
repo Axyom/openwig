@@ -211,9 +211,20 @@ leaves a `done` marker and is skipped).
     that Macro targets a plugin parameter (`ROOT_GENERIC_MODULE/PIDbdf5`),
     which fails engine-off by design. Remaining Bass group failures: 16
     Infiltrator Random NullPointerExceptions.
-- Open: mappings onto plugin parameters engine-off (by design); an
-  Infiltrator's Random modulators and a Hard Kick Generator mapping
-  (NullPointerException, engine on as well); input sources that resolve to
+- Binding NullPointerExceptions (r24, 2026-10-22): the target walk
+  (`findTargetAtom`) and four other model walks queued optional fields in an
+  `ArrayDeque`, which refuses nulls; a plugin device without its engine has
+  null fields, so every bind onto a plugin parameter crashed. They now use a
+  `LinkedList` and skip nulls, and such binds fail with "modulation target not
+  found" (Get Busy: 31 NPEs became 33 clear plugin-target failures). The reader
+  also placed a nested device's own mappings on the top-level device at the same
+  index; `target_owner` now carries the nested device's chain and route and
+  `self: true`, and the rebuild binds self targets on the modulator's device.
+  Come Here's Bass group rebuilt engine on: nested Infiltrator mappings bind;
+  4 remain because one rebuilt Infiltrator instance never loaded its plugin
+  (0 parameters, its twin in the same chain has 153).
+- Open: mappings onto plugin parameters engine-off (by design); a rebuilt
+  plugin instance that never loads (above); input sources that resolve to
   nothing (missing hardware inputs); launcher audio clips; two warp-marker sets
   that do not increase within their source file; a clip fade longer than its
   clip; Bitwig's lane points at automation-clip edges (cosmetic, on the line).

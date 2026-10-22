@@ -44,7 +44,7 @@ class Report:
         self.examples.setdefault(what, {"where": where, "detail": detail})
 
     def fail(self, what: str, where: str, error) -> None:
-        self.failed.append({"what": what, "where": where, "error": str(error)[:500]})
+        self.failed.append({"what": what, "where": where, "error": str(error)[:3000]})
 
     def summary(self) -> dict:
         kinds = Counter()
@@ -740,7 +740,9 @@ class Reconstructor:
                 self.report.skip("binding_target", where, binding)
                 continue
             params = handle._track_params(device=index, modulator=modulator, target_parameter=parameter)
-            if len(owner.get("chain_path") or []) > 1 or (owner.get("chain_path") and not handle_is_root(handle)):
+            if owner.get("self"):
+                pass  # the modulator's own device
+            elif len(owner.get("chain_path") or []) > 1 or (owner.get("chain_path") and not handle_is_root(handle)):
                 # A device deeper than the modulator owner's own chains: route from the track root.
                 params.update(target_chain=[{"device": s["device"], "component": s["component"]}
                                             for s in owner["chain_path"]], target_device=owner["device"])
@@ -753,7 +755,7 @@ class Reconstructor:
             elif owner["device"] != index:
                 params["target_device"] = owner["device"]
             found = re.match(r"MODULATORS/(\d+)/(.*)$", parameter)
-            if found and "chain" not in owner and owner["device"] == index:
+            if found and (owner.get("self") or ("chain" not in owner and owner["device"] == index)):
                 rebuilt = mapping.get(int(found.group(1)))
                 if rebuilt is None:
                     self.report.skip("binding_modulator_target", where, binding)

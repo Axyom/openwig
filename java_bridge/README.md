@@ -1071,6 +1071,12 @@ Writer behavior learned from a full rebuild of a 191-track project:
   failed; the reader now reports the device-relative path when its walk up
   from the target atom reaches the located owner device (verified on a fresh
   dump, and a rebuild binds all 5 Polymer mappings of that project).
+  A bind onto a plugin parameter without the plugin loaded threw a
+  NullPointerException (model walks queued null fields in an `ArrayDeque`);
+  it now fails with "modulation target not found". A mapping onto the
+  modulator's own device reports `target_owner.self: true`, and for a device
+  inside a chain its `chain` and `chain_path` (before, the top-level device at
+  the same index); verified by an engine-on rebuild of nested Infiltrators.
 - `project.save_copy` of a large project stopped its audio engine in one run
   (all plugins deactivated, `document.activate_audio` never became ready);
   render from a fresh host on the saved copy instead.

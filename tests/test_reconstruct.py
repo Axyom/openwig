@@ -290,3 +290,30 @@ def test_rebuild_writes_lane_points_then_automation_clips():
     assert clips["clips"][0]["loop"] is True and clips["clips"][1]["start"] == 12
     assert report.applied["automation_clip"] == 2
     assert "automation_point_out_of_order" not in report.unsupported
+
+
+def test_self_bindings_of_a_nested_device_stay_on_that_device():
+    # The reader marks a target on the modulator's own device "self"; inside a chain that owner
+    # also carries the chain and route, which must not reroute the bind from the track root.
+    class ChainHandle:
+        _chain_steps = [{"device": 3, "component": "CONTENTS/CHAIN_LIST/CHAIN0"}]
+
+        def _track_params(self, **params):
+            return dict(path="Bass/Bass", chain=self._chain_steps, **params)
+
+    bridge = RebuildBridge()
+    rebuilder = Reconstructor(JavaSong(bridge=bridge), dump())
+    owner = {"path": "Bass/Bass", "chain": 0, "device": 0, "self": True,
+             "chain_path": [{"device": 3, "component": "CONTENTS/CHAIN_LIST/CHAIN0"}]}
+    handle = ChainHandle()
+    rebuilder._pending_bindings = [
+        (handle, 0, 1, {"component": "RANDOM", "amount": 1, "target_parameter": "ROOT_GENERIC_MODULE/PID5",
+                        "target_owner": owner}, "here", [], {0: 0}),
+        (handle, 0, 1, {"amount": .5, "target_parameter": "MODULATORS/2/CONTENTS/VALUE",
+                        "target_owner": owner}, "here", [], {2: 0}),
+    ]
+    rebuilder.bindings()
+    sent = calls(bridge, "device.modulator_bind")
+    assert [p["target_parameter"] for p in sent] == ["ROOT_GENERIC_MODULE/PID5", "MODULATORS/0/CONTENTS/VALUE"]
+    assert all("target_chain" not in p and "target_device" not in p and "target_component" not in p for p in sent)
+    assert sent[0]["source"] == "RANDOM" and sent[0]["native_amount"] == 1

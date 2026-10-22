@@ -977,7 +977,7 @@ public final class OpenwigDocument {
                 String parameterPath = parameter == null ? null : atomPaths.get(parameter);
                 if (parameterPath != null) {
                     binding.put("target_parameter", parameterPath);
-                    binding.put("target_owner", new JSONObject().put("path", path).put("device", deviceIndex));
+                    binding.put("target_owner", selfOwner(self, path, deviceIndex, owners));
                 } else if (parameter != null && atomOwners != null && atomOwners.containsKey(parameter)) {
                     JSONObject entryOwner = atomOwners.get(parameter);
                     binding.put("target_parameter", entryOwner.optString("parameter"));
@@ -1039,7 +1039,7 @@ public final class OpenwigDocument {
                     // owning device (its parameter-list path) when that device is the located owner.
                     String stored = binding.optString("target_parameter", "");
                     boolean sameOwner = located != null && heldOwner != null && (heldOwner == self
-                            ? !located.has("chain") && located.optInt("device", -1) == deviceIndex && path.equals(located.optString("path"))
+                            ? located.similar(selfOwner(self, path, deviceIndex, owners))
                             : owners.get(heldOwner) == located);
                     if (sameOwner && held != null && held.startsWith("CONTENTS/") && !stored.isEmpty()) {
                         String full = held.substring("CONTENTS/".length());
@@ -1058,13 +1058,20 @@ public final class OpenwigDocument {
         return bindings;
     }
 
+    // The reading device as a binding owner, marked self: a device inside a chain needs its chain
+    // and route from the track (indexed in owners); its own index alone points at a top-level device.
+    private static JSONObject selfOwner(Object self, String path, int deviceIndex,
+                                        java.util.IdentityHashMap<Object, JSONObject> owners) {
+        JSONObject known = owners == null ? null : owners.get(self);
+        return (known != null ? new JSONObject(known.toString())
+                : new JSONObject().put("path", path).put("device", deviceIndex)).put("self", true);
+    }
+
     private static JSONObject locateBindingOwner(Object start, Object self, String path, int deviceIndex,
                                                  java.util.IdentityHashMap<Object, JSONObject> owners) {
         Object cursor = start;
         for (int depth = 0; cursor != null && depth < 24; depth++) {
-            if (cursor == self) {
-                return new JSONObject().put("path", path).put("device", deviceIndex);
-            }
+            if (cursor == self) return selfOwner(self, path, deviceIndex, owners);
             if (owners != null) {
                 JSONObject matched = owners.get(cursor);
                 if (matched != null) return matched;
@@ -3482,7 +3489,8 @@ public final class OpenwigDocument {
         Class<?> chainType = classForName("com.bitwig.flt.document.core.master.device.YLB");
         Class<?> modulatorType = classForName("com.bitwig.flt.document.core.master.device.gDz");
         Class<?> trackType = classForName("roo");
-        java.util.ArrayDeque<Object> queue = new java.util.ArrayDeque<>();
+        // A device's optional fields can be null (a plugin without its engine), and ArrayDeque refuses nulls.
+        java.util.LinkedList<Object> queue = new java.util.LinkedList<>();
         java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
         queue.add(owner);
         while (!queue.isEmpty() && seen.size() < 300000) {
@@ -3640,7 +3648,7 @@ public final class OpenwigDocument {
         java.util.List<Object> found = new java.util.ArrayList<>();
         Class<?> resource = classForName("lDv");
         if (resource == null) return found;
-        java.util.ArrayDeque<Object> queue = new java.util.ArrayDeque<>();
+        java.util.LinkedList<Object> queue = new java.util.LinkedList<>();
         java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
         queue.add(modelGetOrNull(owner, "bhG"));
         while (!queue.isEmpty() && seen.size() < 20000) {
@@ -3737,7 +3745,7 @@ public final class OpenwigDocument {
 
     private static java.util.List<Object> atomsWithDescriptor(Object owner, String descriptor) {
         java.util.List<Object> found = new java.util.ArrayList<>();
-        java.util.ArrayDeque<Object> queue = new java.util.ArrayDeque<>();
+        java.util.LinkedList<Object> queue = new java.util.LinkedList<>();
         java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
         queue.add(modelGetOrNull(owner, "bhG"));
         while (!queue.isEmpty() && seen.size() < 20000) {
@@ -3845,7 +3853,7 @@ public final class OpenwigDocument {
         java.util.List<Object> found = new java.util.ArrayList<>();
         Class<?> type = classForName(className);
         if (type == null) return found;
-        java.util.ArrayDeque<Object> queue = new java.util.ArrayDeque<>();
+        java.util.LinkedList<Object> queue = new java.util.LinkedList<>();
         java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
         queue.add(modelGetOrNull(owner, "bhG"));
         while (!queue.isEmpty() && seen.size() < 20000) {
@@ -4215,7 +4223,7 @@ public final class OpenwigDocument {
                     Track track = deviceScope(resolveTrack(project, params), params);
                     Object owner = deviceTargetAt(track, params.getInt("device"));
                     JSONArray out = new JSONArray();
-                    java.util.ArrayDeque<Object> queue = new java.util.ArrayDeque<>();
+                    java.util.LinkedList<Object> queue = new java.util.LinkedList<>();
                     java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
                     queue.add(modelGet(owner, "bhG"));
                     while (!queue.isEmpty() && out.length() < 4000) {
