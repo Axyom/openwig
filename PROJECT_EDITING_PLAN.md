@@ -1,6 +1,9 @@
 # Full project editing: active goal and agent handoff
 
-Last updated: 2026-10-20. Goal is **active**, not complete.
+Last updated: 2026-10-25. Goal is **paused by the owner** (2026-10-25: "it's alright
+for me"), not complete: the gaps listed under "Catalog rebuilds and engine-off
+mode" and the open audio and Grid items remain. The Come Here Kick rebuild
+(Hard Kick mappings) was not confirmed: the memory guard stopped every try.
 
 ## Owner request and authorization
 
