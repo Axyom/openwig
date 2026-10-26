@@ -1,6 +1,7 @@
 # Full project editing: active goal and agent handoff
 
-Last updated: 2026-10-26. Goal is **paused by the owner** (2026-10-25: "it's alright
+Last updated: 2026-10-26 (For You rebuild confirmed; Oneiros blocked in bindings).
+Goal is **paused by the owner** (2026-10-25: "it's alright
 for me"), not complete: the gaps listed under "Catalog rebuilds and engine-off
 mode" and the open audio and Grid items remain. The Come Here Kick rebuild
 (Hard Kick mappings) is now **confirmed** (2026-10-26, engine on, after the owner
@@ -12,6 +13,35 @@ Kick differences are minor and already-known: two nested layer/preset titles not
 restored (the `preset_name` gap, 28 unsupported), one device On/Off automation
 lane off by one point (10 vs 11), and two modulator-automation VALUE entries not
 captured. The other Come Here tracks were not part of this `--only Kick` run.
+
+**For You full rebuild — confirmed (2026-10-26, engine on, 48 GB RAM).** All 114
+tracks rebuilt, 0 missing, ~32 min (devices 491 s, bindings 652 s, clips 778 s).
+`failed: 36`, concentrated in three known buckets, not 36 distinct defects:
+28 × `audio_event_settings` on one vocal clip
+(`Vocals/AU_VH2_I_Got_Something_To_Prove...`) that Bitwig rejects with "warp
+markers must increase within the source file" (reader dumps non-monotonic warp
+markers for that clip; event falls back to unwarped); 8 × `audio_clip` missing the
+reference bounce `D:\axyom-style-data\...\Axyom - For You demo v2.wav` (file not on
+disk); 1 × `automation_nested_device` on `Basses/Main Bass` ("unsupported
+modulator parameter kind"). Compare: 1651 field diffs, overwhelmingly
+`modulator/.../bindings/#/target_owner/*` = `<missing>` on the rebuilt side (the
+known binding target-owner read gap, same as Kick) plus the warp fields on that
+one failed clip. No structural loss. Evidence `scratch/recreate/for-you` (target-8,
+scratch Bitwig peak 13.4 GB, system free never below 18 GB).
+
+**Oneiros full rebuild — NOT completed (2026-10-26); blocked in `bindings`.**
+Two attempts, both stopped in the bindings step: try 1 (target-24) was stopped by
+the memory guard at 21:32 when the scratch Bitwig alone had grown to ~23 GB
+(floor 4 GB hit despite 48 GB total); try 2 (target-25) ran bindings from 22:08 and
+was still going when the 7200 s guard timeout killed it at 23:34 (>86 min on
+bindings alone, unfinished). The compare/report that the gate script then printed
+(39 missing tracks, `failed 4`, 307 s) is from a STALE earlier `rebuilt-target` dump,
+not this run, so it does not describe a completed Oneiros rebuild. Oneiros is the
+new bottleneck: its bindings step is both extremely slow and drives the scratch
+Bitwig to ~23 GB resident. Needs investigation (why bindings balloons memory /
+time on this project) before it can be gated. The `failed 4` NullPointerExceptions
+on `Basses/Caustic Acid/.../Infiltrator/mod:Random N` bindings in that stale dump
+are a separate known binding-target gap, worth checking once it runs clean.
 
 ## Owner request and authorization
 
