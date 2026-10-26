@@ -1,9 +1,17 @@
 # Full project editing: active goal and agent handoff
 
-Last updated: 2026-10-25. Goal is **paused by the owner** (2026-10-25: "it's alright
+Last updated: 2026-10-26. Goal is **paused by the owner** (2026-10-25: "it's alright
 for me"), not complete: the gaps listed under "Catalog rebuilds and engine-off
 mode" and the open audio and Grid items remain. The Come Here Kick rebuild
-(Hard Kick mappings) was not confirmed: the memory guard stopped every try.
+(Hard Kick mappings) is now **confirmed** (2026-10-26, engine on, after the owner
+expanded RAM to 48 GB so the memory guard no longer stops it): `--only Kick`
+rebuilt with **0 failures**, 453 bindings, 288 parameters, 1785 parameter values,
+221 modulators and 52 Grid modules / 47 cables applied. Evidence
+`scratch/recreate/come-here-r24` (target-15, peak 1.85 GB, 77.6 s). Remaining
+Kick differences are minor and already-known: two nested layer/preset titles not
+restored (the `preset_name` gap, 28 unsupported), one device On/Off automation
+lane off by one point (10 vs 11), and two modulator-automation VALUE entries not
+captured. The other Come Here tracks were not part of this `--only Kick` run.
 
 ## Owner request and authorization
 
