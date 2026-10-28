@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project version="1.0">
+  <Application name="Synthetic fixture" version="1"/>
+  <Transport><Tempo value="120" id="tempo"/><TimeSignature numerator="4" denominator="4"/></Transport>
+  <Structure>
+    <Track id="group" name="Group" contentType="tracks"><Channel id="group-channel" role="master" destination="master-channel"/>
+      <Track id="synth" name="Synth" contentType="notes" loaded="true"><Channel id="synth-channel" role="regular" destination="group-channel" solo="false">
+        <Devices><ClapPlugin id="device" deviceID="org.example.synth" deviceName="Example Synth" deviceVendor="Example" pluginVersion="1" deviceRole="instrument"><Enabled value="true"/><Parameters><RealParameter id="cutoff" value="0.5"/></Parameters><State path="plugins/example.clap-preset"/></ClapPlugin></Devices>
+        <Volume value="1"/><Pan value="0.5"/><Mute value="false"/>
+      </Channel></Track>
+      <Track id="audio" name="Audio" contentType="audio"><Channel id="audio-channel" role="regular" destination="group-channel"/></Track>
+    </Track>
+    <Track id="master" name="Master" contentType="audio notes"><Channel id="master-channel" role="master"/></Track>
+  </Structure>
+  <Arrangement id="arrangement"><Lanes timeUnit="beats">
+    <Lanes track="synth"><Clips><Clip time="0" duration="4" name="Synthetic notes"><Notes id="notes"><Note time="0" duration="1" channel="0" key="60" vel="0.8" rel="0.5"/></Notes></Clip></Clips>
+      <Points><Target parameter="cutoff"/><RealPoint time="0" value="0.2"/><RealPoint time="4" value="0.8"/></Points>
+    </Lanes>
+    <Lanes track="audio"><Clips><Clip time="0" duration="4"><Lanes><Clips><Clip time="0" duration="2"><Warps><Audio sampleRate="48000" channels="2" algorithm="stretch"><File path="audio/synthetic.wav"/></Audio><Warp time="0" contentTime="0"/><Warp time="2" contentTime="1"/></Warps></Clip></Clips></Lanes></Clip></Clips></Lanes>
+  </Lanes><Markers><Marker time="0" name="Start" color="#ff0000"/></Markers></Arrangement>
+  <Scenes><Scene id="scene" name="Scene 1" color="#ff0000"><Lanes><ClipSlot track="synth" hasStop="true"><Clip time="0" duration="4"><Notes><Note time="0" duration="1" channel="0" key="64" vel="0.7"/></Notes></Clip></ClipSlot><ClipSlot track="audio" hasStop="false"/></Lanes></Scene></Scenes>
+</Project>

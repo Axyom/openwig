@@ -1,0 +1,1075 @@
+# Full project editing: active goal and agent handoff
+
+Last updated: 2026-10-26 (For You rebuild confirmed; Oneiros blocked in bindings).
+Goal is **paused by the owner** (2026-10-25: "it's alright
+for me"), not complete: the gaps listed under "Catalog rebuilds and engine-off
+mode" and the open audio and Grid items remain. The Come Here Kick rebuild
+(Hard Kick mappings) is now **confirmed** (2026-10-26, engine on, after the owner
+expanded RAM to 48 GB so the memory guard no longer stops it): `--only Kick`
+rebuilt with **0 failures**, 453 bindings, 288 parameters, 1785 parameter values,
+221 modulators and 52 Grid modules / 47 cables applied. Evidence
+`scratch/recreate/come-here-r24` (target-15, peak 1.85 GB, 77.6 s). Remaining
+Kick differences are minor and already-known: two nested layer/preset titles not
+restored (the `preset_name` gap, 28 unsupported), one device On/Off automation
+lane off by one point (10 vs 11), and two modulator-automation VALUE entries not
+captured. The other Come Here tracks were not part of this `--only Kick` run.
+
+**For You full rebuild — confirmed (2026-10-26, engine on, 48 GB RAM).** All 114
+tracks rebuilt, 0 missing, ~32 min (devices 491 s, bindings 652 s, clips 778 s).
+`failed: 36`, concentrated in three known buckets, not 36 distinct defects:
+28 × `audio_event_settings` on one vocal clip
+(`Vocals/AU_VH2_I_Got_Something_To_Prove...`) that Bitwig rejects with "warp
+markers must increase within the source file" (reader dumps non-monotonic warp
+markers for that clip; event falls back to unwarped); 8 × `audio_clip` missing the
+reference bounce `D:\axyom-style-data\...\Axyom - For You demo v2.wav` (file not on
+disk); 1 × `automation_nested_device` on `Basses/Main Bass` ("unsupported
+modulator parameter kind"). Compare: 1651 field diffs, overwhelmingly
+`modulator/.../bindings/#/target_owner/*` = `<missing>` on the rebuilt side (the
+known binding target-owner read gap, same as Kick) plus the warp fields on that
+one failed clip. No structural loss. Evidence `scratch/recreate/for-you` (target-8,
+scratch Bitwig peak 13.4 GB, system free never below 18 GB).
+
+**Oneiros full rebuild — NOT completed (2026-10-26); blocked in `bindings`.**
+Two attempts, both stopped in the bindings step: try 1 (target-24) was stopped by
+the memory guard at 21:32 when the scratch Bitwig alone had grown to ~23 GB
+(floor 4 GB hit despite 48 GB total); try 2 (target-25) ran bindings from 22:08 and
+was still going when the 7200 s guard timeout killed it at 23:34 (>86 min on
+bindings alone, unfinished). The compare/report that the gate script then printed
+(39 missing tracks, `failed 4`, 307 s) is from a STALE earlier `rebuilt-target` dump,
+not this run, so it does not describe a completed Oneiros rebuild. Oneiros is the
+new bottleneck: its bindings step is both extremely slow and drives the scratch
+Bitwig to ~23 GB resident. Needs investigation (why bindings balloons memory /
+time on this project) before it can be gated. The `failed 4` NullPointerExceptions
+on `Basses/Caustic Acid/.../Infiltrator/mod:Random N` bindings in that stale dump
+are a separate known binding-target gap, worth checking once it runs clean.
+
+## Owner request and authorization
+
+The owner asked for complete programmatic project editing after the remaining
+gaps were explained: empty-time insertion, arbitrary audio-clip editing,
+plugin insertion/control, launcher writes, Grid editing, and JSON-only project
+reconstruction. Their instruction was: **“Then this is your new goal. Go !”**
+They also explicitly requested this progress/handoff document. Continue the
+implementation; do not interpret a request for status or documentation as a
+replacement for the goal. Keep this file updated as work lands.
+
+This extends the older reader-only scope in `READER_PARITY_DESIGN.md` and
+`JAVA_BRIDGE_GAPS.md`. Restrictions there excluding these editing features are
+historical scope boundaries, superseded by this owner request. Corpus collection
+and unrelated NerDaw work remain separate.
+
+## Repository and working rules
+
+- Repository: `C:\Users\Axyom\Documents\git_repositories\bitwig-sdk`, public
+  GitHub `Axyom/openwig`. Feature branch: `codex/java-bridge-615`, PR #5.
+- Read `AGENTS.md`, `java_bridge/README.md`, and the local
+  `.agents/skills/bitwig-decompile/SKILL.md` before extending the bridge.
+- Target the exact Windows Bitwig **6.1.5** build. Original JAR SHA-256:
+  `d56248d003101ead1381c8a4fd3e256d933773beccbeb3366c9abe744de41a49`.
+- CFR 0.152 only for decompilation. Check `scratch/decomp/` and
+  `scratch/decomp_cfr/` first; new decompiled sources belong in `scratch/decomp/`.
+  Never commit decompiled code, owner projects, samples, dumps, or recordings.
+- All native document operations run on Bitwig's application event queue.
+  Use native undo transactions; do not nest a second transaction around a native
+  command that already owns one. Keep unknown runtime data explicit.
+- Live mutations use a disposable project or a separate project copy. Never
+  clear or save over the owner's original project. Identify a project by its
+  absolute path and select it explicitly; do not assume the first tab is correct.
+- Commit and push tested increments on the feature branch. Never push master.
+  The owner previously explicitly requested commit/push and dislikes abandoned
+  uncommitted changes. Do not add AI attribution trailers.
+- Do not spawn subagents unless the owner or applicable instructions authorize
+  delegation. No such authorization currently exists for this goal.
+
+## What is already verified
+
+- Composition subset: nested groups, instrument/audio/hybrid tracks, native
+  factory devices, numeric/boolean/enum native parameters, arranger MIDI notes,
+  mixer and several routing operations, metadata, markers, scenes, transport,
+  arranger automation, and real-time loopback WAV capture.
+- Deep native reads: tracks, clips, note expressions, audio events/warps,
+  recursive device chains, sidechain sources, modulators/bindings, and arranger
+  automation. This remains a partial reader schema, not a complete editable one.
+- Native save/capture/restore: `save_project`, `export_project`, offline
+  `write_project`; collected media, embedded plugin states, manifest hashes,
+  fresh destinations, and explicit open-project selection. See
+  `JAVA_PROJECT_WRITE_DESIGN.md` for format and evidence.
+- Full native roundtrip gate: 107 tracks, 978 recursive devices, 2831 clips,
+  2527 notes, 2898 audio events, 81 collected media files, 120 unique embedded
+  plugin-state blobs. Zero reader-visible differences under documented
+  cache/audio-hash comparison rules. Original source file unchanged.
+- `duplicate_range(start, end)`: native Duplicate and Push, in beats. Moves
+  later clips, automation, and cue markers; splits crossing clips natively.
+  Disposable gate: clips at 0/8 became 0/4/12 when duplicating 0..4; marker
+  and automation at 8 moved to 12.
+- Musical use of range duplication: repeated 304..336 twice in a full project
+  copy, added a 51-note C-minor Polysynth part, shifted the vocal 336 -> 400,
+  END 792 -> 856, and retained all 107 existing tracks before adding the synth.
+  The saved variation reopened with 108 tracks, its notes and automation intact;
+  a final preview was recorded from the reopened file, with no clipped samples.
+
+Baseline implementation commits (use `git log` for subsequent increments):
+
+- `634d28f`: portable native project writing, archive tests, live roundtrip.
+- `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
+  smoke, and all five GitHub CI jobs passed.
+
+## Latest checkpoint: editable reconstruction from reader dumps (2026-10-21)
+
+Owner request (2026-10-21): rebuild one of the owner's released tracks from its dump and
+fix the gaps found. This is milestone 6 (documented JSON reconstruction) applied to a real,
+large project. Developed on `codex/project-reconstruction` (PR #8), then fast-forwarded into
+`codex/java-bridge-615` at the owner's request: work continues on PR #5's branch, no new PRs.
+
+- `openwig.reconstruct.Reconstructor` rebuilds a `JavaSong.dump()` into the
+  selected empty project through native edits; everything it cannot write is
+  counted in its report (with an example), nothing is dropped silently. The
+  reader dump is the schema; plugin states and media resolve from caller paths.
+- Gaps fixed on the way (see `java_bridge/README.md`, "Project reconstruction
+  from reader dumps"): native devices by UUID, VST2 and CLAP with state, VST3
+  roles, selector chains, drum pads, device activation, sampler content,
+  Convolution impulses, sidechain and input sources, Macro polarity, parameter
+  labels, modulator/Grid renames, nested and modulator-to-modulator modulation
+  targets with native amounts, groove/time signature, automation on any reader
+  target (real/boolean/enum, anchor-free), offline export (`project.render`).
+  Reader additions: normalized modulator values, enum indexes, polarity,
+  labels, modulator binding paths, `sample_content`, `impulses`.
+- Evidence (scratch only, never committed): `scratch/recreate/<project>/`.
+  Source = a corpus copy of one of the owner's released projects (outside the
+  repo), opened read-only, never saved: 191 tracks, 2027 native devices, 216
+  VST3, 14 VST2, 2 CLAP, 63 samplers, 2026 modulators, 8722 clips, 24883
+  notes, 4221 audio events, 878 automation clips.
+- Progress, full rebuild compared field by field with the source
+  (`compare.py`): r12 13298 differences and 1788 failures; r14 1229/386;
+  r15 797/1; r16 781/1; r17 (Macro mappings) restored 4868 mappings (1172
+  before). What each round fixed is in the commits and in
+  `java_bridge/README.md` ("Writer behavior learned"): negative fades and
+  event starts, note/audio expressions, expression steps, notes before the
+  clip content, default modulators and default chain devices, end-marker
+  clamps, automation clips and curve shapes, VST2 instrument roles, plugin
+  sidechain inputs, faders above 0 dB, empty inputs, slice offsets, Macro
+  mappings (an exact class-name test skipped all 1263), mappings to device
+  On switches and to modulators in other or deeper devices.
+- Remaining structural differences are equivalent or cosmetic: a lane point
+  Bitwig adds at an automation clip's end, a collinear warp marker merged,
+  inactive warp markers, layer titles, Grid module sizes, plus two
+  unresolvable routings (a sidechain source the reader cannot resolve, a
+  reference track routed to hardware).
+- Audio, same subset of tracks rendered from the original copy and from the
+  live rebuild (Kick, Basses, Pre-Master with FX and master; offline export):
+  intro -0.2 dB, drop 0.0 dB, drop 2 -0.2 dB, but breaks, buildups and the
+  theme 5 to 9 dB quieter. Traced to one sampler bass track that plays long
+  notes there (-13.4 vs -22.0 dB over the first break) although its devices,
+  values, clips, automation (incl. automation clips) and mappings read
+  identical. Open.
+- Fixed (2026-10-21): modulator names, Macro polarity and Macro knob labels
+  now survive a written project file. The writer had set fields Bitwig
+  re-derives on load (displayed name from `user_device_name`, knob polarity
+  and label from the knob's panel values); it now writes those sources, and
+  the reader reports `user_name`. Live gate `probe_persist3.py` (scratch):
+  save_copy + reopen keeps names, numbered titles, labels, polarity, values
+  and mapping amounts. Not yet re-run on the full rebuild.
+- Added (2026-10-21): stored non-parameter fields (`device.model_fields`,
+  `device.set_model_fields`, reader `model_fields`), first for Sampler player
+  atoms. The owner's Samplers differ from a fresh 6.1.5 Sampler in five
+  player defaults (repitch digital varirate, grains, onset threshold, latch
+  initial rate, max zones in parallel), which the rebuild had left at the new
+  defaults. Live gate `probe_model_fields2.py` (scratch): written fields
+  survive save_copy + reopen.
+- Open gaps: (1) the break level above (the Reese Sampler is in Repitch mode
+  like a fresh one, but four of its player defaults differ; re-test with a
+  rebuild that writes them);
+  (2) Bitwig's audio engine crashes at random when exporting the whole
+  project offline (also the original); (3) the engine of a full rebuild
+  stops during the build and does not restart, so the full rebuild cannot be
+  rendered live, only subsets; (4) not written: device preset names, exact
+  track colors, launcher audio clips, file-based impulses, sliced samples,
+  track remote-control lanes, sends to deleted effect tracks, 4 mappings
+  from an Infiltrator's Random modulators (NullPointerException).
+- Runtime: scratch host (BelowNormal); bridge JAR
+  `scratch/recreate/openwig-r22.jar` (save fix + model fields) installed in
+  `scratch/bitwig-6.1.5-live`. A script that restarts the host must stop its
+  earlier `BridgeClient` first: the client reconnects by itself and takes the
+  bridge's single client slot on the new host, so a new client never gets the
+  handshake (seen twice in probes; the scratch `host.start` now does this).
+
+### Catalog rebuilds and engine-off mode (2026-10-21/22)
+
+Owner request (2026-10-21): rebuild more of the owner's tracks. Corpus copies
+(outside the repo) are dumped, rebuilt in full into a fresh target and compared
+field by field, one at a time, through a resumable scratch queue
+(`run_queue.sh` → `run_catalog.sh` → `pipeline_catalog.sh`; a finished track
+leaves a `done` marker and is skipped).
+
+| Track | Engine | Tracks | Edits | Failed | Differences | Largest groups |
+|---|---|---|---|---|---|---|
+| Come Here | on | 52 | 25k | 15 | 280 | input sources 25, clip names 22, launcher audio 20, next action 19 |
+| Get Busy (remix) | off | 63 | 14,682 | 36 | 858 | launch mode 708, formant resolution 59, plugin mappings 17 |
+| Get Busy (remix), r23 | off | 63 | | 35 | 90 | plugin mappings 17, warp float offsets 20, orphan lanes 5 |
+| For You | off | 116 | not finished | | | stopped by the memory guard (scratch Bitwig up to 3.6 GB) |
+
+- Engine-off mode (scratch `host.start(engine=False)`, `run.py --no-engine`):
+  the scratch Bitwig starts on a small holder project, then opens the source or
+  target next to it with `document.open {activate_engine: false}`, so plugins
+  and samples never load. The holder is required: when a project opens beside
+  a pristine "New 1" tab, Bitwig closes that tab and hands its engine to the new
+  project (`eY1.IYM(VBQ, int, Set)`), and a single tab always gets the engine.
+  Come Here rebuilt engine-off: 1.3 GB peak instead of 5.5 GB, 163 s instead of
+  441 s. The cost: plugin parameters exist only with the engine, so mappings and
+  automation onto plugin parameters fail (Come Here: 36 failures instead of 15)
+  and dumps list no plugin parameters. Large projects still need memory (Get
+  Busy's build peaked at 3.8 GB).
+- Memory guard (scratch `memguard.py`): each scratch-Bitwig step waits for
+  free RAM; if available memory stays under a floor it stops the step and the
+  scratch Bitwig and retries with a higher need; if the Claude Code command
+  that started the queue is gone, it stops everything (exit 75). Processes are
+  found and stopped with Win32 calls, because WMI queries fail under memory
+  pressure (seen: the guard crashed instead of stopping cleanly).
+- Gaps found and fixed (unit-tested; scratch live gate `probe_r23.py` passed on
+  2026-10-22, live and after save and reopen; the Polymer item by rebuild):
+  - Clip launch settings were never written, so every clip kept a new clip's
+    (Get Busy: 708 arranger clips launch FROM_START). `clip.update` now takes
+    launch settings for arranger and launcher clips, and the rebuild writes
+    those that differ from a new clip's.
+  - Imported audio clips kept their file name as title; names are now always
+    written (Come Here: 22).
+  - Launcher clips looped their full length; the source loop can be longer
+    than the clip (Come Here: loop 64 on a 32-beat clip). Loop region, play
+    start, color and mute now follow the arranger path.
+  - Audio events' formant envelope resolution is written (Get Busy: 59 at 8).
+  - A fader at its top reads 1.999999999999999; `track.set_volume` refused
+    anything above 1.995 (and the bridge's index path anything above 1) and now
+    takes up to 2.
+  - Polymer mappings: 5 Macro mappings into a Polymer two chains deep failed
+    with "modulation target not found: CUTOFF". Its parameters live in
+    sub-modules (`MODULES/4/CONTENTS/CUTOFF`, `MODULES/5/CONTENTS/CUTOFF`)
+    and the reader reported the module-relative `CUTOFF`. The reader now
+    reports the device-relative path when the walk from the target reaches the
+    located owner. A fresh Come Here dump now reports all 5 Polymer targets
+    with their module paths, plus Hard Kick's `MODULES/2/CONTENTS/TIME` and 4
+    chain mutes as `CHAIN_LIST/CHAINn/MIXER/MUTE` (before: `MIXER/MUTE`). The
+    rebuilt Bass group (r23) writes all 5 Polymer mappings; the one left on
+    that Macro targets a plugin parameter (`ROOT_GENERIC_MODULE/PIDbdf5`),
+    which fails engine-off by design. Remaining Bass group failures: 16
+    Infiltrator Random NullPointerExceptions.
+- Binding NullPointerExceptions (r24, 2026-10-22): the target walk
+  (`findTargetAtom`) and four other model walks queued optional fields in an
+  `ArrayDeque`, which refuses nulls; a plugin device without its engine has
+  null fields, so every bind onto a plugin parameter crashed. They now use a
+  `LinkedList` and skip nulls, and such binds fail with "modulation target not
+  found" (Get Busy: 31 NPEs became 33 clear plugin-target failures). The reader
+  also placed a nested device's own mappings on the top-level device at the same
+  index; `target_owner` now carries the nested device's chain and route and
+  `self: true`, and the rebuild binds self targets on the modulator's device.
+  Come Here's Bass group rebuilt engine on: nested Infiltrator mappings bind.
+- Deactivated tracks and devices (r24): Bitwig does not load plugins on a
+  deactivated track (`device.plugin_parameters` reports `NOT_LOADED` for every
+  plugin on Come Here's two deactivated Bass tracks, `LOADED` for every plugin on
+  active ones), so mappings onto them failed with "modulation target not found".
+  The rebuild now deactivates tracks and devices in a last `deactivate` step,
+  after mappings and automation. Come Here's Bass group rebuilt engine on: 0
+  failures, no binding, activation or parameter-count differences.
+- Open: mappings onto plugin parameters engine-off (by design); input sources that resolve to
+  nothing (missing hardware inputs); launcher audio clips; two warp-marker sets
+  that do not increase within their source file; a clip fade longer than its
+  clip; Bitwig's lane points at automation-clip edges (cosmetic, on the line).
+- Not finished for lack of memory (memory guard floor 2.5 GB, 16 GB PC):
+  For You's engine-off build (scratch Bitwig up to 3.6 GB) and the Oneiros
+  r22 subset test with r23 (engine on, scratch Bitwig up to 7 GB with 8.7 GB
+  available at the start). Both need a PC with more free RAM.
+
+## Previous checkpoint: native project open/close (2026-10-20)
+
+- Developed on `codex/document-open-close` (worktree `../bitwig-sdk-docopen`);
+  now part of `codex/java-bridge-615` (PR #5, which absorbed PRs #6 and #7). Java: `OpenwigDocument.openDocument`,
+  `closeDocument`, `unsavedTab`; native callbacks (`F3z`, `rdP`) feed a job map
+  behind `document.job_status`. Python: `open_project`, `close_project`,
+  `close_unsaved`. See `java_bridge/README.md`, "Native project open and close".
+- Gate `tests/live_java_documents.py` passed in `scratch/document-open/gate-5/`:
+  open 0.8 s, close 0.56 s, discard proven (byte-identical file, edit gone on
+  reopen), eight invalid requests refused, unsaved "New 1" closed, reopen from
+  zero tabs.
+- Found live: a `.bwproject` copied without its folder's `.bitwig-project` marker
+  never finishes opening (the command-line open is dropped and the
+  `document.open` job stays `running`; two fixtures, gate-1 and gate-2). With the
+  marker alone it opens in 0.8 s (gate-4). The bridge now refuses such files. All
+  37 of the owner's Finished project folders have the marker.
+- Found live: the scratch host opens the owner's startup template ("Axyom
+  Template v5") as an unsaved "New 1" tab next to a command-line project;
+  `close_unsaved` removes it. The shared 6.1.5 prefs only differ from the
+  pre-corpus backup in the recent-projects list.
+- Not covered: `--older` (version backup files on open), `activate_engine=True`,
+  opening during playback or render, closing a project whose plugins hold
+  unsaved state.
+- Unit suite: 295 passed; exact-build build, offline smoke and controller syntax
+  passed. JAR `scratch/document-open/openwig-2.jar` SHA-256
+  `5d64ac678a1ad9ab19825ac598116d025beb3d7f6a8af6d20fb1f519db0481cf`.
+- Runtime: scratch host stopped after the gate, openwig-2.jar still installed;
+  shared 6.1.5 prefs restored from the pre-corpus backup (recent-projects list).
+
+## Previous checkpoint: modulator editing (2026-10-20)
+
+- Developed on `codex/modulator-editing` (from `78b3574`); now part of
+  `codex/java-bridge-615` (PR #5). See `java_bridge/README.md`,
+  "Modulator editing", for the native entry points. CFR sources:
+  `scratch/decomp/modulators/` (gDz, JDY, KaT, Hx3, AwX, AvA, CzJ, QFL, m1C/zgi,
+  aB, eQt, packaging MD/LXO/Byq, Api*ValueAtom).
+- Python: `JavaSong.modulator_catalog()`; track and chain handles add `modulators`,
+  `add_modulator(device, name_or_uuid, x=, y=, values=)`, `modulator_parameters`,
+  `set_modulator_parameters`, `bind_modulator(device, modulator, target_parameter,
+  amount, source=, target_device=)`, `unbind_modulator`, `move_modulator`,
+  `delete_modulator`. Reader adds modulator `x`/`y`/`modulator_id` and binding
+  `amount_normalized`/`enabled`. Old controller-bridge path was not reused.
+- Gate `tests/live_java_modulators.py` passed in `scratch/editing-modulators/gate-5/`
+  (mutation, then `--verify` after native reopen). Envelope depth of a 440 Hz
+  sine through Tool, LFO -> `AMPLITUDE`: unmapped 0.37 dB, amount -0.5 35.3 dB,
+  -0.15 10.6 dB, LFO DEPTH 0 0.0 dB, unmapped again 0.0 dB, after load 35.2 dB,
+  modulator deleted 0.04 dB, final 35.5 dB. FX Layer LFO into its nested Tool
+  (660 Hz): 0.08 dB unmapped, 34.8 dB mapped; sibling-device target rejected.
+  Load during playback: 45 insertions, 180 mapping writes, 27 deletions,
+  18 unmappings over three Polysynth tracks; engine PID alive throughout.
+  21 rejected inputs left `dump()` unchanged. Reopen: zero reader differences
+  (27 modulators, 41 mappings), reopened 36.0 dB / nested 35.5 dB.
+- Found and mitigated: a parameter write sent as a separate event right after
+  insertion is dropped by the engine (document says unipolar, audio stays
+  bipolar). 0 ms failed 3/3; 50..500 ms passed. Fix: `values=` staged before
+  insertion (3/3 without pacing) plus 250 ms Python pacing after insertion
+  (3/3). Measured pacing, not an engine fence (`diag-insert-race-*`).
+- Gate pitfall: an LFO boosting a full-scale tone (bipolar, +36 dB on Tool
+  AMPLITUDE) triggers output limiting that ducks every other tone in the
+  capture; it looked like cross-track modulation leakage
+  (`diag-nested-1..3`). Gates now use a unipolar LFO with negative amounts and
+  assert attenuation only. gate-1 (metric), gate-3 (limiter) failed; gate-2/
+  gate-4 passed older assertions (gate-4's final capture shows the race).
+- Not covered: undo/redo replay; mapping enable, transfer function and
+  auxiliary scaling; track remote-control, mixer and modulator-parameter
+  targets; plugin-hosted modulators; `unit=` for modulator parameters (HERTZ
+  returned unconverted values); whether device insertion has the same race.
+  Reader: a nested device's self-mapping reports `target_owner` without its
+  chain step (pre-existing labeling).
+- Unit suite: 291 passed; exact-build build, offline smoke, controller syntax
+  and diff checks passed. Modulator JAR `scratch/editing-modulators/openwig.jar`
+  SHA-256 `812ae24a8f4c22e98d238d567267ef89b7dc089dc0c115557f4386e54d0f3d7c`.
+- Runtime: scratch host has `scratch/editing-modulators/gate-5/saved/project.bwproject`
+  open, stopped, with the modulator JAR installed (not the shared
+  `scratch/bitwig-6.1.5-openwig.jar`). Mutable copy:
+  `scratch/editing-modulators/work/project.bwproject`.
+
+## Previous checkpoint: scene-bank structure (2026-10-19)
+
+- `JavaSong.scenes()`, `insert_scene(index=None)`, `delete_scene(index)`,
+  `move_scene(index, destination)`; methods `scene.snapshot/insert/delete/move`.
+  Native calls on the root `master.Yko`: `Gcr(int,obl)` "Insert Scene",
+  `IYM(int[])` "Delete Scenes", public `hhU.IYM(int[],int)` -> `Kkl.Gcr`
+  "Reorder Scenes" (destination is an insertion point, hence `dest+1` when
+  moving down). Each owns its undo action and propagates to every track bank.
+  CFR sources: `scratch/decomp/scenes/`. `update_scene` now validates index,
+  field names/types and colors before writing, never grows the bank, and wraps
+  its edits in one undo transaction.
+- Gate `tests/live_java_scenes.py` passed in `scratch/editing-scenes/gate-3/`:
+  emptied bank (all banks incl. group children and FX read zero slots), append
+  three rows, insert/move/delete with content and stop-button preservation,
+  moved row audible (880 Hz 0.0233, 440 Hz 0.0002), deleted-row absence,
+  remaining row audible (440 Hz 0.0233), seven rejected inputs with unchanged
+  dumps, then native save/reopen `--verify`: zero reader differences, scenes
+  `[A, B]`, reopened 440 Hz 0.0235. Unit suite: 264 passed; smoke/build passed.
+- Gate pitfall (diagnostics `scratch/editing-scenes/diag-1`, `diag-2`): relaunching
+  an already playing/queued slot after `capture()`'s transport stop, or launching
+  immediately after `stop_launcher`, can produce silence. `measure(track=...)` now
+  resets launcher state and settles 0.5 s; five reordered launches then all
+  matched. gate-1/gate-2 keep the earlier failing runs. The deleted-row check is
+  weak: `capture()` stops transport, which also stops launcher clips.
+- Not covered: multi-row (non-contiguous) delete/move, scene duplication
+  ("Copy Scenes"), undo/redo replay of these actions.
+- Runtime: scratch host has `scratch/editing-scenes/gate-3/saved/project.bwproject`
+  open, stopped. Mutable project stays `scratch/editing-details/work/project.bwproject`.
+  Next: routing/modulation, Grid note-tracking diagnosis, editable JSON
+  reconstruction and complete-project verification.
+
+## Previous checkpoint: parallel layer controls (2026-10-19)
+
+- Grid increment `3a62aae` is pushed, CI 5/5 green. Its fixed-pitch evidence
+  and open live note-tracking regression are retained below.
+- Added `read_layer`, `update_layer`, `move_layer`, `delete_layer`: stored/display
+  names, amplitude or dB gain, pan, mute, native same-bank reordering with async
+  completion, and deletion with owning-reference/routing cleanup. Nested device
+  snapshots now include a `layer` object containing the mixer/title state.
+- `scratch/editing-chains/gate-3-layers/` passed native authoring/reopen, zero
+  reader differences, deep device gain versus bypass, and audible parallel-layer
+  deletion (remaining/combined level ~.334). Includes move forward/back with
+  names/content preserved, mixer edits and mixed-invalid-batch atomicity.
+  Final async-deletion rerun `scratch/editing-chains/gate-4-layers/` also passed
+  native reopen, audio and guarded forward/back move callbacks. Python suite:
+  259 passed; exact-build JAR, offline smoke, controller syntax and diff checks pass.
+- Nested VST3 gate `scratch/editing-plugins/nested-gate-2/` passed insertion,
+  parameters/state transfer, moving a layer with two loaded plugins, deleting a
+  third plugin-bearing layer after native state preparation, audible 440 Hz,
+  save/reopen values and matching embedded state hashes. Exactly the two known
+  GUI display-cache differences remain; numerical/state data matches.
+- AGENTS.md now links this plan. Layer increment is ready to commit/push.
+- MIDI diagnostic expanded the open pitch issue: repeated playback on a freshly
+  inserted Polysynth can also have the wrong pitch, so it is not proven to be
+  Grid-specific. Saving/reopening the failing Grid snapshot gives correct 880 Hz.
+  Candidate arranger-clip insertion finalization and inserting notes after clip
+  attachment both failed and were removed. Gates 4-finalize and 5-attached retain
+  the failures; no speculative MIDI fix remains in the source.
+- Remaining scope: live MIDI/note-tracking diagnosis, routing/modulation editing,
+  documented editable JSON reconstruction, complete-project verification and
+  scene-bank structure. Plugin state capture still uses documented 100 ms pacing;
+  VST2/CLAP and a discoverable plugin/module catalog are not implemented.
+- Runtime/process details below may describe earlier checkpoints; resolve PIDs
+  afresh. Current scratch JAR SHA-256:
+  `060bfc3bfca0d8803b858742f23eed8febdf83c1f7d1f55f6ecc1a1977256ee7`.
+  Scratch launcher 31296 has `scratch/editing-chains/gate-4-layers/saved/project.bwproject`
+  selected, stopped; no in-flight commands. Next: commit this increment, then
+  inspect scene-bank structural edits and routing/modulation before JSON schema work.
+
+## Latest checkpoint: Grid graph authoring (2026-10-19)
+
+- Nested chains landed as `f116e4d`, CI 5/5 green. Gate evidence remains
+  `scratch/editing-chains/gate-2/`, zero reader differences and measured -6 dB.
+- Grid now has module/port/cable reads, UUID factory insertion, position edits,
+  native module deletion/cable cleanup, connect/disconnect, and module parameter
+  discovery/editing through the existing native parameter methods. Deep device
+  snapshots include `grid` and module parameter paths. GUI-style insertion clones
+  module content; native insertion/deletion/cable entries own their undo actions.
+- `tests/live_java_grid.py` default gate passed in `scratch/editing-grid/gate-3/`:
+  delete factory patch, rebuild Union/ADSR/Audio Out by UUID, edit positions and
+  parameters, C4 -> C5 frequency doubling with KEYTRACK=false, disconnect silence,
+  attached cable cleanup, rejection atomicity, native save/reopen with zero reader
+  differences and audible reopened C5. Python suite: 249 passed.
+- **Open Grid live note-tracking regression:** with KEYTRACK=true and MIDI key 69,
+  first playback is 440 Hz, but after in-session oscillator pitch edits, output
+  can be a different note (gate-1: ~1109 Hz for requested 880; gate-2: ~784).
+  Saving/reopening the exact failing snapshot restores 880 Hz. Fixed-pitch mode
+  gives stable C4/C5 and correct ratio writes. Explicit neutral MIDI transpose,
+  KEYTRACK toggling and cloned-content insertion did not fix note-tracked DSP.
+  `--note-tracking` keeps the failing gate available; do not claim this is fixed.
+  Evidence: gate-1, gate-2, pitch-diagnostic/reopened.wav, fixed-pitch-probe WAVs.
+- Layer metadata/mixer/removal/reordering subsequently landed in the next checkpoint.
+  Still pending: routing/modulation,
+  Grid note-tracked immediate playback, editable JSON reconstruction and complete
+  project verification. VST3 state capture still uses documented 100 ms pacing.
+- Runtime: scratch launcher 59828, project
+  `scratch/editing-grid/gate-3/saved/project.bwproject`, stopped. Scratch JAR
+  `6070cf423150783fa5540ea3b250d8aee38ad797e9f33812cec5cb8dfe4fda5c`.
+  Current code adds input guards after that build; rebuild before next restart.
+- Next action: finish checks/commit this bounded Grid increment, then isolate
+  note tracking versus general MIDI playback before further schema work.
+
+## Implementation sequence and progress
+
+Use a separate verified increment for each meaningful operation. Mark an item
+complete only after its live test, regression coverage, docs and commit exist.
+Do not equate native snapshot preservation with arbitrary field editing.
+
+1. **Arranger and existing clips — in progress.**
+   - Done: duplicate range with push.
+   - Done: `insert_time(start, beats)` and `delete_range(start, end)`, including
+     nested crossing clips, effect/master automation, cue markers, and persistence.
+   - Done: nonzero-start automation anchor handling; hold curvature canonicalization.
+   - Implemented: move/resize/trim/mute/name/color/loop/fade and delete existing clips.
+   - Implemented: native independent clip copy (same/cross track), split, MIDI
+     content replacement/clear, gain/pan/pitch/timbre/pressure linear expressions.
+   - Done: individual MIDI import/update/delete, expression shapes/clearing,
+     velocity spread/content offsets, probability/occurrence/recurrence/repeats.
+   - Verify clips crossing edit boundaries, nested tracks, effect/master
+     automation, markers, invalid input, and save/reopen persistence.
+2. **Audio creation and editing — pending.**
+   - Implemented: local RAW sample import, source offsets, container/event fades,
+     event import/move/resize/gain/mute/reverse/exact deletion and empty-lane reuse.
+   - Implemented state authoring: warp modes/markers/content offset, pitch,
+     formant/pan and processing settings; save/reopen and reopened pitch proof.
+   - Done: immediate stretch/REPITCH/pitch regression traced to orphaned deleted
+     tracks; main/FX deletion now removes visible and owning memberships.
+   - Done: warped-event reverse, forward/reversed source-second offsets, and
+     formant envelope resolution (8..512), including nonlinear mapping and DSP.
+   - Done: gain/pan/transpose/formant expression curves and shared probability
+     controls, with audible RAW envelope timing and native persistence checks.
+   - Use authored synthetic audio fixtures. Verify timing and audible output,
+     media collection, and save/reopen; never use track counts as sole proof.
+3. **Plugins, nested device chains, and routing — pending.**
+   - Discover installed plugin identities; insert supported formats; load/save
+     state; read/write parameters and automation; manipulate nested chains.
+   - Complete routing and modulation edits, documenting actual format coverage.
+     Device modulators (insert/parameters/mappings/move/delete) landed
+     2026-10-20 on `codex/modulator-editing`; see its checkpoint.
+     Resident plugin caches may be unavailable; never invent values.
+4. **Launcher clip slots and scene-bank structure done.**
+   - Scene name/comment/color edits landed earlier (`update_scene`).
+   - Scene-bank insert/delete/move/snapshot landed 2026-10-19 (see the
+     scene-bank checkpoint); gate `tests/live_java_scenes.py`.
+   - Launcher slots landed 2026-10-19: author MIDI/audio slots, arranger-to-slot
+     copy, container edits, shared audio-event edits via slot addressing,
+     clear/delete with stop-button control, launch settings, launch/stop/
+     return-to-arranger playback, occupied-slot/enum/range rejection, and
+     save/reopen persistence with audible relaunch. Gate:
+     `tests/live_java_launcher.py`; evidence `scratch/editing-launcher-gate-2/`.
+   - Slot creation stays bounded by the project scene bank (out-of-range
+     indexes are rejected); the reader already guards `clipSlot` growth.
+5. **Grid graph and modulation editing — pending research.**
+   - Existing reader exposes stored atoms, not module/cable topology.
+   - Inspect native serialization/model operations with CFR and a deliberately
+     small disposable Grid fixture. Add module/port/cable/parameter operations
+     only after successful live tests. Report crashes or missing support honestly.
+6. **Documented JSON reconstruction — pending.**
+   - Define a versioned, validated editable schema covering the capabilities
+     above, stable references, media and plugin/opaque state resources.
+   - Reconstruct a newly authored project from that representation, compare
+     values, render, save and reopen. Missing/unrepresentable state must fail
+     explicitly or be declared; never silently drop fields.
+   - Opaque native archive restoration alone does not satisfy this milestone.
+7. **Completion audit — pending.**
+   - Publish a capability inventory mapping every promised operation to a
+     public method, regression/live evidence, limitations, and documentation.
+   - Exercise a full authored project and a separate real-project copy.
+     All required checks green, changes pushed, working tree accounted for.
+
+## Current checkpoint: start here
+
+Active scope confirmed by the owner: finish audio/MIDI details; plugin insertion,
+state/parameters, nested chains and routing/modulation; editable JSON project
+reconstruction; complete-project audible and persistence verification; and Grid
+module/cable/parameter editing. Keep this file current and commit/push each
+verified step. Scene-bank structure landed 2026-10-19 (see its checkpoint above).
+Warped audio details and expression/note-property authoring are verified. Next:
+plugins/routing, Grid, editable JSON reconstruction and full verification. This is
+in-progress work; the checkpoints below record completed evidence.
+
+### Latest verified step: MIDI properties and expression editing
+
+`note.import/update/delete` address arranger and launcher MIDI content, unlink
+shared clips and preserve other notes. Full note dictionaries now author
+velocity spread, content offsets, chance/enabled, occurrence/enabled,
+packed 11-bit recurrence/enabled, signed repeats/enabled and repeat curvature.
+Expression curves accept optional curvature and linear/hold interpolation;
+empty points clear one curve. An individual update patches named curves and
+preserves unspecified curves/properties. MIDI supports gain/pan/transpose/
+timbre/pressure; audio also supports formant, excluding MIDI-only expressions.
+
+RAW expression points are **beats**, even though RAW source offsets are seconds.
+The old reader label was wrong: at 150 BPM the gain jump at point 2 sounds at
+.8 seconds. The gate measures a roughly 15.85 amplitude ratio for -24 dB to
+0 dB, including immediate rendering and native save/reopen. No engine patch.
+
+Permanent gate `tests/live_java_note_details.py`; latest evidence
+`scratch/editing-notes/gate-2/`. Covers five MIDI curves, curved and hold points,
+unrelated-field preservation, independent arranger/launcher copies, note
+insertion/deletion, one-curve clearing, rejected-edit atomicity, RAW gain/pan
+DSP, warped transpose/formant and audio conditions, save/reopen comparison.
+Unit suite: **222 passed**. Exact-build Java build and offline smoke passed;
+controller syntax and whitespace checks passed. Previous increment `89071bc`
+is pushed with all five CI jobs green. Consult Git for this increment's hash.
+
+Runtime: identified disposable host has
+`scratch/editing-notes/gate-2/saved/project.bwproject` open, stopped, patched JAR
+installed. Preserve evidence; use `scratch/editing-details/work/project.bwproject`
+for further destructive authoring. Resolve process IDs afresh. Next concrete
+step: inspect exact-build plugin/factory insertion APIs and nested chain model,
+then implement and live-verify plugin identities/state/parameter edits before
+Grid and editable reconstruction. The full requested scope remains incomplete.
+
+### Latest plugin increment: VST3 insertion and preset transfer (limited live coverage)
+
+Implemented VST3 insertion by exact 32-hex class ID; normalized resident parameter
+IDs/values; async engine state export to fresh `.vstpreset` files; class-ID checked
+state import into independent instances; native state capture for project copies.
+Python methods: `insert_plugin`, `plugin_parameters`, `set_plugin_parameters`,
+`capture_plugin_state`, `export_plugin_state`. Native jobs have bounded bookkeeping,
+explicit errors and timeouts; no application-event-thread blocking while awaiting
+engine capture. Parameter batches reject invalid IDs/values before writing.
+
+Permanent gate `tests/live_java_plugins.py`, evidence `scratch/editing-plugins/gate-16/`:
+installed kHs Haas VST3, two independent instances, nondefault Channel/Delay,
+engine export/import, state-file class ID rejection, occupied export-file protection,
+invalid mixed parameter batch atomicity, audible 440 Hz before/after native reopen,
+identical embedded state hashes and numerical parameter values. Reader comparison
+reports exactly two asynchronous GUI display-string differences (`Right` -> `Left`,
+`5.00 ms` -> `0.40 ms`); do not call that zero reader differences. 232 unit tests pass.
+
+**Open timing limitation:** immediate native capture can save the previous parameter
+state even after its callback completes. Measured diagnostic
+`scratch/plugin-settle-diagnostic.json`: zero delay saved the old value; 50/100/250/
+500/1000 ms retained the requested values. `set_plugin_parameters` currently uses
+100 ms pacing before capture. This is a tested workaround on this host/plugin,
+not a reliable engine fence or coverage of all installed plugins. Do not mark the
+entire plugins milestone complete. Failing saved gates 1..15 preserve the negative
+cases (gate 7's extra capture happened to pass state inspection, but was not a fix).
+
+Fresh exact-build CFR sources: `scratch/decomp/devices/`, particularly ApiFactory,
+ApiVst3Preset/ApiPluginPreset, ApiPluginDeviceParameterAtom, brS/og3/GAN/aAP,
+m1C/zgi, dfb and yJd/AlI/hHR. Tried and removed: source-state dirty flags,
+document bulk capture, GUI gestures/action setters, zero-timestamp engine events,
+explicit RAMONA publication and treating parameter caches as engine acknowledgement.
+The native flags/wrappers were not changed in the shipped write path. Only SDK
+pacing remains; a proper engine fence is still open. Capture refuses unloaded
+plugins and waits for existing captures instead of joining an in-flight one.
+
+Current runtime: scratch host has
+`scratch/editing-plugins/gate-16/saved/project.bwproject` open and stopped with the
+patched JAR installed. Preserve this fixture. Mutable project remains
+`scratch/editing-details/work/project.bwproject`; resolve live PIDs again.
+Next: nested device chain authoring, plugin catalog/format coverage and routing/
+modulation, then Grid modules/cables/parameters and editable project reconstruction.
+Keep the parameter-capture fence limitation visible in the final verification.
+
+### Previous verified step: warped audio details
+
+Implemented warped reverse and absolute source-second offsets through forward
+and reversed warp maps, validated formant envelope resolution (8..512), and
+corrected warped source-stop readback. Native reverse mirrors both markers and
+expressions; reverse twice restores the original snapshot. Full gate:
+`tests/live_java_audio_details.py`; evidence `scratch/editing-details/gate-1/`.
+Nonlinear three-tone audio at 150 BPM verifies forward, reverse, forward offset,
+and reverse offset; rejected edits are atomic, source copies independent, and
+launcher content addressing works. Save/reopen: zero reader differences and
+1320/880/440 Hz shifted-window order. **208 unit tests passed**.
+
+Committed and pushed as `89071bc`; all five CI jobs green. Preserve its saved
+fixture at `scratch/editing-details/gate-1/saved/project.bwproject`.
+
+### Last completed increment: track ownership fix
+
+
+2026-10-19: the apparent immediate warp/DSP regression was traced to **track
+ownership**, not a missing processing-cache notification. `deleteTrack` removed
+only the visible reference (`Yko.jPB(Kkl)`), leaving the actual owned track and
+its audio engine alive. After clearing the fixture, the reader reported zero
+tracks but engine-only loopback still played the previous 660/1316 Hz material.
+Repeated fixtures accumulated audible hidden tracks. Save/reopen discarded the
+unreferenced tracks, explaining the earlier misleading cache diagnosis.
+
+Fix: pair main reference removal with `Yko.jPB(Kkl,true)`; pair FX reference
+removal `Yko.Gcr(roo)` with owning removal `Yko.IYM(roo,true)`. Both pairs match
+the native `n1z` Delete Tracks membership sequence and remain inside undo.
+Postconditions check visible counts and the target's cleared parent. Fresh
+exact-build CFR sources: `scratch/decomp/warp-sync/`, especially packaged
+`HYn`, `Yko`, `oZU`, `ZfA`, `n1z` and `ymV`. Class-name collisions are common;
+resolve imports rather than trusting unqualified decompiles.
+
+The permanent `tests/live_java_warps.py` gate now activates audio, supports
+`--repeat`, checks immediate stretch/REPITCH/+7 playback, and checks that old
+fixture tones are absent after clear. It covers nested groups and FX deletion.
+Optional Windows process loopback (`tests/windows_process_loopback.cpp`,
+`tests/live_audio_capture.py`, `--process-capture ... --engine-pid ...`) excludes
+other applications, which were contaminating system recordings during this
+investigation. Use the **audio-engine PID** after activation, not a launcher PID.
+Metronome clicks can remain: the clear check rejects fixture tones rather than
+requiring endpoint-wide silence.
+
+Evidence: a negative control built from committed `3ffa002` fails the new gate
+at `scratch/warp-negative-control/cleared.json`: zero visible main/FX tracks,
+fixture-tone RMS **0.0337323** against a **0.001** limit. Corrected repeated gates
+`scratch/warp-fixed-gate/run-{1,2,3}/` and final nested/FX gate
+`scratch/warp-fixed-final-gate/run-{1,2,3}/` all pass. Each run saves its own
+native project, records immediate renders, and writes main/group and FX deletion
+reports (remaining tone RMS about **5.1e-7**). The third saved fixture reopened
+with **zero reader differences**, three audio clips/events, and 660/1316 Hz
+shifted playback. Unit suite: **201 passed** (including capture calibration);
+Java build/JAR protocol smoke, checked-in C++ capture-helper build, controller
+syntax and whitespace checks passed. Consult the feature-branch commit/CI for
+remote status; no native engine binary was modified.
+
+Runtime is clean: the identified disposable host was closed without saving and
+`scratch/bitwig-6.1.5-live/bin/bitwig.jar` restored to the exact original hash.
+The tested patch is retained as `scratch/bitwig-6.1.5-openwig.jar` and
+`scratch/warp-fixed-verified.jar`. No bridge listens on 7778. The preserved
+reopened fixture is `scratch/warp-fixed-final-gate/run-3/saved/project.bwproject`;
+copy it to a separate work directory before future destructive authoring.
+The owner's original Substance project still hashes to
+`3cef520796171bc0ac4088fc89c142ae04f04711215c3bb77b648a23fa5b17a8`.
+The old unrelated PID 20784 zombie remains outside this test lifecycle.
+
+No native engine was disassembled. Unsuccessful scope/copy-order experiments
+were removed; the actual warp setters are unchanged. Only the diagnosed/tested
+regression is closed; do not infer audible certification of all ten algorithms
+or mark the overall goal complete. Next work remains warped audio reverse/
+curves, plugin and nested routing writes, scene-bank structure, Grid, and JSON
+reconstruction.
+
+### Previous launcher increment
+
+Latest increment (2026-10-19): launcher clip slots are live-verified end to
+end. `JavaTrack` now exposes `read_launcher_slot`, `put_launcher_notes`,
+`import_launcher_audio`, `copy_arranger_to_launcher`, `clear_launcher_slot`,
+`update_launcher_clip`, `delete_launcher_clip`, `update_launch_settings`,
+`launch_slot`, `stop_launcher`, and `return_to_arranger`; the audio-event
+methods accept `slot=` addressing for shared content edits on slot clips.
+Java side: `launcher.*` methods plus slot-aware `clip.*`/`audio_event.*` in
+`OpenwigDocument`, routed through `Bootstrap`. Clearing uses the native
+nullable slot setter (`yk.jPB(XEQ)`) because the public `ClipSlot.setClip(null)`
+wrapper throws. Launch is the same `fmH.jPB(boolean, boolean)` entry Bitwig's
+controller API uses; launch settings read/write through `OkK`
+(`sGy`/`yi1`/`CaN`/`ncg` and `IYM(RXG)`/`jPB(xSr)`/`IYM(bP)`/`p3P(double)`),
+verified against fresh exact-build CFR sources in `scratch/decomp/editing/`.
+
+**Headless audio-engine requirement:** a freshly launched hidden Bitwig can
+start with its audio engine disconnected; slots then silently refuse to launch
+(`zE1.IYM` no-ops unless the track is engine-ready) and transport cannot play.
+`document.audio_status`/`document.activate_audio` connect it. The gate
+activates before any launch; future playback tests should too.
+
+Final gate: `scratch/editing-launcher-gate-2/`. The 120 BPM gate authored a
+MIDI slot with full launch settings, an audio slot from a synthetic 440 Hz
+tone, and an arranger copy; verified occupied-slot rejection and atomicity,
+arranger-source independence, shared audio-event edit via slot addressing
+(-6 dB gain expression), container resize, clear/delete with stop-button
+control, out-of-range slot rejection, launch -> playing, stop, and
+return-to-arranger states, plus an audible 440 Hz render while the slot
+loops. Save/reopen: **zero reader differences** (`persistence.json`), all
+launch settings and slot content intact, and the reopened slot launched and
+rendered the tone again (`reopened-launch.wav`, 440.0 Hz). No owner material
+was used. `scratch/editing-launcher-gate/` holds the earlier ad-hoc evidence.
+
+195 unit tests (launcher wire contract plus rejection coverage added),
+exact-build Java build, JAR/protocol smoke, controller syntax and whitespace
+checks passed. CI status for this increment's commit to recheck after push.
+
+Still open: warped audio reverse/curves, plugins/nested routing (milestone 3),
+Grid (5) and documented JSON reconstruction (6). The immediate-DSP regression
+was resolved in the current checkpoint above. Scene-bank editing (add/remove/reorder scenes) was not
+part of this increment; only scene metadata edits exist.
+
+At that launcher handoff the host was closed and its JAR restored. Its separate
+`scratch/editing-launcher-gate-2/work/project.bwproject` is the disposable host
+used by the current warp investigation. Never use the saved launcher evidence
+as the clear target. One old dead 24 K `BitwigStudioApp.exe` zombie (PID 20784)
+holds no ports/files; do not act on stale PIDs. Re-identify processes first.
+
+### Previous warp increment
+
+`update_audio_event` authors warp modes, explicit beat-to-
+source-second markers, warped content offsets, transpose/formant/pan constants,
+formant preservation, onset preview, transient mode/rate, grain size and tail
+mode. All ten mode names were read back live. Markers and settings are staged
+and validated before mutation; invalid ranges, enums, EOF mappings, RAW pitch
+and unsupported combinations fail explicitly. RAW-to-warp requires markers.
+Source-offset/reverse still require RAW; reversed material must first be made
+forward before replacing its warp mapping. General curves and envelope
+resolution remain pending.
+
+**Historical limitation, now explained:** the original increment verified state
+and reopened DSP but recorded apparent stale immediate processing. The current
+checkpoint establishes that retained owned tracks from incomplete deletion were
+mixing old audio into later fixtures. `--live-render` is now an ordinary passing
+regression with repeated author/clear coverage; it no longer denotes a known
+failure. `--verify --render` still checks native persistence separately.
+
+Final gate: `scratch/editing-warp-final-gate/`. At 150 BPM, markers
+[[0,0],[5,1],[7.5,3]] stretch the first source second over two arrangement seconds
+and the remaining two source seconds over one. Probes observed pitch-preserving
+440/880 Hz, REPITCH 220/1760 Hz, and seven-semitone shift approximately 660/1316 Hz
+(expected 659.255/1318.510; FFT tolerance 8 Hz). Final reopened fixture includes
+an independent additional clip carrying nondefault processing settings and has
+**zero reader differences** across three audio clips/events, with main shifted
+playback again 660/1316 Hz. See persistence.json and reopened-pitch.json/WAV.
+No owner material was used.
+
+179 unit tests, exact-build Java build/JAR protocol smoke, controller syntax and
+whitespace checks passed. Committed/pushed as **`6a3c2b3`** on
+`codex/java-bridge-615`; its CI run plus `4711a5e`/`a3ed1b0` were green.
+
+**Investigation evidence for the next agent:** failed immediate-playback WAVs
+and JSON reports remain in `scratch/editing-warp-public-gate{,-2,-3,-4}/`.
+Saving/reloading exactly a failing snapshot in
+`scratch/editing-warp-copy-diagnostic/` preserved all reader data and corrected
+its playback. Removing the muted source or setting its volume to zero did not
+fix immediate playback. Native `KoO.JTi()` (source-cache refresh), `fv_()` (content
+invalidation), and replacing events with fresh native identities did not make
+all transitions reliable. These unsuccessful code workarounds were removed;
+do not claim they fixed it. Fresh exact-build CFR sources include
+ApiModificationProcessor, KoO/pUn/Tc, BBa/BOt, MjL and yMP under
+`scratch/decomp/editing/`. `KoO.JTi -> BBa.QmZ -> yMP.kxC -> e2n.tY1` refreshes
+source state; `KoO.fv_` calls `MjL.UqY/IxG`. The old cache-invalidation hypothesis was superseded by the owning-bank
+deletion diagnosis in the current checkpoint.
+
+The warp gate's evidence and saved fixture remain in
+`scratch/editing-warp-final-gate/`, preserved. Next: continue with the remaining
+audio edits, plugins/nested routing, Grid and JSON reconstruction. The overall goal remains active
+and incomplete.
+
+### Previous RAW audio-event increment
+
+Latest increment: public `JavaTrack.import_audio_event`, `update_audio_event`,
+and `delete_audio_event`, plus an important copied-audio playback correction.
+Edits cover local start/duration, source offset in seconds, gain in decibels,
+mute, event fades, RAW reverse, and exact event deletion. Imports support multiple
+nonoverlapping events in an existing audio clip, including an emptied lane.
+Edits make content independent before mutation, preserve other clips and the
+container, maintain event sorting, and reject invalid/overlapping requests
+before touching content. Gain writes intentionally replace the gain curve with
+a constant. Offsets/reverse currently require RAW; set offsets while forward,
+then reverse separately. Warp/pitch and warped-event reverse remain pending.
+
+Manual gate: `tests/live_java_audio_events.py --disposable --project <open>
+--output <fresh scratch directory> --render [--tempo 150]`. It authors a source
+with 440 Hz in the first second and 880 Hz in the second. Native reverse produced
+880 then 440, forward produced 440 then 880. Verified at 120 and 150 BPM. The final
+150 BPM fixture reopened with **zero differences**, with audible reversed order
+880/440 Hz. A separate trimmed-window probe at 150 BPM preserved offsets
+1.05 -> .25 seconds when reversing a two-beat event starting at source .25 s
+(`partial-reverse.json`). Evidence: `scratch/editing-audio-final-gate-150/`, persistence and
+forward/reverse/reopened-reverse JSON+WAV reports. The test includes nested
+tracks, source-copy independence, atomic rejected edits, source EOF rejection,
+exact deletion and deleting/re-importing the last event. Gain/fades/mute/offset
+readbacks are asserted separately. Optional recording waits one second for
+engine updates; it is system loopback, so unrelated audio can invalidate it.
+
+**Copied audio correction:** first-playback testing at 150 BPM exposed that
+`b8237d7`'s copies could read/save correctly yet play inconsistently. Native
+`xh3.IYM(XCv,dP)` insertion finalization was missing after attach/make-unique.
+It is now invoked with the destination timeline and editor context. Because
+that callback initializes automatic fade-in defaults, the source's explicit
+fade-in time/gain/curve are restored afterward. Fresh 150 BPM copied playback
+now passes. Copy/split/MIDI/fade regression gate and save/reopen also pass:
+`scratch/editing-content-finalization-gate-2/persistence.json`, zero differences.
+This is why metadata-only checks cannot establish complete playback parity.
+
+161 unit tests passed; exact-build build, Java protocol/JAR smoke, controller
+syntax and whitespace checks passed. Prior `b8237d7` and `2d14f7a` CI are green.
+This increment is committed/pushed as **`4711a5e`** on `codex/java-bridge-615`.
+The first post-push CI listing did not yet show its run; recheck GitHub Actions
+for this SHA. Implementation working tree is clean. No live sessions remain.
+
+Current scratch project:
+`scratch/editing-audio-final-gate-150/saved/project.bwproject`, stopped.
+Last observed scratch launcher PID 41644; always re-identify before process work.
+All owner originals and the saved musical variation are preserved.
+Next: native warp/pitch and audio processing settings/expressions, including
+isolated audible proof; then plugins/nested routing, launcher, Grid and JSON
+reconstruction. The full goal remains active and incomplete.
+
+### Previous native content increment
+
+Latest increment: native `JavaTrack.copy_clip`, `split_clip`, and
+`replace_notes`. Live gate `tests/live_java_content.py` covered nested tracks,
+same-track and cross-track independent copies, MIDI/audio splits, native
+loop/play offset/fade preservation, content replacement/clearing, atomic reject
+of malformed later notes, five linear expression types, and zero reader-visible
+differences after save/reopen. Data: `scratch/editing-content-gate/`, including
+`before.json` and `persistence.json`. Source fixtures are synthetic only.
+
+Public note replacement accepts dictionaries with key/duration and optional
+channel/start/on_velocity/off_velocity/muted/chance/expressions. Expressions map
+gain/pan/transpose/timbre/pressure to explicit Bitwig units and local beat/value
+points. Replacement intentionally replaces all note content, unlinks shared
+native content first, and preserves the clip container. It does not yet expose
+every recurrence/repeat/occurrence control or arbitrary interpolation shapes.
+Native splitting retains the complete content, shifts the right piece's play
+offset, and clears interior audio fades; no duplicate undo wrapper is used.
+
+146 unit tests passed, exact-build build and Java protocol/JAR smoke passed,
+controller syntax and whitespace checks passed. Prior commits `4f78e38` and
+`24aab45` both have green CI. This increment is committed/pushed as **`b8237d7`**
+on `codex/java-bridge-615`; its CI and the `2d14f7a` handoff CI are green.
+The implementation working tree is clean. No in-flight live sessions remain.
+
+Previous scratch project: `scratch/editing-content-gate/saved/project.bwproject`,
+stopped. Last observed scratch launcher PID 61864; always re-identify before
+process actions. The previous clip fixture and owner deliverable are preserved.
+Next: audio-event offset/gain/mute/reverse/warp operations, isolated pitch proof,
+then plugin/nested routing, launcher, Grid, and JSON reconstruction milestones.
+The full goal remains active and incomplete.
+
+### Previous clip editing increment
+
+Latest increment: generic arranger clip updates/deletion and local RAW audio
+import, public `JavaTrack.update_clip`, `delete_clip`, and `import_audio`.
+The native edits run in undo transactions, preserve underlying note/audio
+content, maintain sorted positions, and reject overlaps before mutation. The
+manual gate checks move/resize, name/mute/color/loop/play offset, audio fades,
+source offsets in seconds, gain in decibels, rejected edits, deletion, media
+collection, playback, and save/reopen. Audio event/container times are beats;
+RAW source offsets and expression domains are seconds. Resize trims the
+container; it does not scale or rewrite its content events.
+
+Saving exposed an older assumption: serialization drops unused media entries
+(e.g. after clearing/deleting audio), so source and cloned indexes cannot be
+paired. The saver now matches persisted media identities (name, relative and
+absolute locations, package identity, length), fails on ambiguity, and collects
+only the clone's referenced media. Source files are resolved from the live
+source, never by guessing relocated clone paths.
+
+Evidence is in `scratch/editing-clip-gate-5/`; reusable manual gate:
+`tests/live_java_clips.py`. Run mutation with `--disposable --project <open file>
+--output <fresh directory> [--render]`, then reopen its saved project and run
+`--verify` with that saved project's exact path and the same output directory.
+Final local validation: 130 unit tests passed, exact-build Java build and
+JAR/protocol smoke passed, controller syntax and diff whitespace checks passed.
+Mutation/playback and reopened/playback gates both passed; reopened reader audit
+has zero differences. The reopened recording measured 440.023 Hz and source-tone
+amplitude 0.00266. A second save from collected relative media succeeded.
+The raw loopback's total RMS also includes unrelated tones; pitch testing needs
+isolation. Committed and pushed as **`4f78e38`** on `codex/java-bridge-615`.
+GitHub CI run `39176057597` completed successfully:
+https://github.com/Axyom/openwig/actions/runs/39176057597 .
+The working tree was clean after the implementation commit.
+
+Previous scratch project: `scratch/editing-clip-gate-5/saved/project.bwproject`,
+stopped. Last observed scratch launcher PID 66136; re-identify before any process
+operation. Second collected save: `scratch/editing-clip-gate-5/resaved/project.bwproject`.
+No live tool sessions remain running.
+
+**Pitch remains pending.** Initial RAW import stored transpose but playback
+ignored it. Experimental STRETCH/ELASTIQUE_PRO warp/pitch variants had valid
+readback and save/reopen, but loopback included other tones even while Bitwig
+was stopped. A first apparent pitch pass was not reproducible. Transpose and
+warp writes are deliberately absent from the public import API and the native
+RPC rejects a transpose field; do not claim verified audible transposition.
+CFR sources for WarpMode/Markers and implementations are available under
+`scratch/decomp/editing/`. Stop unrelated audio before the next pitch gate, or
+use an isolated native render path. The owner had muted the output earlier;
+unmuting restored audible capture. Do not repeat broad endpoint troubleshooting.
+
+Prior completed increment `2fad08f`: empty-time insertion, delete-and-pull,
+nonzero-start automation and native hold-curve canonicalization. All five CI
+jobs passed; 107 baseline tests. Range persistence report:
+`scratch/editing-range-gate-2/persistence.json`, zero differences. Transport loop
+bounds intentionally require explicit caller adjustment.
+
+The scratch instance is on the synthetic clip fixture (see final checkpoint
+entry below). No owner project was edited. Preserve the saved user musical
+variation at `scratch/music-variations/substance-v1/project/`.
+
+Immediate next actions:
+
+1. Finish any recorded pending validation/commit below, keep CI and this handoff
+   accurate. The overall goal remains active.
+2. Native clip copy/split, MIDI content replacement and note-expression edits.
+3. Audio-event editing/reverse/warps and properly isolated pitch playback proof.
+4. Continue plugin/nested routing, launcher, Grid and JSON reconstruction phases.
+
+## Exact-build research already available
+
+Range operations, decompiled in `scratch/decomp/variation/`:
+
+- `pZb.mjf().wtf(List<zJD>, start, end, Lsv)`: Duplicate and Push (already used).
+- `pZb.mjf().Gcr(List<zJD>, start, end, Lsv)`: insert empty arranger time,
+  length `end - start`. **Live-tested, exposed as `insert_time`.**
+- `pZb.mjf().AOA(List<zJD>, start, end, Lsv)`: delete range and pull later
+  content left. **Live-tested, exposed as `delete_range`.**
+- Root selection: `oZU.Qjx().bV_()`; editor selection:
+  `oZU.qVp().TcG().tY1()`. The native commands own their transactions.
+- Native insert traverses clip/automation timelines using
+  `XCv.IYM(start, length, fKr, Set)` and moves cue markers when the root is selected.
+
+New interface sources under `scratch/decomp/editing/`:
+
+- `Clip`, `AudioClip`, `NoteClip`, `EventTimeline`, `ClipTimeline`, `Factory`,
+  `AudioNote`, `ClipContent`, `NoteOrClip`, `SampleReference`, and `ApiClip`.
+- `Clip`: title/color, play-start offset, loop start/duration/enabled,
+  quantization, launch mode and next action. Time/duration/mute are inherited.
+- `AudioClip`: fade-in/out setters/getters. `ClipContent.getEventTimeline()`
+  exposes its note/audio event timeline; `EventTimeline` has add/get/clearTime.
+- `Factory.createAudioClip(boolean)`,
+  `createSampleReferenceForLocalFile(File)`,
+  `createAudioNote(double, double, SampleReference)` are available. Inspect
+  their implementations to establish units and semantics before using them.
+- `AudioNote`: warp modes/events, transients, grain/tail mode, formants,
+  fades, file/rate/channels/duration. More event properties are inherited.
+- Fresh exact-build `KoO` is now decompiled in `scratch/decomp/editing/`.
+  `KoO.eUA(boolean)` sets reverse directly on `jsk().AOA(boolean)`, but the
+  native reverse command `KoO.IYM(fKr)` also reverses expressions via its
+  superclass and swaps RAW start/stop source offsets (`IT3()`, `IYM(dP)`,
+  `UJq(double)`, `Nwn(double)`), then `JTi()`. Inspect `pUn`/superclasses before
+  using it: direct flag toggling alone would miss important playback semantics.
+  Do not expose reverse until a synthetic asymmetric-source gate passes.
+- Some root `scratch/decomp/` files (e.g. xh3/fKr) are from older symbol builds.
+  Prefer the fresh exact-JAR copies under `scratch/decomp/editing/` when names
+  disagree (fresh uses cPD/dP/oZU; older files mention cpd_2/dp_2/ozu_0).
+- `ApiClip.setTime` ultimately uses native event setters; attached timeline
+  sorting and overlap behavior must be tested before exposing clip moves.
+- `ApiAudioClip` is not a class in this build. The actual implementation is
+  `ApiAudioNoteClipEvent`; its content wrapper is `ApiAudioNoteClipContentTimeline`.
+  These and `ApiAudioNoteEvent`, `ApiEnduringEvent`, `NoteExpression` are now
+  decompiled under `scratch/decomp/editing/`. Audio event gain/pan/transpose/formant
+  use `NoteExpression.setValue(value, Unit)` or `setEvents(AutomationEvents, Unit)`.
+
+## Known issues and comparison pitfalls
+
+- **RAW expression time labels need an audit before JSON reconstruction.**
+  A two-second RAW event reversed at 120 BPM stored a gain point at time 4;
+  at 150 BPM it was time 5, while the reader labels RAW expression time as
+  seconds. This suggests native stored beats need conversion or a corrected
+  time-unit label. Constant-value playback does not establish curve timing.
+  Check the exact exporter/model time converters and add a time-varying audible
+  gate; do not silently reuse these labels in the editable JSON schema.
+
+
+- **Resolved: nonzero-start automation.** Bitwig inserts an implicit beat-zero
+  anchor. The writer now preserves it, offsets caller points, and validates their
+  times before shaping. The live and save/reopen gates passed. Hold curvature
+  is explicitly zero, matching native persistence; linear curvature is retained.
+  Keep this regression in future gates.
+- **Startup race:** TCP handshake can arrive before the Bitwig event queue is
+  initialized. `document.list` can briefly fail with `dpz.GKQ() == null`.
+  The manual probes retry reads until the requested file is present. Harden
+  readiness handling rather than treating connection alone as document readiness.
+- **Playback changes snapshots:** after auditioning, live automated parameter
+  values and device on/off states can differ from stored base values on reopen.
+  In the variation, 30 such fields differed while all clip/note/automation data
+  matched, and the new filter sweep was verified by playing the reopened file.
+  Do not call these automatically data loss, and do not silently discard them
+  in comparisons. Compare stored automation plus values at a controlled playback
+  state, or explicitly report the dynamic fields.
+- Native beat precision can differ by less than 1e-6; use documented tolerance.
+- Read/write repository text explicitly as UTF-8. Windows Python defaults to
+  cp1252 and can fail or corrupt Markdown containing typographic punctuation.
+- Duplicate track names exist (e.g. Atmos/Pad, Transitions/Phase Plant). Path
+  selection is first-match; a complete editing API needs unambiguous addressing.
+- Standard DAWproject import is lossy for generic native devices, automation
+  and some audio/loop properties. Do not use it as a full reconstruction shortcut.
+- `scratch/` contains a full Bitwig installation: never recursively enumerate
+  all of it unfiltered. `rg` is unavailable in the current shell; use bounded
+  PowerShell/Python searches. Broad decompilation-tree searches have been slow.
+
+## Build, test, and live setup
+
+From the repository root (PowerShell):
+
+```powershell
+python -m pytest --basetemp=scratch/pytest-editing-01 -o cache_dir=scratch/pytest-cache-editing-01
+python java_bridge/smoke.py
+node --check src/openwig/controller/openwig_bridge.control.js
+git diff --check
+python java_bridge/build.py --bitwig-root scratch/bitwig-6.1.5-live --output scratch/bitwig-6.1.5-openwig.jar
+```
+
+Use a fresh `--basetemp` path each run if cleanup permissions are troublesome.
+Default pytest temp/cache locations previously caused sandbox permission errors;
+placing them under ignored `scratch/` passed. Git metadata, GitHub access, local
+Bitwig socket/process access and some build operations may need tool escalation.
+
+The ignored `scratch/restart_recreate.ps1 -Project <file>` helper verifies the
+launcher executable belongs to `scratch/bitwig-6.1.5-live`, stops only that process
+tree without saving, restores/installs the freshly built JAR, and launches the
+specified project with a hidden launcher. Read it before use. Await a successful
+build before restarting. Never kill processes by name or touch an unidentified
+Bitwig process; there is an old unrelated zombie PID in earlier sessions.
+
+Python live access:
+
+```python
+from pathlib import Path
+from openwig import JavaSong
+
+with JavaSong() as song:
+    print(song.projects())
+    song.select_project(Path("scratch/probe-project/probe.bwproject"))
+    # Only now mutate this known disposable project.
+```
+
+Wait for the exact project path and audio readiness as needed. Native bridge:
+port 7778; controller bridge: port 7777. Do not change version compatibility pins.
+
+Existing manual harnesses: `tests/live_java_writes.py`,
+`tests/live_java_render.py`, `tests/live_java_recreate.py`. Each has its own
+scope and setup; some clear the selected project. All owner artifacts stay
+under ignored `scratch/` and must never be added to a commit.
+
+## Update this document on each checkpoint
+
+Record what changed, what passed (including live values and persistence), what
+failed or remains uncertain, commit/CI status, which project/process is open,
+any in-flight commands and uncommitted work, and the next concrete action.
+Keep verified capability claims separate from inspected signatures and plans.
