@@ -17,6 +17,7 @@ ACCESS_CLASS = "com/openwig/bridge/DirectAccess.class"
 SONG_CLASS = "OpenwigDocument.class"
 TRANSPORT_CLASS = "OpenwigTransport.class"
 UNDO_CLASS = "com/bitwig/ramona/core/OpenwigUndo.class"
+DOCUMENT_CLASS = "com/bitwig/flt/document/core/master/oZU.class"
 HERE = Path(__file__).resolve().parent
 
 
@@ -44,11 +45,15 @@ def build(bitwig_root: Path, output: Path, jdk_bin: Path) -> None:
         patched_class = work / "BitwigStudioMain.patched.class"
         access_class = work / "DirectAccess.class"
         undo_class = work / "OpenwigUndo.class"
+        document_class = work / "oZU.class"
+        patched_document = work / "oZU.patched.class"
         with zipfile.ZipFile(source) as jar:
             original_class.write_bytes(jar.read(MAIN_CLASS))
+            document_class.write_bytes(jar.read(DOCUMENT_CLASS))
         subprocess.run([str(jdk_bin / "java"), "-cp", f"{classes};{libs}",
                         "com.openwig.bridge.PatchMain", str(original_class),
-                        str(patched_class), str(access_class), str(undo_class)], check=True)
+                        str(patched_class), str(access_class), str(undo_class),
+                        str(document_class), str(patched_document)], check=True)
         access_stub = HERE / "stubs" / "com" / "openwig" / "bridge" / "DirectAccess.java"
         subprocess.run([str(jdk_bin / "javac"), "-proc:none", "-cp", f"{classes};{libs}",
                         "-d", str(classes), str(bootstrap_source), str(access_stub)], check=True)
@@ -61,8 +66,9 @@ def build(bitwig_root: Path, output: Path, jdk_bin: Path) -> None:
         (classes / UNDO_CLASS).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(undo_class, classes / UNDO_CLASS)
         with zipfile.ZipFile(source) as original, zipfile.ZipFile(output, "w") as patched:
+            replaced = {MAIN_CLASS: patched_class, DOCUMENT_CLASS: patched_document}
             for item in original.infolist():
-                contents = (patched_class.read_bytes() if item.filename == MAIN_CLASS
+                contents = (replaced[item.filename].read_bytes() if item.filename in replaced
                             else original.read(item.filename))
                 patched.writestr(item, contents)
             patched.write(classes / BRIDGE_CLASS, BRIDGE_CLASS,

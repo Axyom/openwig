@@ -14,8 +14,9 @@ public final class PatchMain {
     private PatchMain() {}
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 4) {
-            throw new IllegalArgumentException("usage: PatchMain input.class output.class access.class undo.class");
+        if (args.length != 6) {
+            throw new IllegalArgumentException("usage: PatchMain input.class output.class access.class undo.class"
+                    + " document.class document.patched.class");
         }
         byte[] original = Files.readAllBytes(Path.of(args[0]));
         int major = ((original[6] & 0xff) << 8) | (original[7] & 0xff);
@@ -59,6 +60,61 @@ public final class PatchMain {
         Files.write(Path.of(args[1]), modified);
         Files.write(Path.of(args[2]), directAccess());
         Files.write(Path.of(args[3]), undoAccess());
+        Files.write(Path.of(args[5]), patchIntegrity(Files.readAllBytes(Path.of(args[4]))));
+    }
+
+    /**
+     * Bitwig's document class (oZU) opens its own JAR in a static initializer and the
+     * engine plays a tamper melody when that JAR is modified. Route the opened file
+     * through DirectAccess.integrityJar, which substitutes the untouched original kept
+     * next to the installed JAR. Only the File argument of that one constructor call
+     * changes: swap, invokestatic, swap leaves the stack depth and frames as they were.
+     */
+    private static byte[] patchIntegrity(byte[] original) {
+        int major = ((original[6] & 0xff) << 8) | (original[7] & 0xff);
+        if (major != 69) {
+            throw new IllegalArgumentException("expected Java 25 document class, found major " + major);
+        }
+        original[6] = 0;
+        original[7] = 65;
+        ClassReader reader = new ClassReader(original);
+        ClassWriter writer = new ClassWriter(reader, 0);
+        int[] patched = {0};
+        reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                MethodVisitor downstream = super.visitMethod(access, name, descriptor,
+                        signature, exceptions);
+                if (!name.equals("<clinit>")) {
+                    return downstream;
+                }
+                return new MethodVisitor(Opcodes.ASM9, downstream) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String name,
+                            String descriptor, boolean isInterface) {
+                        if (opcode == Opcodes.INVOKESPECIAL && owner.equals("java/io/RandomAccessFile")
+                                && name.equals("<init>")
+                                && descriptor.equals("(Ljava/io/File;Ljava/lang/String;)V")) {
+                            patched[0]++;
+                            super.visitInsn(Opcodes.SWAP);
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, "com/openwig/bridge/DirectAccess",
+                                    "integrityJar", "(Ljava/io/File;)Ljava/io/File;", false);
+                            super.visitInsn(Opcodes.SWAP);
+                        }
+                        super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
+                    }
+                };
+            }
+        }, 0);
+        if (patched[0] != 1) {
+            throw new IllegalStateException("expected one RandomAccessFile(File, String) in oZU.<clinit>, found "
+                    + patched[0]);
+        }
+        byte[] modified = writer.toByteArray();
+        modified[6] = 0;
+        modified[7] = 69;
+        return modified;
     }
 
     /**
@@ -707,6 +763,39 @@ public final class PatchMain {
         execute.visitInsn(Opcodes.ARETURN);
         execute.visitMaxs(0, 0);
         execute.visitEnd();
+        MethodVisitor integrity = writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "integrityJar", "(Ljava/io/File;)Ljava/io/File;", null, null);
+        integrity.visitCode();
+        Label integrityStart = new Label();
+        Label integrityEnd = new Label();
+        Label integrityFallback = new Label();
+        Label integrityCatch = new Label();
+        integrity.visitTryCatchBlock(integrityStart, integrityEnd, integrityCatch, "java/lang/Throwable");
+        integrity.visitLabel(integrityStart);
+        integrity.visitTypeInsn(Opcodes.NEW, "java/io/File");
+        integrity.visitInsn(Opcodes.DUP);
+        integrity.visitVarInsn(Opcodes.ALOAD, 0);
+        integrity.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/io/File", "getParentFile",
+                "()Ljava/io/File;", false);
+        integrity.visitLdcInsn("bitwig.jar.openwig-original-6.1.5");
+        integrity.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/io/File", "<init>",
+                "(Ljava/io/File;Ljava/lang/String;)V", false);
+        integrity.visitVarInsn(Opcodes.ASTORE, 1);
+        integrity.visitVarInsn(Opcodes.ALOAD, 1);
+        integrity.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/io/File", "isFile", "()Z", false);
+        integrity.visitJumpInsn(Opcodes.IFEQ, integrityFallback);
+        integrity.visitVarInsn(Opcodes.ALOAD, 1);
+        integrity.visitInsn(Opcodes.ARETURN);
+        integrity.visitLabel(integrityEnd);
+        integrity.visitLabel(integrityFallback);
+        integrity.visitVarInsn(Opcodes.ALOAD, 0);
+        integrity.visitInsn(Opcodes.ARETURN);
+        integrity.visitLabel(integrityCatch);
+        integrity.visitInsn(Opcodes.POP);
+        integrity.visitVarInsn(Opcodes.ALOAD, 0);
+        integrity.visitInsn(Opcodes.ARETURN);
+        integrity.visitMaxs(0, 0);
+        integrity.visitEnd();
         writer.visitEnd();
         return writer.toByteArray();
     }
