@@ -86,6 +86,11 @@ python java_bridge\build.py --output scratch\bitwig-6.1.5-openwig.jar
 python -m pytest tests\test_render.py
 ```
 
+`build.py --base PATH` patches another 6.1.5-compatible JAR instead of the
+stock one (for example a JAR rebuilt from recovered sources) and skips the
+stock SHA-256 check. The anti-tamper redirect still needs the stock JAR next to
+the installed one as `bitwig.jar.openwig-original-6.1.5`.
+
 `smoke.py` checks the JAR diff and the framed JSON-RPC protocol. For a live
 test, install into a separate copy of Bitwig and launch that copy. The live
 test passed on 2026-10-17: the bundled Java 25 runtime loaded the patch;
