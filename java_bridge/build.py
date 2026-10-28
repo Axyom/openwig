@@ -21,14 +21,16 @@ DOCUMENT_CLASS = "com/bitwig/flt/document/core/master/oZU.class"
 HERE = Path(__file__).resolve().parent
 
 
-def build(bitwig_root: Path, output: Path, jdk_bin: Path) -> None:
+def build(bitwig_root: Path, output: Path, jdk_bin: Path, base: Path | None = None) -> None:
     source = bitwig_root / "bin" / "bitwig.jar"
     backup = bitwig_root / "bin" / "bitwig.jar.openwig-original-6.1.5"
     if backup.exists() and hashlib.sha256(backup.read_bytes()).hexdigest() == ORIGINAL_SHA256:
         source = backup
+    if base is not None:
+        source = base
     libs = bitwig_root / "bin" / "libs.jar"
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
-    if digest != ORIGINAL_SHA256:
+    if base is None and digest != ORIGINAL_SHA256:
         raise ValueError(f"unsupported bitwig.jar SHA-256: {digest}")
     if output.resolve() == source.resolve():
         raise ValueError("output must not overwrite the installed JAR")
@@ -96,10 +98,13 @@ def main() -> None:
     parser.add_argument("--bitwig-root", type=Path,
                         default=Path(r"C:\Program Files\Bitwig Studio"))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--base", type=Path,
+                        help="patch this 6.1.5-compatible JAR (e.g. a recompiled one) instead of"
+                             " the stock JAR; skips the stock SHA-256 check")
     parser.add_argument("--jdk-bin", type=Path,
                         default=Path(r"C:\Program Files\Eclipse Adoptium\jdk-21.0.3.9-hotspot\bin"))
     args = parser.parse_args()
-    build(args.bitwig_root, args.output, args.jdk_bin)
+    build(args.bitwig_root, args.output, args.jdk_bin, args.base)
 
 
 if __name__ == "__main__":
