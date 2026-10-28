@@ -63,8 +63,13 @@ Tempo values use BPM. Native parameters also accept an explicit Bitwig Unit.
 The patch is locked to the Windows Bitwig Studio 6.1.5 build whose original
 `bin/bitwig.jar` has SHA-256
 `d56248d003101ead1381c8a4fd3e256d933773beccbeb3366c9abe744de41a49`.
-It modifies only `BitwigStudioMain.main` to call our bootstrap and adds five
-classes. The direct adapter makes JVM calls to the exact-build Bitwig
+It modifies `BitwigStudioMain.main` to call our bootstrap and adds five
+classes. It also patches the document class `oZU`, whose static initializer
+opens Bitwig's own JAR for an integrity check (a modified JAR makes the engine
+play a tamper melody): the opened file goes through
+`DirectAccess.integrityJar`, which returns the untouched
+`bitwig.jar.openwig-original-6.1.5` that `install.py` keeps next to the
+installed JAR, or the JAR itself when that copy is missing. The direct adapter makes JVM calls to the exact-build Bitwig
 document API. Parameter path discovery uses reflection on the exact-build
 native model's read-only child and identifier methods; parameter reads and
 writes use Bitwig's document API. Clip insertion starts and closes a
