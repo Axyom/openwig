@@ -4190,17 +4190,12 @@ public final class OpenwigDocument {
                     if (method.equals("device.grid_read")) yield readGrid((NativeDevice) device);
                     if (method.equals("device.chain_banks")) yield new JSONObject().put("banks", chainBanks(owner));
                     if (method.equals("device.create_layer")) {
-                        Object bank = deviceComponent(owner, params.getString("component"), com.bitwig.flt.document.core.master.device.KFW.class);
+                        KFW bank = (KFW) deviceComponent(owner, params.getString("component"), KFW.class);
                         Object[] created = new Object[1];
-                        DirectAccess.runInUndo(targetTrack.clipTimeline(), () -> {
-                            try {
-                                Object wrapper = com.bitwig.flt.document.api.document.ApiParallelNestedDeviceChainContainer.class
-                                        .getConstructor(com.bitwig.flt.document.core.master.device.KFW.class).newInstance(bank);
-                                created[0] = ((ApiObject) wrapper.getClass().getMethod("createChain").invoke(wrapper)).getTarget();
-                            } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native layer creation failed", failure); }
-                        });
+                        DirectAccess.runInUndo(targetTrack.clipTimeline(), () -> created[0] = ((ApiObject)
+                                new com.bitwig.flt.document.api.document.ApiParallelNestedDeviceChainContainer(bank).createChain()).getTarget());
                         yield new JSONObject().put("component", automationIdentifier(owner, created[0]))
-                                .put("count", ((java.util.List<?>) modelGet(bank, "NFl")).size());
+                                .put("count", bank.LYs().size());
                     }
                     yield readDevice(device, index, path, routingContext(project), deviceOwners(project), atomOwnerIndex(project));
                 }
@@ -4235,21 +4230,12 @@ public final class OpenwigDocument {
                     try {
                         java.nio.file.Files.createDirectories(file.getParentFile().toPath());
                         java.nio.file.Files.createFile(file.toPath());
-                        Class<?> callbackType = com.bitwig.base.async.Pv.class;
-                        Object callback = java.lang.reflect.Proxy.newProxyInstance(callbackType.getClassLoader(), new Class<?>[]{callbackType}, (proxy, call, args) -> {
-                            if (call.getName().equals("taskCompleted") || (call.getName().equals("IYM") && call.getParameterTypes()[0] == Object.class))
-                                status.put("state", "complete").put("bytes", file.length());
-                            else if (call.getName().equals("IYM") && args != null && args.length == 1)
-                                status.put("state", "failed").put("error", String.valueOf(args[0]));
-                            else if (call.getName().equals("hashCode")) return System.identityHashCode(proxy);
-                            else if (call.getName().equals("equals")) return proxy == args[0];
-                            else if (call.getName().equals("toString")) return "OpenwigPluginStateExport";
-                            return null;
-                        });
+                        Pv callback = new NativeCallback(status,
+                                () -> status.put("state", "complete").put("bytes", file.length()), "OpenwigPluginStateExport");
                         pluginStateJobs.put(job, status);
-                        Object holder = modelGet(((ApiObject) devices.get(index)).getTarget(), "Oof");
-                        holder.getClass().getMethod("IYM", java.io.File.class, callbackType).invoke(holder, file, callback);
-                    } catch (ReflectiveOperationException | java.io.IOException failure) {
+                        R1c holder = ((Mv) ((ApiObject) devices.get(index)).getTarget()).dcC(); // the plugin instance holder
+                        holder.beI(file, callback); // export the plugin state to a file
+                    } catch (java.io.IOException failure) {
                         status.put("state", "failed").put("error", failure.toString());
                         throw new IllegalStateException("plugin state export failed", failure);
                     }
@@ -4260,14 +4246,13 @@ public final class OpenwigDocument {
                     java.util.List<?> devices = targetTrack.deviceChain().getDevices();
                     if (index < 0 || index >= devices.size() || !(devices.get(index) instanceof PluginDevice))
                         throw new IllegalArgumentException("plugin device index required");
-                    Object holder = modelGet(((ApiObject) devices.get(index)).getTarget(), "Oof");
+                    R1c holder = ((Mv) ((ApiObject) devices.get(index)).getTarget()).dcC(); // the plugin instance holder
                     java.util.Map<String, DoubleParameter> available = new java.util.HashMap<>();
-                    try {
-                        java.lang.reflect.Constructor<?> wrapper = com.bitwig.flt.document.api.document.ApiPluginDeviceParameterAtom.class
-                                .getConstructor(com.bitwig.flt.document.core.master.device.ogX.class);
-                        for (Object atom : (java.util.List<?>) modelGet(holder, "HT3"))
-                            available.put(String.valueOf(modelGet(atom, "KF3")), (DoubleParameter) wrapper.newInstance(atom));
-                    } catch (ReflectiveOperationException failure) { throw new IllegalStateException("plugin parameter wrapper failed", failure); }
+                    for (Object item : holder.af()) { // the plugin's cached parameters
+                        ogX atom = (ogX) item;
+                        available.put(String.valueOf(atom.unz()),
+                                (DoubleParameter) new com.bitwig.flt.document.api.document.ApiPluginDeviceParameterAtom(atom));
+                    }
                     JSONObject changes = params.optJSONObject("values");
                     if (changes != null) {
                         if (!((CmH) project.getTarget()).unz() || !((CmH) project.getTarget()).baq())
@@ -4287,8 +4272,8 @@ public final class OpenwigDocument {
                     for (String id : available.keySet()) {
                         values.put(id, available.get(id).getValue(Unit.PERCENTAGE_OF_RANGE) / 100);
                     }
-                    yield new JSONObject().put("values", values).put("state_dirty", modelGet(holder, "dJV"))
-                            .put("load_state", ((Enum<?>) modelGet(holder, "NFl")).name())
+                    yield new JSONObject().put("values", values).put("state_dirty", holder.wYd())
+                            .put("load_state", ((Enum<?>) (Object) holder.LYs()).name())
                             .put("available", !available.isEmpty());
                 }
                 case "device.insert_plugin" -> {
@@ -4307,12 +4292,8 @@ public final class OpenwigDocument {
                             int role = switch (params.getString("role")) {
                                 case "audioFX" -> 0; case "noteFX" -> 1; case "instrument" -> 2; case "analyzer" -> 3;
                                 default -> throw new IllegalArgumentException("unknown device role " + params.getString("role")); };
-                            try {
-                                Object descriptor = vst2.getClass().getMethod("getTarget").invoke(vst2);
-                                Class<?> roleType = bitwig.obf.PYf.class;
-                                descriptor.getClass().getMethod("IYM", roleType)
-                                        .invoke(descriptor, roleType.getMethod("IYM", int.class).invoke(null, role));
-                            } catch (ReflectiveOperationException failure) { throw new IllegalStateException("VST2 role failed", failure); }
+                            bitwig.obf.ztI descriptor = (bitwig.obf.ztI) ((ApiObject) vst2).getTarget(); // the preset's plugin descriptor
+                            descriptor.beI(bitwig.obf.PYf.beI(role)); // its device role
                         }
                         if (params.has("state")) {
                             java.io.File source = new java.io.File(params.getString("state"));
