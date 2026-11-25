@@ -37,6 +37,9 @@ import com.bitwig.flt.document.api.document.ApiObject;
 import com.bitwig.flt.document.core.master.GJy; // the project's effect track group
 import com.bitwig.flt.document.core.master.sJU; // a track item of a track group
 import com.bitwig.flt.document.core.master.CmH; // a project document
+import bitwig.obf.aCG; // an open project tab
+import com.bitwig.flt.app.gEH; // the application
+import com.bitwig.flt.document.core.master.TzU; // a document with a file
 import bitwig.obf.Ae2; // a parameter model that can be automated
 import bitwig.obf.BrN; // an automation lane's list of points
 import bitwig.obf.QQZ; // an automation lane
@@ -92,51 +95,40 @@ public final class OpenwigDocument {
     private OpenwigDocument() {}
 
     public static Object currentDocument() {
-        try {
-            Object app = classForName("com.bitwig.flt.app.eY1").getMethod("ncg").invoke(null);
-            Object selected = app == null ? null : modelGet(modelGet(app, "kxC"), "WEC");
-            if (selected == null) throw new IllegalStateException("no selected Bitwig project");
-            return modelGet(selected, "wtf");
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("cannot resolve selected Bitwig project", failure);
-        }
+        gEH app = gEH.xw3();
+        aCG selected = app == null ? null : app.cCV().Hqm(); // the project tab selection, its selected tab
+        if (selected == null) throw new IllegalStateException("no selected Bitwig project");
+        return selected.Anf(); // the tab's document
     }
 
     private static JSONObject documentInfo() {
-        Object raw = currentDocument();
-        return new JSONObject().put("path", modelGet(raw, "BEq"))
-                .put("directory", modelGet(raw, "UBi")).put("name", modelGet(raw, "IT3"));
+        TzU raw = (TzU) currentDocument();
+        return new JSONObject().put("path", raw.iEE())               // project file path
+                .put("directory", raw.ckt()).put("name", raw.odI()); // its folder, its name
     }
 
     private static JSONObject listDocuments() {
-        try {
-            Object app = classForName("com.bitwig.flt.app.eY1").getMethod("ncg").invoke(null);
-            JSONArray result = new JSONArray();
-            for (Object tab : (java.util.List<?>) modelGet(modelGet(app, "Lg"), "getValue")) {
-                Object raw = modelGet(tab, "wtf");
-                if (!(raw instanceof CmH)) continue;
-                ApiProject api = new ApiProject((CmH) raw);
-                try {
-                    result.put(new JSONObject().put("path", modelGet(raw, "BEq"))
-                            .put("name", modelGet(raw, "IT3"))
-                            .put("main_tracks", api.getTrackGroup().mainTracks().size()));
-                } finally { api.dispose(); }
-            }
-            return new JSONObject().put("documents", result);
-        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("cannot list projects", failure); }
+        JSONArray result = new JSONArray();
+        for (Object tab : (java.util.List<?>) gEH.xw3().VNw().getValue()) { // the open project tabs
+            Object raw = ((aCG) tab).Anf();
+            if (!(raw instanceof CmH document)) continue;
+            ApiProject api = new ApiProject(document);
+            try {
+                result.put(new JSONObject().put("path", document.iEE())
+                        .put("name", document.odI())
+                        .put("main_tracks", api.getTrackGroup().mainTracks().size()));
+            } finally { api.dispose(); }
+        }
+        return new JSONObject().put("documents", result);
     }
 
     private static JSONObject selectDocument(String path) {
         if (path == null || path.isBlank()) throw new IllegalArgumentException("open project path is required");
-        try {
-            Object app = classForName("com.bitwig.flt.app.eY1").getMethod("ncg").invoke(null);
-            Object tab = app.getClass().getMethod("Trh", java.io.File.class)
-                    .invoke(app, new java.io.File(path).getAbsoluteFile());
-            if (tab == null) throw new IllegalArgumentException("project is not open: " + path);
-            Object selection = modelGet(app, "kxC");
-            selection.getClass().getMethod("jPB", classForName("aBx")).invoke(selection, tab);
-            return documentInfo();
-        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("cannot select project", failure); }
+        gEH app = gEH.xw3();
+        aCG tab = app.ymo(new java.io.File(path).getAbsoluteFile()); // the open tab of that project file
+        if (tab == null) throw new IllegalArgumentException("project is not open: " + path);
+        app.cCV().Gef(tab); // select it
+        return documentInfo();
     }
 
     // Native open/close run asynchronously; callers poll document.job_status.
