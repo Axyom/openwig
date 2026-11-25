@@ -1256,28 +1256,6 @@ public final class OpenwigDocument {
         return null;
     }
 
-    private static Object modelGetOrNull(Object target, String method) {
-        if (target == null) return null;
-        try {
-            java.lang.reflect.Method getter = target.getClass().getMethod(method);
-            getter.setAccessible(true);
-            return getter.invoke(target);
-        } catch (ReflectiveOperationException absent) {
-            return null;
-        }
-    }
-
-    private static Object modelGet(Object target, String method) {
-        if (target == null) return null;
-        try {
-            java.lang.reflect.Method getter = target.getClass().getMethod(method);
-            getter.setAccessible(true);
-            return getter.invoke(target);
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("model getter " + target.getClass().getName() + "." + method, failure);
-        }
-    }
-
     private static Track resolveTrack(ApiProject project, JSONObject params) {
         if (params != null && !params.optString("path", "").isBlank()) {
             return view(resolve(project, params.getString("path")));
@@ -1342,6 +1320,8 @@ public final class OpenwigDocument {
             chain = wrapDeviceChain(stored);
         }
         DeviceChain selected = chain;
+        // Reflection kept: a dynamic proxy of the public Track interface (no Bitwig-internal
+        // names) that answers deviceChain() with the nested chain and forwards everything else.
         return (Track) java.lang.reflect.Proxy.newProxyInstance(Track.class.getClassLoader(), new Class<?>[]{Track.class}, (proxy, method, args) -> {
             if (method.getName().equals("deviceChain") && method.getParameterCount() == 0) return selected;
             try { return method.invoke(track, args); }
@@ -3117,24 +3097,9 @@ public final class OpenwigDocument {
         }
     }
 
+    /** ApiObject's own model-edit wrapper (protected in Bitwig; Patchbay opens it for the mod). */
     private static void modifyModel(ApiObject owner, Runnable action) {
-        try {
-            java.lang.reflect.Method modify = ApiObject.class.getDeclaredMethod("modify", Runnable.class);
-            modify.setAccessible(true);
-            modify.invoke(owner, action);
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("model modification wrapper failed", failure);
-        }
-    }
-
-    private static void invokeModelSetter(Object target, String method, Class<?> paramType, Object arg) {
-        try {
-            java.lang.reflect.Method setter = target.getClass().getMethod(method, paramType);
-            setter.setAccessible(true);
-            setter.invoke(target, arg);
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("model setter " + target.getClass().getName() + "." + method, failure);
-        }
+        owner.modify(action);
     }
 
     private static Color parseColor(JSONObject params) {
@@ -3333,10 +3298,8 @@ public final class OpenwigDocument {
             case "post_fx_notes" -> track.postFxNotes();
             case "pre_fx" -> track.deviceChain().preFx();
             case "" -> {
-                try {
-                    java.lang.reflect.Constructor<?> wrapper = com.bitwig.flt.document.api.document.ApiSource.class.getConstructors()[0];
-                    yield wrapper.newInstance(((ApiObject) track).getTarget());
-                } catch (ReflectiveOperationException failure) { throw new IllegalArgumentException("track is not a source", failure); }
+                if (!(((ApiObject) track).getTarget() instanceof bitwig.obf.wtA routable)) throw new IllegalArgumentException("track is not a source");
+                yield new com.bitwig.flt.document.api.document.ApiSource(routable); // the track itself as a routing source
             }
             default -> throw new IllegalArgumentException("unknown source tap: " + tap);
         };
@@ -3467,6 +3430,7 @@ public final class OpenwigDocument {
     // (Fyn), a multisample (da with TTF zones), a sliced sample (iyv) or nothing.
 
     // Values of public no-argument getters returning simple types (debugging aid).
+    // Reflection kept: it lists whatever getters the object has, so no names are written here.
     private static JSONObject describeGetters(Object target) {
         JSONObject out = new JSONObject();
         if (target == null) return out.put("null", true);
@@ -3488,22 +3452,6 @@ public final class OpenwigDocument {
     private static Clip clipEventWrapper(boolean audio, Object raw) {
         return audio ? new com.bitwig.flt.document.api.document.ApiAudioNoteClipEvent((bitwig.obf.DyF) raw)
                 : new com.bitwig.flt.document.api.document.ApiInstrumentNoteClipEvent((bitwig.obf.DrA) raw);
-    }
-
-    private static Object callApi(Object target, String method, Object... args) {
-        for (java.lang.reflect.Method m : target.getClass().getMethods()) {
-            if (!m.getName().equals(method) || m.getParameterCount() != args.length) continue;
-            boolean fits = true;
-            Class<?>[] types = m.getParameterTypes();
-            for (int i = 0; i < args.length && fits; i++) {
-                Class<?> type = types[i].isPrimitive() ? java.lang.invoke.MethodType.methodType(types[i]).wrap().returnType() : types[i];
-                fits = args[i] == null ? !types[i].isPrimitive() : type.isInstance(args[i]);
-            }
-            if (!fits) continue;
-            try { m.setAccessible(true); return m.invoke(target, args); }
-            catch (ReflectiveOperationException failure) { throw new IllegalStateException(method + " failed", failure); }
-        }
-        throw new IllegalArgumentException("no method " + method + "/" + args.length + " on " + target.getClass().getName());
     }
 
     private static java.util.List<Object> samplerResources(Object owner) {
@@ -5562,29 +5510,21 @@ public final class OpenwigDocument {
             com.bitwig.dawproject.Project daw;
             MetaData meta = null;
             try {
-                java.lang.reflect.Method loadProject = DawProject.class.getMethod("loadProject", java.io.File.class);
-                daw = (com.bitwig.dawproject.Project) loadProject.invoke(null, file);
+                daw = DawProject.loadProject(file);
                 try {
-                    java.lang.reflect.Method loadMeta = DawProject.class.getMethod("loadMetadata", java.io.File.class);
-                    meta = (MetaData) loadMeta.invoke(null, file);
+                    meta = DawProject.loadMetadata(file);
                 } catch (Throwable ignored) {
                     // Optional metadata.xml inside archive.
                 }
-            } catch (ReflectiveOperationException failure) {
+            } catch (java.io.IOException failure) {
                 throw new IllegalStateException("dawproject load failed", failure);
-            }
-            java.lang.reflect.Method loadEmbedded;
-            try {
-                loadEmbedded = DawProject.class.getMethod("loadEmbedded", java.io.File.class, String.class);
-            } catch (ReflectiveOperationException failure) {
-                throw new IllegalStateException("dawproject loadEmbedded lookup failed", failure);
             }
             java.util.function.Function<Object, Object> streamProvider = entryPath -> {
                 if (entryPath == null) return null;
                 String rel = entryPath.toString();
                 if (rel.startsWith("/")) rel = rel.substring(1);
                 try {
-                    byte[] bytes = (byte[]) loadEmbedded.invoke(null, file, rel);
+                    byte[] bytes = DawProject.loadEmbedded(file, rel);
                     return bytes == null ? null : new java.io.ByteArrayInputStream(bytes);
                 } catch (Throwable absent) {
                     java.io.File external = new java.io.File(file.getParentFile(), rel);
@@ -5598,34 +5538,14 @@ public final class OpenwigDocument {
                     return null;
                 }
             };
-            try {
-                Class<?> importerClass = com.bitwig.flt.document.api.document.ApiDawProjectImporter.class;
-                java.lang.reflect.Constructor<?> ctor = importerClass.getConstructor(
-                        com.bitwig.flt.document.core.master.CmH.class,
-                        com.bitwig.dawproject.Project.class,
-                        java.util.function.Function.class,
-                        java.io.File.class);
-                Object importer = ctor.newInstance(project.getTarget(), daw, streamProvider, file.getParentFile());
-                java.lang.reflect.Method phase1 = importerClass.getMethod("convertPhase1");
-                java.lang.reflect.Method phase2 = importerClass.getMethod("convertPhase2");
+            {
+                @SuppressWarnings({"unchecked", "rawtypes"})
+                com.bitwig.flt.document.api.document.ApiDawProjectImporter importer = new com.bitwig.flt.document.api.document.ApiDawProjectImporter(
+                        (CmH) project.getTarget(), daw, (java.util.function.Function) streamProvider, file.getParentFile());
                 DirectAccess.runInUndo(project, () -> {
-                    modifyModel(project, () -> {
-                        try {
-                            phase1.invoke(importer);
-                        } catch (ReflectiveOperationException e) {
-                            throw new IllegalStateException("dawproject convertPhase1 failed", e);
-                        }
-                    });
-                    modifyModel(project, () -> {
-                        try {
-                            phase2.invoke(importer);
-                        } catch (ReflectiveOperationException e) {
-                            throw new IllegalStateException("dawproject convertPhase2 failed", e);
-                        }
-                    });
+                    modifyModel(project, importer::convertPhase1);
+                    modifyModel(project, importer::convertPhase2);
                 });
-            } catch (ReflectiveOperationException failure) {
-                throw new IllegalStateException("dawproject importer invocation failed", failure);
             }
             if (meta != null) {
                 if (meta.title != null) project.setMetadataText(ProjectMetadata.TITLE, meta.title);
