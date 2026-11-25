@@ -1,0 +1,425 @@
+C	AzF
+C	F
+C	GUX
+C	HWV
+C	Kwn
+C	Ob
+C	Olb
+C	SsT
+C	W2C
+C	Yos
+C	aB
+C	aBx
+C	com/bitwig/dawproject/DawProject
+C	com/bitwig/dawproject/MetaData
+C	com/bitwig/dawproject/Project
+C	com/bitwig/extension/api/Color
+C	com/bitwig/extension/api/project/Factory
+C	com/bitwig/extension/api/project/ProjectMetadata
+C	com/bitwig/extension/api/project/Scene
+C	com/bitwig/extension/api/project/Titled
+C	com/bitwig/extension/api/project/Transport
+C	com/bitwig/extension/api/project/file/SampleReference
+C	com/bitwig/extension/api/project/mixer/Device
+C	com/bitwig/extension/api/project/mixer/DeviceChain
+C	com/bitwig/extension/api/project/mixer/Mixer
+C	com/bitwig/extension/api/project/mixer/NativeDevice
+C	com/bitwig/extension/api/project/mixer/PluginDevice
+C	com/bitwig/extension/api/project/mixer/PluginPreset
+C	com/bitwig/extension/api/project/mixer/PluginStateID
+C	com/bitwig/extension/api/project/mixer/Send
+C	com/bitwig/extension/api/project/mixer/SendMode
+C	com/bitwig/extension/api/project/mixer/Vst2Device
+C	com/bitwig/extension/api/project/mixer/Vst3Device
+C	com/bitwig/extension/api/project/parameter/AutomationEvents
+C	com/bitwig/extension/api/project/parameter/BooleanParameter
+C	com/bitwig/extension/api/project/parameter/DoubleParameter
+C	com/bitwig/extension/api/project/parameter/EnumParameter
+C	com/bitwig/extension/api/project/parameter/Parameter
+C	com/bitwig/extension/api/project/parameter/Unit
+C	com/bitwig/extension/api/project/routing/Destination
+C	com/bitwig/extension/api/project/routing/DestinationSelector
+C	com/bitwig/extension/api/project/routing/Source
+C	com/bitwig/extension/api/project/routing/SourceSelector
+C	com/bitwig/extension/api/project/timeline/AudioClip
+C	com/bitwig/extension/api/project/timeline/AudioNote
+C	com/bitwig/extension/api/project/timeline/Clip
+C	com/bitwig/extension/api/project/timeline/ClipContent
+C	com/bitwig/extension/api/project/timeline/ClipSlot
+C	com/bitwig/extension/api/project/timeline/ClipTimeline
+C	com/bitwig/extension/api/project/timeline/CueMarker
+C	com/bitwig/extension/api/project/timeline/CueMarkers
+C	com/bitwig/extension/api/project/timeline/EventTimeline
+C	com/bitwig/extension/api/project/timeline/InstrumentNote
+C	com/bitwig/extension/api/project/timeline/Note
+C	com/bitwig/extension/api/project/timeline/NoteClip
+C	com/bitwig/extension/api/project/timeline/NoteExpression
+C	com/bitwig/extension/api/project/timeline/PreserveTransientsMode
+C	com/bitwig/extension/api/project/timeline/TimeSignature
+C	com/bitwig/extension/api/project/timeline/TransientRate
+C	com/bitwig/extension/api/project/timeline/WarpGrainSize
+C	com/bitwig/extension/api/project/timeline/WarpMarker
+C	com/bitwig/extension/api/project/timeline/WarpMarkers
+C	com/bitwig/extension/api/project/timeline/WarpMode
+C	com/bitwig/extension/api/project/timeline/WarpTailMode
+C	com/bitwig/extension/api/project/track/MonitorMode
+C	com/bitwig/extension/api/project/track/Track
+C	com/bitwig/extension/api/project/track/TrackGroup
+C	com/bitwig/extension/api/project/track/TrackOrTrackGroup
+C	com/bitwig/extension/api/project/track/TrackType
+C	com/bitwig/flt/app/eY1
+C	com/bitwig/flt/document/api/document/ApiDevice
+C	com/bitwig/flt/document/api/document/ApiDeviceChain
+C	com/bitwig/flt/document/api/document/ApiObject
+C	com/bitwig/flt/document/api/document/ApiProject
+C	com/bitwig/flt/document/api/document/ApiTransport
+C	com/bitwig/flt/document/core/iface/IPw
+C	com/bitwig/flt/document/core/master/Kkl
+C	com/bitwig/flt/document/core/master/Yko
+C	com/bitwig/flt/document/core/master/device/Wcl
+C	com/bitwig/flt/document/core/master/device/Wju
+C	com/bitwig/flt/document/core/master/oZU
+C	com/bitwig/flt/packaging/core/MD
+C	com/bitwig/ramona/core/TWT
+C	com/bitwig/ramona/core/cq
+C	com/bitwig/ramona/core/mfE
+C	jmN
+C	m1C
+C	roo
+F	HWV	IYM	LHWV;
+F	HWV	jPB	LHWV;
+F	com/bitwig/dawproject/MetaData	album	Ljava/lang/String;
+F	com/bitwig/dawproject/MetaData	artist	Ljava/lang/String;
+F	com/bitwig/dawproject/MetaData	comment	Ljava/lang/String;
+F	com/bitwig/dawproject/MetaData	copyright	Ljava/lang/String;
+F	com/bitwig/dawproject/MetaData	genre	Ljava/lang/String;
+F	com/bitwig/dawproject/MetaData	originalArtist	Ljava/lang/String;
+F	com/bitwig/dawproject/MetaData	producer	Ljava/lang/String;
+F	com/bitwig/dawproject/MetaData	songwriter	Ljava/lang/String;
+F	com/bitwig/dawproject/MetaData	title	Ljava/lang/String;
+F	com/bitwig/dawproject/MetaData	year	Ljava/lang/String;
+F	com/bitwig/extension/api/project/ProjectMetadata	ALBUM	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/ProjectMetadata	ARTIST	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/ProjectMetadata	COMMENT	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/ProjectMetadata	COPYRIGHT	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/ProjectMetadata	GENRE	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/ProjectMetadata	ORIGINAL_ARTIST	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/ProjectMetadata	PRODUCER	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/ProjectMetadata	TITLE	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/ProjectMetadata	WRITER	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/ProjectMetadata	YEAR	Lcom/bitwig/extension/api/project/ProjectMetadata;
+F	com/bitwig/extension/api/project/parameter/Unit	BPM	Lcom/bitwig/extension/api/project/parameter/Unit;
+F	com/bitwig/extension/api/project/parameter/Unit	DECIBEL	Lcom/bitwig/extension/api/project/parameter/Unit;
+F	com/bitwig/extension/api/project/parameter/Unit	PERCENTAGE_OF_RANGE	Lcom/bitwig/extension/api/project/parameter/Unit;
+F	com/bitwig/extension/api/project/parameter/Unit	RATIO	Lcom/bitwig/extension/api/project/parameter/Unit;
+F	com/bitwig/extension/api/project/parameter/Unit	SEMITONES	Lcom/bitwig/extension/api/project/parameter/Unit;
+F	com/bitwig/extension/api/project/timeline/WarpMode	RAW	Lcom/bitwig/extension/api/project/timeline/WarpMode;
+F	com/bitwig/extension/api/project/track/MonitorMode	AUTO	Lcom/bitwig/extension/api/project/track/MonitorMode;
+F	com/bitwig/extension/api/project/track/MonitorMode	OFF	Lcom/bitwig/extension/api/project/track/MonitorMode;
+F	com/bitwig/extension/api/project/track/MonitorMode	ON	Lcom/bitwig/extension/api/project/track/MonitorMode;
+M	AzF	Ihe	()Lcom/bitwig/ramona/core/TWT;
+M	F	getValue	()Ljava/lang/Object;
+M	GUX	AOA	()LHWV;
+M	GUX	IYM	()D
+M	GUX	IYM	(D)V
+M	GUX	IYM	(LHWV;)V
+M	GUX	dT_	()D
+M	GUX	jPB	(D)V
+M	GUX	tS	()D
+M	Kwn	Jxd	()Lcom/bitwig/ramona/core/mfE;
+M	Kwn	Kkj	()Lcom/bitwig/ramona/core/mfE;
+M	Ob	ViH	()LaB;
+M	Olb	IYM	()Ljava/util/List;
+M	Olb	W1k	()V
+M	SsT	CZR	()Z
+M	SsT	Qcu	(D)V
+M	SsT	UqY	()LYos;
+M	SsT	ed_	()V
+M	SsT	sXx	()Lcom/bitwig/ramona/core/mfE;
+M	SsT	v1D	()V
+M	SsT	xeZ	(D)D
+M	W2C	oLP	()LjmN;
+M	Yos	IYM	(Z)V
+M	Yos	MnS	()LKwn;
+M	Yos	SOE	()Z
+M	aB	IYM	(D)D
+M	aB	jPB	(D)D
+M	aBx	wtf	()Lcom/bitwig/flt/document/core/iface/IPw;
+M	com/bitwig/dawproject/DawProject	save	(Lcom/bitwig/dawproject/Project;Lcom/bitwig/dawproject/MetaData;Ljava/util/Map;Ljava/io/File;)V
+M	com/bitwig/dawproject/MetaData	<init>	()V
+M	com/bitwig/extension/api/Color	fromRGB	(DDD)Lcom/bitwig/extension/api/Color;
+M	com/bitwig/extension/api/Color	fromRGBA	(DDDD)Lcom/bitwig/extension/api/Color;
+M	com/bitwig/extension/api/Color	toHex	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/Factory	createAudioClip	(Z)Lcom/bitwig/extension/api/project/timeline/AudioClip;
+M	com/bitwig/extension/api/project/Factory	createAudioNote	(DDLcom/bitwig/extension/api/project/file/SampleReference;)Lcom/bitwig/extension/api/project/timeline/AudioNote;
+M	com/bitwig/extension/api/project/Factory	createAudioTrack	()Lcom/bitwig/extension/api/project/track/Track;
+M	com/bitwig/extension/api/project/Factory	createBooleanAutomationEvents	()Lcom/bitwig/extension/api/project/parameter/AutomationEvents;
+M	com/bitwig/extension/api/project/Factory	createCueMarker	(D)Lcom/bitwig/extension/api/project/timeline/CueMarker;
+M	com/bitwig/extension/api/project/Factory	createDoubleAutomationEvents	(Lcom/bitwig/extension/api/project/parameter/Unit;)Lcom/bitwig/extension/api/project/parameter/AutomationEvents;
+M	com/bitwig/extension/api/project/Factory	createHybridTrack	()Lcom/bitwig/extension/api/project/track/Track;
+M	com/bitwig/extension/api/project/Factory	createInstrumentNote	(IIDDDD)Lcom/bitwig/extension/api/project/timeline/InstrumentNote;
+M	com/bitwig/extension/api/project/Factory	createInstrumentTrack	()Lcom/bitwig/extension/api/project/track/Track;
+M	com/bitwig/extension/api/project/Factory	createIntegerAutomationEvents	()Lcom/bitwig/extension/api/project/parameter/AutomationEvents;
+M	com/bitwig/extension/api/project/Factory	createNativeDevice	(Ljava/util/UUID;)Lcom/bitwig/extension/api/project/mixer/NativeDevice;
+M	com/bitwig/extension/api/project/Factory	createNoteClip	(Z)Lcom/bitwig/extension/api/project/timeline/NoteClip;
+M	com/bitwig/extension/api/project/Factory	createPluginStateID	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/mixer/PluginStateID;
+M	com/bitwig/extension/api/project/Factory	createPluginStateOutput	(Lcom/bitwig/extension/api/project/mixer/PluginStateID;)Ljava/io/OutputStream;
+M	com/bitwig/extension/api/project/Factory	createSampleReferenceForLocalFile	(Ljava/io/File;)Lcom/bitwig/extension/api/project/file/SampleReference;
+M	com/bitwig/extension/api/project/Factory	createTimeSignature	(III)Lcom/bitwig/extension/api/project/timeline/TimeSignature;
+M	com/bitwig/extension/api/project/Factory	createTrackGroup	()Lcom/bitwig/extension/api/project/track/TrackGroup;
+M	com/bitwig/extension/api/project/Factory	createVst2DevicePreset	(Ljava/lang/String;II)Lcom/bitwig/extension/api/project/mixer/PluginPreset;
+M	com/bitwig/extension/api/project/Factory	createVst3DevicePreset	(Ljava/lang/String;[B)Lcom/bitwig/extension/api/project/mixer/PluginPreset;
+M	com/bitwig/extension/api/project/Factory	createVst3DevicePreset	(Ljava/lang/String;[BI)Lcom/bitwig/extension/api/project/mixer/PluginPreset;
+M	com/bitwig/extension/api/project/Factory	createWarpEvents	()Lcom/bitwig/extension/api/project/timeline/WarpMarkers;
+M	com/bitwig/extension/api/project/ProjectMetadata	name	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/ProjectMetadata	valueOf	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/ProjectMetadata;
+M	com/bitwig/extension/api/project/ProjectMetadata	values	()[Lcom/bitwig/extension/api/project/ProjectMetadata;
+M	com/bitwig/extension/api/project/Scene	getColor	()Lcom/bitwig/extension/api/Color;
+M	com/bitwig/extension/api/project/Scene	getTitle	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/Scene	setColor	(Lcom/bitwig/extension/api/Color;)V
+M	com/bitwig/extension/api/project/Scene	setTitle	(Ljava/lang/String;)V
+M	com/bitwig/extension/api/project/Titled	setTitle	(Ljava/lang/String;)V
+M	com/bitwig/extension/api/project/Transport	getAccentAmount	()Lcom/bitwig/extension/api/project/parameter/DoubleParameter;
+M	com/bitwig/extension/api/project/Transport	getAccentPhase	()Lcom/bitwig/extension/api/project/parameter/DoubleParameter;
+M	com/bitwig/extension/api/project/Transport	getEnableGroove	()Lcom/bitwig/extension/api/project/parameter/BooleanParameter;
+M	com/bitwig/extension/api/project/Transport	getShuffleAmount	()Lcom/bitwig/extension/api/project/parameter/DoubleParameter;
+M	com/bitwig/extension/api/project/Transport	getTempo	()Lcom/bitwig/extension/api/project/parameter/DoubleParameter;
+M	com/bitwig/extension/api/project/Transport	getTimeSignature	()Lcom/bitwig/extension/api/project/timeline/TimeSignature;
+M	com/bitwig/extension/api/project/Transport	setTimeSignature	(Lcom/bitwig/extension/api/project/timeline/TimeSignature;)V
+M	com/bitwig/extension/api/project/file/SampleReference	getChannelCount	()I
+M	com/bitwig/extension/api/project/file/SampleReference	getDurationInSeconds	()D
+M	com/bitwig/extension/api/project/file/SampleReference	getSampleRate	()I
+M	com/bitwig/extension/api/project/mixer/Device	getActive	()Z
+M	com/bitwig/extension/api/project/mixer/Device	getDisplayName	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/mixer/Device	getEnabled	()Lcom/bitwig/extension/api/project/parameter/BooleanParameter;
+M	com/bitwig/extension/api/project/mixer/Device	setActive	(Z)V
+M	com/bitwig/extension/api/project/mixer/Device	setDisplayName	(Ljava/lang/String;)V
+M	com/bitwig/extension/api/project/mixer/Device	setIsExpanded	(Z)V
+M	com/bitwig/extension/api/project/mixer/DeviceChain	addDevice	(Lcom/bitwig/extension/api/project/mixer/Device;)V
+M	com/bitwig/extension/api/project/mixer/DeviceChain	getDevices	()Ljava/util/List;
+M	com/bitwig/extension/api/project/mixer/DeviceChain	preFx	()Lcom/bitwig/extension/api/project/routing/AudioSource;
+M	com/bitwig/extension/api/project/mixer/Mixer	getCrossfadeMode	()Lcom/bitwig/extension/api/project/parameter/EnumParameter;
+M	com/bitwig/extension/api/project/mixer/Mixer	getMute	()Lcom/bitwig/extension/api/project/parameter/BooleanParameter;
+M	com/bitwig/extension/api/project/mixer/Mixer	getPan	()Lcom/bitwig/extension/api/project/parameter/DoubleParameter;
+M	com/bitwig/extension/api/project/mixer/Mixer	getSend	(I)Lcom/bitwig/extension/api/project/mixer/Send;
+M	com/bitwig/extension/api/project/mixer/Mixer	getSendCount	()I
+M	com/bitwig/extension/api/project/mixer/Mixer	getVolume	()Lcom/bitwig/extension/api/project/parameter/DoubleParameter;
+M	com/bitwig/extension/api/project/mixer/NativeDevice	getBooleanParameter	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/parameter/BooleanParameter;
+M	com/bitwig/extension/api/project/mixer/NativeDevice	getDoubleParameter	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/parameter/DoubleParameter;
+M	com/bitwig/extension/api/project/mixer/NativeDevice	getEnumParameter	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/parameter/EnumParameter;
+M	com/bitwig/extension/api/project/mixer/PluginPreset	createDeviceInstance	()Lcom/bitwig/extension/api/project/mixer/Device;
+M	com/bitwig/extension/api/project/mixer/PluginPreset	getClass	()Ljava/lang/Class;
+M	com/bitwig/extension/api/project/mixer/PluginPreset	setPluginStateID	(Lcom/bitwig/extension/api/project/mixer/PluginStateID;)V
+M	com/bitwig/extension/api/project/mixer/Send	getAmount	()Lcom/bitwig/extension/api/project/parameter/DoubleParameter;
+M	com/bitwig/extension/api/project/mixer/Send	getEffectiveSendMode	()Lcom/bitwig/extension/api/project/mixer/SendMode;
+M	com/bitwig/extension/api/project/mixer/Send	getSendMode	()Lcom/bitwig/extension/api/project/mixer/SendMode;
+M	com/bitwig/extension/api/project/mixer/Send	getTargetTrack	()Lcom/bitwig/extension/api/project/track/Track;
+M	com/bitwig/extension/api/project/mixer/SendMode	name	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/parameter/AutomationEvents	addPoint	(DLjava/lang/Object;)V
+M	com/bitwig/extension/api/project/parameter/BooleanParameter	getValue	()Ljava/lang/Object;
+M	com/bitwig/extension/api/project/parameter/BooleanParameter	setValue	(Ljava/lang/Object;)V
+M	com/bitwig/extension/api/project/parameter/DoubleParameter	getValue	(Lcom/bitwig/extension/api/project/parameter/Unit;)D
+M	com/bitwig/extension/api/project/parameter/DoubleParameter	setAutomation	(Lcom/bitwig/extension/api/project/parameter/AutomationEvents;)V
+M	com/bitwig/extension/api/project/parameter/DoubleParameter	setValue	(DLcom/bitwig/extension/api/project/parameter/Unit;)V
+M	com/bitwig/extension/api/project/parameter/EnumParameter	getValue	()Ljava/lang/Object;
+M	com/bitwig/extension/api/project/parameter/EnumParameter	setValue	(Ljava/lang/Object;)V
+M	com/bitwig/extension/api/project/parameter/Parameter	setAutomation	(Lcom/bitwig/extension/api/project/parameter/AutomationEvents;)V
+M	com/bitwig/extension/api/project/parameter/Unit	valueOf	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/parameter/Unit;
+M	com/bitwig/extension/api/project/routing/Destination	getTrack	()Lcom/bitwig/extension/api/project/track/Track;
+M	com/bitwig/extension/api/project/routing/DestinationSelector	getDestination	()Lcom/bitwig/extension/api/project/routing/Destination;
+M	com/bitwig/extension/api/project/routing/DestinationSelector	setDestination	(Lcom/bitwig/extension/api/project/routing/Destination;)V
+M	com/bitwig/extension/api/project/routing/SourceSelector	getSource	()Lcom/bitwig/extension/api/project/routing/Source;
+M	com/bitwig/extension/api/project/routing/SourceSelector	setSource	(Lcom/bitwig/extension/api/project/routing/Source;)V
+M	com/bitwig/extension/api/project/timeline/AudioClip	getContent	()Lcom/bitwig/extension/api/project/timeline/ClipContent;
+M	com/bitwig/extension/api/project/timeline/AudioClip	getFadeInTime	()D
+M	com/bitwig/extension/api/project/timeline/AudioClip	getFadeOutTime	()D
+M	com/bitwig/extension/api/project/timeline/AudioClip	setDuration	(D)V
+M	com/bitwig/extension/api/project/timeline/AudioClip	setFadeInTime	(D)V
+M	com/bitwig/extension/api/project/timeline/AudioClip	setFadeOutTime	(D)V
+M	com/bitwig/extension/api/project/timeline/AudioClip	setIsLoopEnabled	(Z)V
+M	com/bitwig/extension/api/project/timeline/AudioClip	setLoopDuration	(D)V
+M	com/bitwig/extension/api/project/timeline/AudioClip	setTime	(D)V
+M	com/bitwig/extension/api/project/timeline/AudioClip	setTitle	(Ljava/lang/String;)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	getAudioFile	()Ljava/io/File;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getAudioFileDurationInSeconds	()D
+M	com/bitwig/extension/api/project/timeline/AudioNote	getChannelCount	()I
+M	com/bitwig/extension/api/project/timeline/AudioNote	getDuration	()D
+M	com/bitwig/extension/api/project/timeline/AudioNote	getFormant	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getFormantEnvelopeResolution	()I
+M	com/bitwig/extension/api/project/timeline/AudioNote	getGain	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getPan	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getPreserveFormants	()Z
+M	com/bitwig/extension/api/project/timeline/AudioNote	getPreserveTransientsMode	()Lcom/bitwig/extension/api/project/timeline/PreserveTransientsMode;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getPreviewOnsets	()Z
+M	com/bitwig/extension/api/project/timeline/AudioNote	getSampleRate	()I
+M	com/bitwig/extension/api/project/timeline/AudioNote	getTime	()D
+M	com/bitwig/extension/api/project/timeline/AudioNote	getTransientRate	()Lcom/bitwig/extension/api/project/timeline/TransientRate;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getTranspose	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getWarpEvents	()Lcom/bitwig/extension/api/project/timeline/WarpMarkers;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getWarpGrainSize	()Lcom/bitwig/extension/api/project/timeline/WarpGrainSize;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getWarpMode	()Lcom/bitwig/extension/api/project/timeline/WarpMode;
+M	com/bitwig/extension/api/project/timeline/AudioNote	getWarpTailMode	()Lcom/bitwig/extension/api/project/timeline/WarpTailMode;
+M	com/bitwig/extension/api/project/timeline/AudioNote	isMuted	()Z
+M	com/bitwig/extension/api/project/timeline/AudioNote	setDuration	(D)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setFadeInTime	(D)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setFadeOutTime	(D)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setFormantEnvelopeResolution	(I)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setIsMuted	(Z)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setPreserveFormants	(Z)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setPreserveTransientsMode	(Lcom/bitwig/extension/api/project/timeline/PreserveTransientsMode;)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setPreviewOnsets	(Z)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setTime	(D)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setTransientRate	(Lcom/bitwig/extension/api/project/timeline/TransientRate;)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setWarpEvents	(Lcom/bitwig/extension/api/project/timeline/WarpMarkers;)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setWarpGrainSize	(Lcom/bitwig/extension/api/project/timeline/WarpGrainSize;)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setWarpMode	(Lcom/bitwig/extension/api/project/timeline/WarpMode;)V
+M	com/bitwig/extension/api/project/timeline/AudioNote	setWarpTailMode	(Lcom/bitwig/extension/api/project/timeline/WarpTailMode;)V
+M	com/bitwig/extension/api/project/timeline/Clip	getColor	()Lcom/bitwig/extension/api/Color;
+M	com/bitwig/extension/api/project/timeline/Clip	getDuration	()D
+M	com/bitwig/extension/api/project/timeline/Clip	getLoopDuration	()D
+M	com/bitwig/extension/api/project/timeline/Clip	getLoopStart	()D
+M	com/bitwig/extension/api/project/timeline/Clip	getPlayStartOffset	()D
+M	com/bitwig/extension/api/project/timeline/Clip	getTime	()D
+M	com/bitwig/extension/api/project/timeline/Clip	getTitle	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/timeline/Clip	isLoopEnabled	()Z
+M	com/bitwig/extension/api/project/timeline/Clip	isMuted	()Z
+M	com/bitwig/extension/api/project/timeline/Clip	setColor	(Lcom/bitwig/extension/api/Color;)V
+M	com/bitwig/extension/api/project/timeline/Clip	setDuration	(D)V
+M	com/bitwig/extension/api/project/timeline/Clip	setIsLoopEnabled	(Z)V
+M	com/bitwig/extension/api/project/timeline/Clip	setIsMuted	(Z)V
+M	com/bitwig/extension/api/project/timeline/Clip	setLoopDuration	(D)V
+M	com/bitwig/extension/api/project/timeline/Clip	setLoopStart	(D)V
+M	com/bitwig/extension/api/project/timeline/Clip	setPlayStartOffset	(D)V
+M	com/bitwig/extension/api/project/timeline/Clip	setTime	(D)V
+M	com/bitwig/extension/api/project/timeline/Clip	setTitle	(Ljava/lang/String;)V
+M	com/bitwig/extension/api/project/timeline/Clip	setUseLoopStartAsQuantizationReference	(Z)V
+M	com/bitwig/extension/api/project/timeline/Clip	useLoopStartAsQuantizationReference	()Z
+M	com/bitwig/extension/api/project/timeline/ClipContent	getEventTimeline	()Lcom/bitwig/extension/api/project/timeline/EventTimeline;
+M	com/bitwig/extension/api/project/timeline/ClipSlot	getClip	()Lcom/bitwig/extension/api/project/timeline/Clip;
+M	com/bitwig/extension/api/project/timeline/ClipSlot	hasStopButton	()Z
+M	com/bitwig/extension/api/project/timeline/ClipSlot	setClip	(Lcom/bitwig/extension/api/project/timeline/Clip;)V
+M	com/bitwig/extension/api/project/timeline/ClipSlot	setHasStopButton	(Z)V
+M	com/bitwig/extension/api/project/timeline/ClipTimeline	addEvent	(Lcom/bitwig/extension/api/project/timeline/Event;)V
+M	com/bitwig/extension/api/project/timeline/ClipTimeline	clearTime	(DD)V
+M	com/bitwig/extension/api/project/timeline/ClipTimeline	getEvents	()Ljava/util/List;
+M	com/bitwig/extension/api/project/timeline/CueMarker	getColor	()Lcom/bitwig/extension/api/Color;
+M	com/bitwig/extension/api/project/timeline/CueMarker	getTime	()D
+M	com/bitwig/extension/api/project/timeline/CueMarker	getTitle	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/timeline/CueMarker	setColor	(Lcom/bitwig/extension/api/Color;)V
+M	com/bitwig/extension/api/project/timeline/CueMarker	setTitle	(Ljava/lang/String;)V
+M	com/bitwig/extension/api/project/timeline/CueMarkers	addEvent	(Lcom/bitwig/extension/api/project/timeline/Event;)V
+M	com/bitwig/extension/api/project/timeline/CueMarkers	getEvents	()Ljava/util/List;
+M	com/bitwig/extension/api/project/timeline/EventTimeline	addEvent	(Lcom/bitwig/extension/api/project/timeline/Event;)V
+M	com/bitwig/extension/api/project/timeline/EventTimeline	clearTime	(DD)V
+M	com/bitwig/extension/api/project/timeline/EventTimeline	getEvents	()Ljava/util/List;
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	getChannel	()I
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	getDuration	()D
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	getKey	()I
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	getOffVelocity	()D
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	getOnVelocity	()D
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	getPressure	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	getTimbre	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	getTime	()D
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	isMuted	()Z
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	setIsMuted	(Z)V
+M	com/bitwig/extension/api/project/timeline/InstrumentNote	setVelocitySpread	(D)V
+M	com/bitwig/extension/api/project/timeline/Note	getFormant	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/Note	getGain	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/Note	getPan	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/Note	getTranspose	()Lcom/bitwig/extension/api/project/timeline/NoteExpression;
+M	com/bitwig/extension/api/project/timeline/Note	setChance	(D)V
+M	com/bitwig/extension/api/project/timeline/NoteClip	getContent	()Lcom/bitwig/extension/api/project/timeline/ClipContent;
+M	com/bitwig/extension/api/project/timeline/NoteClip	setDuration	(D)V
+M	com/bitwig/extension/api/project/timeline/NoteClip	setIsLoopEnabled	(Z)V
+M	com/bitwig/extension/api/project/timeline/NoteClip	setLoopDuration	(D)V
+M	com/bitwig/extension/api/project/timeline/NoteClip	setTime	(D)V
+M	com/bitwig/extension/api/project/timeline/NoteClip	setTitle	(Ljava/lang/String;)V
+M	com/bitwig/extension/api/project/timeline/NoteExpression	setEvents	(Lcom/bitwig/extension/api/project/parameter/AutomationEvents;Lcom/bitwig/extension/api/project/parameter/Unit;)V
+M	com/bitwig/extension/api/project/timeline/NoteExpression	setValue	(DLcom/bitwig/extension/api/project/parameter/Unit;)V
+M	com/bitwig/extension/api/project/timeline/PreserveTransientsMode	name	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/timeline/PreserveTransientsMode	valueOf	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/timeline/PreserveTransientsMode;
+M	com/bitwig/extension/api/project/timeline/TimeSignature	getDenominator	()I
+M	com/bitwig/extension/api/project/timeline/TimeSignature	getNumerator	()I
+M	com/bitwig/extension/api/project/timeline/TransientRate	name	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/timeline/TransientRate	valueOf	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/timeline/TransientRate;
+M	com/bitwig/extension/api/project/timeline/WarpGrainSize	name	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/timeline/WarpGrainSize	valueOf	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/timeline/WarpGrainSize;
+M	com/bitwig/extension/api/project/timeline/WarpMarker	getBeatTime	()D
+M	com/bitwig/extension/api/project/timeline/WarpMarker	getSeconds	()D
+M	com/bitwig/extension/api/project/timeline/WarpMarkers	addWarpEvent	(DD)V
+M	com/bitwig/extension/api/project/timeline/WarpMarkers	areWarpMarkersValid	()Z
+M	com/bitwig/extension/api/project/timeline/WarpMarkers	getWarpMarkerAt	(I)Lcom/bitwig/extension/api/project/timeline/WarpMarker;
+M	com/bitwig/extension/api/project/timeline/WarpMarkers	getWarpMarkerCount	()I
+M	com/bitwig/extension/api/project/timeline/WarpMode	name	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/timeline/WarpMode	valueOf	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/timeline/WarpMode;
+M	com/bitwig/extension/api/project/timeline/WarpTailMode	name	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/timeline/WarpTailMode	valueOf	(Ljava/lang/String;)Lcom/bitwig/extension/api/project/timeline/WarpTailMode;
+M	com/bitwig/extension/api/project/track/Track	audioDestination	()Lcom/bitwig/extension/api/project/routing/AudioDestination;
+M	com/bitwig/extension/api/project/track/Track	clipSlot	(I)Lcom/bitwig/extension/api/project/timeline/ClipSlot;
+M	com/bitwig/extension/api/project/track/Track	clipTimeline	()Lcom/bitwig/extension/api/project/timeline/ClipTimeline;
+M	com/bitwig/extension/api/project/track/Track	destinationSelector	()Lcom/bitwig/extension/api/project/routing/DestinationSelector;
+M	com/bitwig/extension/api/project/track/Track	deviceChain	()Lcom/bitwig/extension/api/project/mixer/DeviceChain;
+M	com/bitwig/extension/api/project/track/Track	getColor	()Lcom/bitwig/extension/api/Color;
+M	com/bitwig/extension/api/project/track/Track	getTitle	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/track/Track	getTrackType	()Lcom/bitwig/extension/api/project/track/TrackType;
+M	com/bitwig/extension/api/project/track/Track	isActive	()Z
+M	com/bitwig/extension/api/project/track/Track	mixer	()Lcom/bitwig/extension/api/project/mixer/Mixer;
+M	com/bitwig/extension/api/project/track/Track	postFader	()Lcom/bitwig/extension/api/project/routing/TrackAudioSource;
+M	com/bitwig/extension/api/project/track/Track	postFxNotes	()Lcom/bitwig/extension/api/project/routing/NoteSource;
+M	com/bitwig/extension/api/project/track/Track	preFader	()Lcom/bitwig/extension/api/project/routing/TrackAudioSource;
+M	com/bitwig/extension/api/project/track/Track	setMonitorMode	(Lcom/bitwig/extension/api/project/track/MonitorMode;)V
+M	com/bitwig/extension/api/project/track/Track	setTitle	(Ljava/lang/String;)V
+M	com/bitwig/extension/api/project/track/Track	sourceSelector	()Lcom/bitwig/extension/api/project/routing/SourceSelector;
+M	com/bitwig/extension/api/project/track/TrackGroup	addEffectTrack	(Lcom/bitwig/extension/api/project/track/Track;)V
+M	com/bitwig/extension/api/project/track/TrackGroup	addMainTrack	(Lcom/bitwig/extension/api/project/track/TrackOrTrackGroup;)V
+M	com/bitwig/extension/api/project/track/TrackGroup	effectTracks	()Ljava/util/List;
+M	com/bitwig/extension/api/project/track/TrackGroup	mainTracks	()Ljava/util/List;
+M	com/bitwig/extension/api/project/track/TrackGroup	masterTrack	()Lcom/bitwig/extension/api/project/track/Track;
+M	com/bitwig/extension/api/project/track/TrackOrTrackGroup	asTrack	()Lcom/bitwig/extension/api/project/track/Track;
+M	com/bitwig/extension/api/project/track/TrackOrTrackGroup	getColor	()Lcom/bitwig/extension/api/Color;
+M	com/bitwig/extension/api/project/track/TrackOrTrackGroup	getTitle	()Ljava/lang/String;
+M	com/bitwig/extension/api/project/track/TrackOrTrackGroup	setColor	(Lcom/bitwig/extension/api/Color;)V
+M	com/bitwig/extension/api/project/track/TrackOrTrackGroup	setIsActive	(Z)V
+M	com/bitwig/extension/api/project/track/TrackOrTrackGroup	setTitle	(Ljava/lang/String;)V
+M	com/bitwig/extension/api/project/track/TrackType	name	()Ljava/lang/String;
+M	com/bitwig/flt/app/eY1	Lg	()LF;
+M	com/bitwig/flt/app/eY1	asyncExec	(Ljava/lang/Runnable;)V
+M	com/bitwig/flt/app/eY1	ncg	()Lcom/bitwig/flt/app/eY1;
+M	com/bitwig/flt/document/api/document/ApiDevice	getTarget	()Ljava/lang/Object;
+M	com/bitwig/flt/document/api/document/ApiDeviceChain	getTarget	()Ljava/lang/Object;
+M	com/bitwig/flt/document/api/document/ApiObject	getTarget	()Ljava/lang/Object;
+M	com/bitwig/flt/document/api/document/ApiProject	<init>	(Lcom/bitwig/flt/document/core/master/oZU;)V
+M	com/bitwig/flt/document/api/document/ApiProject	dispose	()V
+M	com/bitwig/flt/document/api/document/ApiProject	exportDawProject	(Ljava/util/Map;)Lcom/bitwig/dawproject/Project;
+M	com/bitwig/flt/document/api/document/ApiProject	getCueMarkers	()Lcom/bitwig/extension/api/project/timeline/CueMarkers;
+M	com/bitwig/flt/document/api/document/ApiProject	getFactory	()Lcom/bitwig/extension/api/project/Factory;
+M	com/bitwig/flt/document/api/document/ApiProject	getMetadataText	(Lcom/bitwig/extension/api/project/ProjectMetadata;)Ljava/lang/String;
+M	com/bitwig/flt/document/api/document/ApiProject	getScene	(I)Lcom/bitwig/extension/api/project/Scene;
+M	com/bitwig/flt/document/api/document/ApiProject	getTarget	()Ljava/lang/Object;
+M	com/bitwig/flt/document/api/document/ApiProject	getTrackGroup	()Lcom/bitwig/extension/api/project/track/TrackGroup;
+M	com/bitwig/flt/document/api/document/ApiProject	getTransport	()Lcom/bitwig/extension/api/project/Transport;
+M	com/bitwig/flt/document/api/document/ApiProject	setMetadataText	(Lcom/bitwig/extension/api/project/ProjectMetadata;Ljava/lang/String;)V
+M	com/bitwig/flt/document/api/document/ApiTransport	<init>	(LAvn;)V
+M	com/bitwig/flt/document/api/document/ApiTransport	getTempo	()Lcom/bitwig/extension/api/project/parameter/DoubleParameter;
+M	com/bitwig/flt/document/core/iface/IPw	ONV	()LSsT;
+M	com/bitwig/flt/document/core/master/Yko	Gcr	(Lroo;)V
+M	com/bitwig/flt/document/core/master/Yko	IYM	(Lroo;Z)V
+M	com/bitwig/flt/document/core/master/Yko	ce_	()I
+M	com/bitwig/flt/document/core/master/Yko	jPB	(Lcom/bitwig/flt/document/core/master/Kkl;)V
+M	com/bitwig/flt/document/core/master/Yko	jPB	(Lcom/bitwig/flt/document/core/master/Kkl;Z)V
+M	com/bitwig/flt/document/core/master/device/Wju	IYM	(Lcom/bitwig/flt/document/core/master/device/Wcl;Z)V
+M	com/bitwig/flt/document/core/master/oZU	GZM	()Z
+M	com/bitwig/flt/document/core/master/oZU	Gcr	(Lcom/bitwig/base/async/rdP;)V
+M	com/bitwig/flt/document/core/master/oZU	KF3	()Z
+M	com/bitwig/flt/document/core/master/oZU	NFl	()Z
+M	com/bitwig/flt/document/core/master/oZU	Qjx	()Lcom/bitwig/flt/document/core/master/Yko;
+M	com/bitwig/flt/document/core/master/oZU	TEI	()Z
+M	com/bitwig/flt/document/core/master/oZU	THS	()LAvn;
+M	com/bitwig/flt/document/core/master/oZU	va2	()Z
+M	com/bitwig/flt/packaging/core/MD	IYM	(Ljava/lang/String;)Ljava/util/UUID;
+M	com/bitwig/ramona/core/cq	IYM	(Ljava/lang/String;[Lcom/bitwig/ramona/core/TWT;)Z
+M	com/bitwig/ramona/core/cq	LTl	()Z
+M	com/bitwig/ramona/core/mfE	getDoubleValue	()D
+M	com/bitwig/ramona/core/mfE	setDoubleValue	(D)V
+M	jmN	ExU	()LOlb;
+M	m1C	Noo	()LW2C;
