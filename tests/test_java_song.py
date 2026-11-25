@@ -522,6 +522,11 @@ def test_refuses_wrong_host_version(bridge):
         JavaSong(bridge=bridge)
 
 
+def test_accepts_patchbay_bridge_on_617(bridge):
+    bridge.version = "6.1.7"
+    JavaSong(bridge=bridge)
+
+
 def test_targeted_reads_and_path_edits_address_nested_tracks(bridge):
     track = JavaSong(bridge=bridge).track_at("Drums/Kick")
     bridge.calls.clear()
