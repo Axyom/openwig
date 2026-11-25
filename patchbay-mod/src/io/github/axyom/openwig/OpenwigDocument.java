@@ -2621,79 +2621,71 @@ public final class OpenwigDocument {
     // Expression-specific unit overrides can use readModelPoints directly.
     private static JSONArray readExpressionPoints(Object timeline) {
         if (timeline == null) return new JSONArray();
-        Object type = modelGet(timeline, "eUA");
+        Object type = ((bitwig.obf.tvm) timeline).scr(); // the expression's value type
         return readModelPoints(timeline, type, automationUnit(type));
     }
 
     private static JSONArray readModelPoints(Object timeline, Object type, String unit) {
         JSONArray points = new JSONArray();
         if (timeline == null) return points;
-        if (!(timeline instanceof bitwig.obf.QQZ)) {
-            for (Object point : (java.util.List<?>) modelGet(timeline, "IYM"))
+        if (!(timeline instanceof QQZ lane)) {
+            for (Object point : ((bitwig.obf.uJi) timeline).beI()) // the timeline's stored points
                 points.put(readModelPoint(point, type, unit));
             return points;
         }
-        try {
-            Class<?> listenerType = bitwig.obf.nyK.class;
-            Object listener = java.lang.reflect.Proxy.newProxyInstance(listenerType.getClassLoader(),
-                    new Class<?>[]{listenerType}, (proxy, method, args) -> {
-                        String name = method.getName();
-                        if (name.equals("automationWillBePlayedBack") || name.equals("automationAfterEndPointWillBePlayedBack"))
-                            points.put(readModelPoint(args[0], type, unit));
-                        if (name.equals("ne_")) return true;
-                        if (name.equals("hK_")) return false;
-                        if (name.equals("hashCode")) return System.identityHashCode(proxy);
-                        if (name.equals("equals")) return proxy == args[0];
-                        if (name.equals("toString")) return "Openwig automation reader";
-                        return null; // All other exact-build htX/nFh methods return void and are no-op.
-                    });
-            Object context = modelGet(timeline, "Nsg");
-            Object filter = bitwig.obf.tB3.class.getMethod("IYM").invoke(null);
-            double end = bitwig.obf.er.class.getField("jPB").getDouble(null);
-            java.lang.reflect.Method walk = bitwig.obf.QQZ.class.getMethod("IYM",
-                    com.bitwig.flt.document.core.iface.Lpf.class, double.class, double.class,
-                    bitwig.obf.twa.class, boolean.class, boolean.class, listenerType);
-            walk.invoke(timeline, context, 0.0, end, filter, true, true, listener);
-            return points;
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("native composite automation read", failure);
-        }
+        // Walk the lane with its clips the way playback does, collecting each point played.
+        lane.beI(lane.Xit(), 0.0, bitwig.obf.er.Gef, bitwig.obf.tB3.beI(), true, true, new AutomationCollector(points, type, unit));
+        return points;
+    }
+
+    /** Collects the points a composite automation walk plays back; every other callback is a no-op. */
+    private static final class AutomationCollector implements bitwig.obf.nyK {
+        private final JSONArray points;
+        private final Object type;
+        private final String unit;
+        AutomationCollector(JSONArray points, Object type, String unit) { this.points = points; this.type = type; this.unit = unit; }
+        @Override public void automationWillBePlayedBack(bitwig.obf.LCN point, bitwig.obf.LCN next, double time) { points.put(readModelPoint(point, type, unit)); }
+        @Override public void automationAfterEndPointWillBePlayedBack(bitwig.obf.LCN point, double a, double b, double c) { points.put(readModelPoint(point, type, unit)); }
+        @Override public void automationBeforeStartPointWillBePlayedBack(bitwig.obf.LCN point, double a, double b, double c) { }
+        @Override public void automationSegmentWillBePlayedBack(bitwig.obf.LCN from, bitwig.obf.LCN to, double a, double b, double c) { }
+        @Override public boolean nd_() { return true; }   // include points (the walk asks before each)
+        @Override public boolean hK_() { return false; }  // do not stop early
+        @Override public void beI(double a, double b, double c, double d, bitwig.obf.eB e) { }
+        @Override public void beI(bitwig.obf.eB e, double a, double b, double c, int i) { }
+        @Override public void Gef(bitwig.obf.eB e, double a, double b, double c, int i) { }
+        @Override public void beI(bitwig.obf.de d, int i, double a, double b, double c, boolean f) { }
+        @Override public void beI(bitwig.obf.de d, double a, double b) { }
+        @Override public void beI(bitwig.obf.eA e, double a, double b, double c, boolean f) { }
+        @Override public void beI(bitwig.obf.eA e, double a, double b) { }
+        @Override public String toString() { return "Openwig automation reader"; }
     }
 
     // ---- Automation clips (UFD, an xh3 clip on a jmN lane): their own point
     // lane (MnS) in clip content time, loop region and play start like note clips.
 
-    private static JSONObject readAutomationClip(Object clip, Object type, String unit) {
-        Object region = modelGet(clip, "y2x");
-        return new JSONObject().put("start", modelGet(clip, "tS")).put("end", modelGet(clip, "qwZ"))
-                .put("loop", modelGet(clip, "Nsg"))
-                .put("loop_start", modelGet(region, "tS")).put("loop_duration", modelGet(region, "UBi"))
-                .put("play_start_offset", modelGet(modelGet(modelGet(clip, "NFl"), "VtE"), "tS"))
-                .put("points", readModelPoints(modelGet(clip, "MnS"), type, unit));
+    private static JSONObject readAutomationClip(Object item, Object type, String unit) {
+        bitwig.obf.eOj clip = (bitwig.obf.eOj) item; // an automation clip
+        bitwig.obf.iC2 region = clip.vce(); // its loop region
+        return new JSONObject().put("start", clip.ie()).put("end", clip.oiY())
+                .put("loop", clip.Xit())
+                .put("loop_start", region.ie()).put("loop_duration", region.ckt())
+                .put("play_start_offset", clip.LYs().np2().ie()) // play start marker
+                .put("points", readModelPoints(clip.mEL(), type, unit));
     }
 
-    private static double clipTime(String helper, double value) {
-        // ApiClip passes loop times through anb's rounding helpers; use them when present.
-        try {
-            return ((Number) bitwig.obf.aor.class.getMethod(helper, double.class).invoke(null, value)).doubleValue();
-        } catch (ReflectiveOperationException | NullPointerException absent) {
-            return value;
-        }
-    }
-
-    private static Object automationPoint(String kind, JSONArray point) throws ReflectiveOperationException {
+    private static bitwig.obf.gZu automationPoint(String kind, JSONArray point) {
         double time = point.getDouble(0);
         return switch (kind) {
             case "real" -> {
-                g13 made = (g13) bitwig.obf.g13.class.getMethod("IYM", double.class, double.class).invoke(null, time, point.getDouble(1));
+                g13 made = g13.beI(time, point.getDouble(1)); // a real point
                 boolean hold = point.optString(3, "linear").equals("hold");
                 made.beI(hold ? r1.beI : r1.Gef);
                 made.Gef(hold ? 0 : point.optDouble(2, 0));
                 yield made;
             }
-            case "boolean" -> bitwig.obf.AvX.class.getMethod("IYM", double.class, boolean.class).invoke(null, time, point.getBoolean(1));
-            case "enum" -> bitwig.obf.yKY.class.getMethod("IYM", double.class, int.class).invoke(null, time, point.getInt(1));
-            case "integer" -> bitwig.obf.Bzm.class.getMethod("IYM", double.class, int.class).invoke(null, time, point.getInt(1));
+            case "boolean" -> bitwig.obf.AvX.beI(time, point.getBoolean(1));
+            case "enum" -> bitwig.obf.yKY.beI(time, point.getInt(1));
+            case "integer" -> bitwig.obf.Bzm.beI(time, point.getInt(1));
             default -> throw new IllegalArgumentException("unknown automation kind: " + kind);
         };
     }
@@ -2726,104 +2718,86 @@ public final class OpenwigDocument {
                 last = time;
             }
         }
-        Class<?> event = bitwig.obf.gZu.class;
         DirectAccess.runInUndo(track.clipTimeline(), () -> {
-            try {
-                java.lang.reflect.Method make = lane.getClass().getMethod("IYM", double.class, double.class);
-                java.lang.reflect.Method insert = lane.getClass().getMethod("IYM", bitwig.obf.BVS.class);
-                for (int i = 0; i < clips.length(); i++) {
-                    JSONObject spec = clips.getJSONObject(i);
-                    double start = spec.getDouble("start");
-                    Object clip = make.invoke(lane, start, spec.getDouble("end") - start);
-                    Object content = modelGet(clip, "MnS");
-                    java.lang.reflect.Method remove = content.getClass().getMethod("jPB", event);
-                    java.lang.reflect.Method add = content.getClass().getMethod("IYM", event, int.class);
-                    for (Object old : new java.util.ArrayList<>((java.util.List<?>) modelGet(content, "IYM"))) remove.invoke(content, old);
-                    JSONArray points = spec.getJSONArray("points");
-                    for (int j = 0; j < points.length(); j++) add.invoke(content, automationPoint(kind, points.getJSONArray(j)), j);
-                    clip.getClass().getMethod("KF3", boolean.class).invoke(clip, spec.optBoolean("loop", false));
-                    Object region = modelGet(clip, "y2x");
-                    if (spec.has("loop_start")) region.getClass().getMethod("eUA", double.class).invoke(region, clipTime("xeZ", spec.getDouble("loop_start")));
-                    if (spec.has("loop_duration")) region.getClass().getMethod("tDS", double.class).invoke(region, clipTime("KF3", spec.getDouble("loop_duration")));
-                    if (spec.has("play_start_offset")) {
-                        java.lang.reflect.Method playStart = clip.getClass().getMethod("CJq", double.class);
-                        double offset = spec.getDouble("play_start_offset"), length = spec.getDouble("end") - start;
-                        // A play start landing exactly on the end marker is clamped a tick early (the
-                        // made clip can carry another clip's markers): then approach it from beyond.
-                        playStart.invoke(clip, offset);
-                        double stored = ((Number) modelGet(modelGet(modelGet(clip, "NFl"), "VtE"), "tS")).doubleValue();
-                        if (Math.abs(stored - offset) > 1e-9) {
-                            playStart.invoke(clip, offset + length);
-                            playStart.invoke(clip, offset);
-                        }
+            for (int i = 0; i < clips.length(); i++) {
+                JSONObject spec = clips.getJSONObject(i);
+                double start = spec.getDouble("start");
+                bitwig.obf.eOj clip = lane.beI(start, spec.getDouble("end") - start); // make a clip on the lane
+                BrN content = clip.mEL(); // its point list
+                for (Object old : new java.util.ArrayList<>(content.beI())) content.Gef((bitwig.obf.gZu) old); // remove
+                JSONArray points = spec.getJSONArray("points");
+                for (int j = 0; j < points.length(); j++) content.beI(automationPoint(kind, points.getJSONArray(j)), j); // insert at
+                clip.unz(spec.optBoolean("loop", false)); // looped
+                bitwig.obf.iC2 region = clip.vce(); // its loop region
+                // ApiClip rounds loop times through these helpers (the 6.1.5 bridge named a wrong class and skipped them).
+                if (spec.has("loop_start")) region.scr(bitwig.obf.aoP.BBg(spec.getDouble("loop_start")));
+                if (spec.has("loop_duration")) region.Bqk(bitwig.obf.aoP.unz(spec.getDouble("loop_duration")));
+                if (spec.has("play_start_offset")) {
+                    double offset = spec.getDouble("play_start_offset"), length = spec.getDouble("end") - start;
+                    // A play start landing exactly on the end marker is clamped a tick early (the
+                    // made clip can carry another clip's markers): then approach it from beyond.
+                    clip.LRq(offset); // set the play start
+                    double stored = clip.LYs().np2().ie();
+                    if (Math.abs(stored - offset) > 1e-9) {
+                        clip.LRq(offset + length);
+                        clip.LRq(offset);
                     }
-                    insert.invoke(lane, clip);
                 }
-            } catch (ReflectiveOperationException failure) {
-                throw new IllegalStateException("automation clip write failed: " + failure, failure);
+                lane.beI((bitwig.obf.BVS) clip); // insert the clip into the lane
             }
         });
         JSONArray read = new JSONArray();
-        Object type = modelGet(modelGet(lane, "Nsg"), "NFl");
-        for (Object clip : (java.util.List<?>) modelGet(lane, "IYM")) read.put(readAutomationClip(clip, type, automationUnit(type)));
+        Object type = lane.Xit().LYs(); // the lane's value type
+        for (Object clip : lane.beI()) read.put(readAutomationClip(clip, type, automationUnit(type)));
         return new JSONObject().put("target", target).put("clips", read);
     }
 
     private static JSONObject readModelPoint(Object point, Object type, String unit) {
         if (point == null) return new JSONObject().put("status", "null_point")
                 .put("time", JSONObject.NULL).put("value", JSONObject.NULL);
-        JSONObject out = new JSONObject().put("time", modelGet(point, "tS"))
+        JSONObject out = new JSONObject().put("time", ((bitwig.obf.gZu) point).ie()) // the point's time
                 .put("point_class", point.getClass().getName());
-        if ((point instanceof bitwig.obf.g13)) {
-            double raw = ((Number) modelGet(point, "IYM")).doubleValue();
+        if (point instanceof g13 real) {
+            double raw = real.beI();
             return out.put("kind", "real").put("raw_value", raw)
                     .put("value", convertAutomationReal(raw, type, unit))
                     .put("interpolation", "linear") // This is the exporter's interpolation.
-                    .put("model_interpolation", ((Enum<?>) modelGet(point, "AOA")).name().equals("IYM") ? "hold" : "linear")
-                    .put("curvature", modelGet(point, "dT_"));
+                    // The 6.1.5 bridge compared the mode's name to an obfuscated field name, so it always said linear.
+                    .put("model_interpolation", real.MgQ() == r1.beI ? "hold" : "linear")
+                    .put("curvature", real.dT_());
         }
-        if ((point instanceof bitwig.obf.AvX))
-            return out.put("kind", "boolean").put("value", modelGet(point, "eUA"));
-        if ((point instanceof bitwig.obf.yKY)) {
-            int raw = ((Number) modelGet(point, "Wqw")).intValue();
-            try {
-                Object value = bitwig.obf.aS.class.getMethod("jPB", int.class).invoke(type, raw);
-                return out.put("kind", "enum").put("raw_value", raw).put("value", value);
-            } catch (ReflectiveOperationException failure) {
-                throw new IllegalStateException("native enum automation conversion", failure);
-            }
+        if (point instanceof bitwig.obf.AvX bool)
+            return out.put("kind", "boolean").put("value", bool.scr());
+        if (point instanceof bitwig.obf.yKY indexed) {
+            int raw = indexed.XnJ();
+            Object value = ((bitwig.obf.aS) type).Gef(raw); // the enum type's value for this index
+            return out.put("kind", "enum").put("raw_value", raw).put("value", value);
         }
-        if ((point instanceof bitwig.obf.Bzm))
-            return out.put("kind", "integer").put("value", modelGet(point, "Wqw"));
-        if ((point instanceof bitwig.obf.nEr))
+        if (point instanceof bitwig.obf.Bzm integer)
+            return out.put("kind", "integer").put("value", integer.XnJ());
+        if (point instanceof bitwig.obf.nEr signature)
             return out.put("kind", "time_signature").put("value", JSONObject.NULL)
-                    .put("numerator", modelGet(point, "dU_")).put("denominator", modelGet(point, "Qcu"));
+                    .put("numerator", signature.dU_()).put("denominator", signature.byf());
         return out.put("status", "unsupported_point_type").put("value", JSONObject.NULL);
     }
 
     private static double convertAutomationReal(double raw, Object type, String unit) {
         if (!(type instanceof bitwig.obf.aG))
             throw new IllegalStateException("real automation requires aB value type");
-        try {
-            if ("normalized".equals(unit))
-                return ((Number) bitwig.obf.aG.class.getMethod("IYM", double.class).invoke(type, raw)).doubleValue();
-            String field = switch (unit == null ? "linear" : unit) {
-                case "percent" -> "jPB";
-                case "decibel" -> "AOA";
-                case "hertz" -> "wtf";
-                case "semitones" -> "Qcu";
-                case "seconds" -> "xeZ";
-                case "beats" -> "nsm";
-                case "bpm" -> "eUA";
-                default -> "IYM";
-            };
-            Object domain = modelGet(type, "ppu");
-            Object destination = bitwig.obf.ge.class.getField(field).get(null);
-            return ((Number) bitwig.obf.gf.class.getMethod("IYM", double.class,
-                    bitwig.obf.gd.class, bitwig.obf.ge.class).invoke(null, raw, domain, destination)).doubleValue();
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("native real automation conversion", failure);
-        }
+        aG range = (aG) type;
+        if ("normalized".equals(unit)) return range.beI(raw); // normalize
+        String destination = switch (unit == null ? "linear" : unit) {
+            case "percent" -> "PERCENT";
+            case "decibel" -> "DECIBEL";
+            case "hertz" -> "HERTZ";
+            case "semitones" -> "SEMITONES";
+            case "seconds" -> "SECONDS";
+            case "beats" -> "BEAT_TIME";
+            case "bpm" -> "BPM";
+            default -> "NONE";
+        };
+        // Convert from the stored domain to a display unit, as the DAWproject exporter does.
+        return bitwig.obf.gf.beI(raw, range.BCC(), (bitwig.obf.ge) namedNativeEnum(bitwig.obf.ge.class, destination));
     }
 
 
