@@ -56,6 +56,19 @@ import com.bitwig.flt.document.core.master.device.R1c; // a plugin instance hold
 import com.bitwig.flt.document.core.master.device.ogX; // a plugin parameter
 import com.bitwig.flt.document.core.master.device.sgH; // a device
 import com.bitwig.flt.document.core.master.device.utt; // a native device
+import com.bitwig.flt.document.core.master.device.Mmq; // a modulator's contents
+import com.bitwig.flt.document.core.master.device.QFr; // a modulator
+import com.bitwig.flt.document.core.master.device.dr2; // a modulation binding
+import com.bitwig.flt.document.core.master.device.itZ; // a device's modulator bank
+import com.bitwig.flt.document.core.master.SZB; // a stored parameter reference
+import com.bitwig.ramona.core.IqI; // a model object with an owner
+import bitwig.obf.AZT; // a parameter that knows its device
+import bitwig.obf.CHK; // a boolean parameter atom
+import bitwig.obf.OMh; // a parameter atom with a label
+import bitwig.obf.QCX; // a named model object
+import bitwig.obf.dQh; // a Macro knob
+import bitwig.obf.kh; // a decimal parameter atom
+import bitwig.obf.xxu; // an enum parameter atom
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -830,21 +843,22 @@ public final class OpenwigDocument {
         // Self-device atom index: m1C identity -> CONTENTS-relative parameter
         // path, so bindings inside the owning device resolve exactly.
         java.util.IdentityHashMap<Object, String> atomPaths = deviceAtomPaths(target, decimal, bool, indexed);
-        for (Object modulator : entries) {
+        for (Object entry : entries) {
+            QFr modulator = (QFr) entry; // a modulator
             JSONObject item = new JSONObject()
                     .put("index", modulators.length())
-                    .put("id", jsonModelValue(modelGet(modulator, "UNI")))
-                    .put("device_name", modelGet(modulator, "HT3"))
-                    .put("display_name", modelGet(modulator, "ruM"))
-                    // urr.RLC() is user_device_name, the name the file keeps; device_name
+                    .put("id", jsonModelValue(modulator.dNa()))
+                    .put("device_name", modulator.af())
+                    .put("display_name", modulator.pUD())
+                    // The user device name is the name the file keeps; device_name
                     // is recomputed from it (or numbered from the definition) on load.
-                    .put("user_name", modelGet(modulator, "RLC"))
-                    .put("preset", modelGet(modulator, "SVb"))
-                    .put("x", modelGet(modulator, "AOA")).put("y", modelGet(modulator, "KF3"));
+                    .put("user_name", modulator.jao())
+                    .put("preset", modulator.VmZ())
+                    .put("x", modulator.MgQ()).put("y", modulator.unz()); // panel position
             try {
-                Object contents = modelGet(modulator, "dsw");
-                // nJS.ppu() is the definition's factory identity (F3z.Gcr() UUID).
-                Object identity = contents == null ? null : modelGetOrNull(modelGetOrNull(contents, "ppu"), "Gcr");
+                Mmq contents = modulator.MvA(); // the modulator's contents
+                // The definition's factory identity (a UUID).
+                Object identity = contents == null || contents.BCC() == null ? null : contents.BCC().sCA();
                 item.put("modulator_id", identity == null ? JSONObject.NULL : identity.toString());
                 item.put("parameters", readModulatorParameters(modulator, contents, decimal, bool, indexed));
                 item.put("bindings", readModulatorBindings(contents, target, path, deviceIndex,
@@ -860,7 +874,7 @@ public final class OpenwigDocument {
     private static java.util.IdentityHashMap<Object, String> deviceAtomPaths(Object target,
             Class<?> decimal, Class<?> bool, Class<?> indexed) {
         java.util.IdentityHashMap<Object, String> atomPaths = new java.util.IdentityHashMap<>();
-        Object contents = modelGetOrNull(target, "bhG");
+        Object contents = target instanceof utt nativeDevice ? nativeDevice.edx() : null; // a native device's contents
         if (contents == null) return atomPaths;
         java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
         java.util.List<Object> found = new java.util.ArrayList<>();
@@ -872,10 +886,11 @@ public final class OpenwigDocument {
         }
         // Modulators can target other modulators of the same device (a Math
         // driving a Macro): keep the full MODULATORS/<i>/CONTENTS/<param> path.
-        Object modulatorList = modelGetOrNull(modelGetOrNull(target, "YGC"), "Klm");
+        itZ bank = target instanceof sgH device ? device.LdK() : null; // the modulator bank
+        Object modulatorList = bank == null ? null : bank.dvk();
         if (modulatorList instanceof java.util.List<?> modulators)
             for (Object modulator : modulators) {
-                Object modulatorContents = modelGetOrNull(modulator, "dsw");
+                Object modulatorContents = modulator instanceof QFr m ? m.MvA() : null;
                 if (modulatorContents == null) continue;
                 java.util.List<Object> modulatorAtoms = new java.util.ArrayList<>();
                 walkAtoms(modulatorContents, 0, new java.util.IdentityHashMap<>(), modulatorAtoms, decimal, bool, indexed);
@@ -901,17 +916,14 @@ public final class OpenwigDocument {
             JSONObject parameter = new JSONObject()
                     .put("path", fullPath.substring("CONTENTS/".length()))
                     .put("kind", atomKind(atom, decimal, bool, indexed));
-            // Rem.wtf()/HDw.wtf() are the stored current values; dZZ.Qcu() is
-            // the enum index. Values are model-native, not normalized.
-            Object value = modelGetOrNull(atom, "wtf");
-            if (value == null) value = modelGetOrNull(atom, "Qcu");
-            if (value == null) value = modelGetOrNull(atom, "KF3");
-            parameter.put("value", jsonModelValue(value));
-            String unit = automationUnit(modelGetOrNull(atom, "ViH"));
+            // The stored current value; an enum atom's item, else its index.
+            // Values are model-native, not normalized.
+            parameter.put("value", jsonModelValue(atomValue(atom)));
+            String unit = atom instanceof kh decimalAtom ? automationUnit(decimalAtom.XdI()) : null; // its value range
             if (unit != null) parameter.put("unit", unit);
-            // A Macro knob (HEi) can be bipolar, which widens its range to -1..1.
-            if ((atom instanceof bitwig.obf.dQh)) parameter.put("bipolar", modelGet(atom, "HT3"));
-            Object label = modelGetOrNull(atom, "rqQ");
+            // A Macro knob can be bipolar, which widens its range to -1..1.
+            if (atom instanceof dQh macro) parameter.put("bipolar", macro.af());
+            Object label = atom instanceof OMh labelled ? labelled.Bqd() : null;
             if (label instanceof String text && !text.isEmpty()) parameter.put("label", text);
             // The writer takes normalized numbers and enum indexes; native
             // values above do not map linearly (an LFO RATE of 0 reads 1 normalized).
@@ -938,23 +950,23 @@ public final class OpenwigDocument {
                                                    java.util.IdentityHashMap<Object, String> atomPaths,
                                                    java.util.IdentityHashMap<Object, JSONObject> atomOwners) {
         JSONArray bindings = new JSONArray();
-        Object children = contents == null ? null : modelGet(contents, "hMI");
+        Object children = contents instanceof Mmq modulatorContents ? modulatorContents.ogS() : null; // its components
         if (!(children instanceof java.util.List<?> components)) return bindings;
-        for (Object component : components) {
-            // Macro sources use an Hx3 subclass; an exact class-name test skipped every Macro mapping.
-            if (component == null || !(component instanceof com.bitwig.flt.document.core.master.device.aoy)) continue;
-            Object entries = modelGetOrNull(component, "gTC");
+        for (Object item : components) {
+            // Macro sources use a subclass of the modulation-source component; an exact class test skipped every Macro mapping.
+            if (!(item instanceof com.bitwig.flt.document.core.master.device.aoy component)) continue;
+            Object entries = component.jTT(); // its modulation bindings
             if (!(entries instanceof java.util.List<?> list)) continue;
-            String key = (String) modelGetOrNull(component, "az_");
-            for (Object entry : list) {
-                if (entry == null) continue;
+            String key = component.az_(); // the component's key
+            for (Object listed : list) {
+                if (!(listed instanceof dr2 entry)) continue; // a modulation binding
                 if (bindings.length() >= 512) {
                     bindings.put(new JSONObject().put("truncated", true));
                     return bindings;
                 }
-                Object reference = modelGetOrNull(entry, "kxC");
-                Object parameter = reference == null ? null : modelGetOrNull(reference, "XYl");
-                Object amount = modelGetOrNull(entry, "Qcu");
+                SZB reference = entry.cCV(); // the bound parameter's reference
+                Object parameter = reference == null ? null : reference.neH(); // the parameter
+                Object amount = entry.byf(); // the model-native amount
                 JSONObject binding = new JSONObject().put("component", key == null ? "" : key);
                 String parameterPath = parameter == null ? null : atomPaths.get(parameter);
                 if (parameterPath != null) {
@@ -967,13 +979,13 @@ public final class OpenwigDocument {
                             .put("path", entryOwner.optString("path"))
                             .put("device", entryOwner.getInt("device")));
                 } else {
-                    Object storedPath = reference == null ? null : modelGetOrNull(reference, "TEI");
+                    Object storedPath = reference == null ? null : reference.zzi(); // the stored parameter path
                     // Walk up from the target atom to its device: a modulator parameter
                     // (a Math input) then keeps its MODULATORS/<i>/CONTENTS/ path.
                     String held = null;
                     Object heldOwner = null;
                     Object cursor = parameter;
-                    for (int depth = 0; cursor != null && depth < 24; depth++, cursor = modelGetOrNull(cursor, "L_")) {
+                    for (int depth = 0; cursor != null && depth < 24; depth++, cursor = modelOwner(cursor)) {
                         if (cursor != self && (owners == null || !owners.containsKey(cursor))) continue;
                         held = automationIdentifier(cursor, parameter);
                         heldOwner = cursor;
@@ -986,30 +998,30 @@ public final class OpenwigDocument {
                         binding.put("target_parameter",
                                 text.startsWith("CONTENTS/") ? text.substring("CONTENTS/".length()) : text);
                     } else {
-                        Object name = reference == null ? null : modelGetOrNull(reference, "heQ");
-                        if (name == null && parameter != null) name = modelGetOrNull(parameter, "NMa");
-                        if (name == null && parameter != null) name = modelGetOrNull(parameter, "IW");
-                        if (name == null && parameter != null) name = modelGetOrNull(parameter, "aH_");
+                        Object name = reference == null ? null : reference.rw3(); // the stored parameter name
+                        if (name == null && parameter instanceof QCX named) name = named.CnT();
+                        if (name == null && parameter instanceof Ae2 automatable) name = automatable.bMd();
+                        if (name == null && parameter instanceof Ae2 automatable) name = automatable.aH_();
                         if (name != null && !name.toString().isEmpty()) binding.put("target", name.toString());
                     }
                     if (parameter != null && !binding.has("target_parameter"))
                         binding.put("target_model", parameter.getClass().getSimpleName());
                     JSONObject located = null;
                     if (reference != null) {
-                        Object ownerDevice = modelGetOrNull(reference, "hMI");
-                        if (ownerDevice == null) ownerDevice = modelGetOrNull(reference, "Lg");
+                        Object ownerDevice = reference.ogS(); // the stored owner
+                        if (ownerDevice == null) ownerDevice = reference.VNw(); // the stored device
                         located = locateBindingOwner(ownerDevice, self, path, deviceIndex, owners);
                         if (located == null && parameter != null) {
                             located = locateBindingOwner(parameter, self, path, deviceIndex, owners);
                             if (located == null) {
-                                located = locateBindingOwner(modelGetOrNull(parameter, "U3o"),
+                                located = locateBindingOwner(parameter instanceof AZT owned ? owned.m2g() : null, // the parameter's device
                                         self, path, deviceIndex, owners);
                             }
                         }
                         if (located == null) {
-                            // QFL.xTe() is the stored track (roo) of the reference.
+                            // The stored track of the reference.
                             JSONObject track = context == null ? null
-                                    : context.get(modelGetOrNull(reference, "xTe"));
+                                    : context.get(reference.qJX());
                             if (track != null) located = new JSONObject().put("path", track.optString("path"));
                         }
                     }
@@ -1029,11 +1041,9 @@ public final class OpenwigDocument {
                     }
                 }
                 if (amount instanceof Number number) binding.put("amount", number.doubleValue());
-                // AvA.LZe(): amount over the target's modulation span, clamped to -1..1.
-                Object normalized = modelGetOrNull(entry, "LZe");
-                if (normalized instanceof Number number) binding.put("amount_normalized", number.doubleValue());
-                Object enabled = modelGetOrNull(entry, "oLP");
-                if (enabled instanceof Boolean flag) binding.put("enabled", flag);
+                // The amount over the target's modulation span, clamped to -1..1.
+                binding.put("amount_normalized", entry.BZt());
+                binding.put("enabled", entry.tWW());
                 bindings.put(binding);
             }
         }
@@ -1058,7 +1068,7 @@ public final class OpenwigDocument {
                 JSONObject matched = owners.get(cursor);
                 if (matched != null) return matched;
             }
-            cursor = modelGetOrNull(cursor, "L_");
+            cursor = modelOwner(cursor);
         }
         return null;
     }
@@ -1223,6 +1233,19 @@ public final class OpenwigDocument {
     // Optional-getter variant: absent methods read as null instead of failing
     // the surrounding read (used where the exact build may legitimately lack
     // a getter on a subclass).
+    /** A model object's owner (parent) in Bitwig's document tree, or null. */
+    private static Object modelOwner(Object node) {
+        return node instanceof IqI child ? child.L_() : null;
+    }
+
+    /** A parameter atom's stored current value: a number, a boolean, or an enum atom's item (else its index). */
+    private static Object atomValue(Object atom) {
+        if (atom instanceof kh decimal) return decimal.Anf();
+        if (atom instanceof CHK bool) return bool.Anf();
+        if (atom instanceof xxu indexed) { Object item = indexed.Anf(); return item != null ? item : indexed.byf(); }
+        return null;
+    }
+
     private static Object modelGetOrNull(Object target, String method) {
         if (target == null) return null;
         try {
