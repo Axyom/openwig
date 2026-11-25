@@ -5236,11 +5236,9 @@ public final class OpenwigDocument {
                 java.util.List<?> clips = track.clipTimeline().getEvents();
                 if (clipIndex < 0 || clipIndex >= clips.size()) throw new IllegalArgumentException("clip index out of range");
                 Clip source = (Clip) clips.get(clipIndex);
-                Object raw = modelGet(((ApiObject) source).getTarget(), "VxG");
-                try {
-                    com.bitwig.ramona.core.m1k.class.getMethod("IYM", com.bitwig.ramona.core.ytz.class).invoke(null, raw);
-                    staged = clipEventWrapper(source instanceof AudioClip, raw);
-                } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native launcher copy failed", failure); }
+                bitwig.obf.TKq raw = ((bitwig.obf.TKq) ((ApiObject) source).getTarget()).waK(); // a clone of the clip
+                com.bitwig.ramona.core.m1k.beI(raw); // prepare the clone for insertion
+                staged = clipEventWrapper(source instanceof AudioClip, raw);
                 staged.setTime(0);
             } else if (method.equals("launcher.put_notes")) {
                 double duration = finiteField(params, "duration", -1);
@@ -5299,7 +5297,7 @@ public final class OpenwigDocument {
         if (duration <= 0 || !Double.isFinite(globalStart + duration)) throw new IllegalArgumentException("invalid audio duration");
         com.bitwig.extension.api.project.timeline.AudioNote event = factory.createAudioNote(0, duration, sample);
         event.setWarpMode(com.bitwig.extension.api.project.timeline.WarpMode.RAW);
-        invokeModelSetter(((ApiObject) event).getTarget(), "UJq", double.class, offset);
+        ((bitwig.obf.D) ((ApiObject) event).getTarget()).CKj(offset); // the source offset
         event.getGain().setValue(gain, Unit.DECIBEL);
         return event;
     }
@@ -5308,31 +5306,35 @@ public final class OpenwigDocument {
             "occurrence", "occurrence_enabled", "recurrence", "recurrence_enabled", "repeat_count", "repeat_curve", "repeat_enabled");
 
     private static void applyNoteConditions(com.bitwig.extension.api.project.timeline.Note note, JSONObject data) {
-        Object raw = ((ApiObject) note).getTarget();
+        bitwig.obf.D raw = (bitwig.obf.D) ((ApiObject) note).getTarget(); // a note or audio event
         for (String name : new String[]{"chance_enabled", "occurrence_enabled", "recurrence_enabled", "repeat_enabled"}) {
             if (!data.has(name)) continue;
             if (!(data.get(name) instanceof Boolean)) throw new IllegalArgumentException(name + " must be boolean");
-            String setter = switch (name) { case "chance_enabled" -> "xeZ"; case "occurrence_enabled" -> "KF3";
-                case "recurrence_enabled" -> "wtf"; default -> "Qcu"; };
-            invokeModelSetter(raw, setter, boolean.class, data.getBoolean(name));
+            boolean on = data.getBoolean(name);
+            switch (name) {
+                case "chance_enabled" -> raw.BBg(on);
+                case "occurrence_enabled" -> raw.unz(on);
+                case "recurrence_enabled" -> raw.Anf(on);
+                default -> raw.byf(on); // repeat_enabled
+            }
         }
         if (data.has("chance")) {
             double value = finiteField(data, "chance", 1);
             if (value < 0 || value > 1) throw new IllegalArgumentException("chance must be in 0..1");
             note.setChance(value);
         }
-        if (data.has("occurrence")) invokeModelSetter(raw, "IYM", bitwig.obf.UQU.class, namedNativeEnum(bitwig.obf.UQU.class, data.getString("occurrence")));
+        if (data.has("occurrence")) raw.beI((bitwig.obf.UQU) namedNativeEnum(bitwig.obf.UQU.class, data.getString("occurrence")));
         for (String name : new String[]{"recurrence", "repeat_count"}) {
             if (!data.has(name)) continue;
             double value = finiteField(data, name, 0);
             if (value != Math.rint(value) || (name.equals("recurrence") ? value < 0 || value > 2047 : value < -127 || value > 127))
                 throw new IllegalArgumentException("invalid " + name);
-            invokeModelSetter(raw, name.equals("recurrence") ? "qFH" : "tPX", int.class, (int) value);
+            if (name.equals("recurrence")) raw.PJ3((int) value); else raw.gNZ((int) value); // recurrence mask, repeat count
         }
         if (data.has("repeat_curve")) {
             double value = finiteField(data, "repeat_curve", 0);
             if (value < -1 || value > 1) throw new IllegalArgumentException("repeat curve must be in -1..1");
-            invokeModelSetter(raw, "Trh", double.class, value);
+            raw.ymo(value); // repeat curve
         }
     }
 
