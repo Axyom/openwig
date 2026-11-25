@@ -447,7 +447,7 @@ public final class OpenwigDocument {
             DirectAccess.runInUndo(project,
                     () -> modifyModel(project, () -> DirectAccess.removeEffectTrack(group, target)));
             int after = project.getTrackGroup().effectTracks().size();
-            if (after != before - 1 || modelGet(target, "L_") != null) {
+            if (after != before - 1 || modelOwner(target) != null) {
                 throw new IllegalStateException("effect track was not removed from both native banks");
             }
             return after;
@@ -580,7 +580,7 @@ public final class OpenwigDocument {
                         group.Gef(target, true);
                     }));
             int after = project.getTrackGroup().mainTracks().size();
-            if (after != before - 1 || modelGet(target, "L_") != null) {
+            if (after != before - 1 || modelOwner(target) != null) {
                 throw new IllegalStateException("track was not removed from both native banks");
             }
             return after;
@@ -768,7 +768,7 @@ public final class OpenwigDocument {
             JSONArray modelFields = readModelFields(target);
             if (!modelFields.isEmpty()) result.put("model_fields", modelFields);
             Object contents = ((utt) target).edx(); // the device's contents
-            Object modules = modelGetOrNull(contents, "hMI");
+            Object modules = componentChildren(contents);
             if (modules instanceof java.util.List<?> children)
                 for (Object child : children)
                     if ((child instanceof com.bitwig.flt.document.core.master.device.nWI))
@@ -2412,7 +2412,7 @@ public final class OpenwigDocument {
                 com.bitwig.extension.api.project.Scene scene = project.getScene(i);
                 Color color = scene.getColor();
                 Object rawScene = ((ApiObject) scene).getTarget();
-                Object comment = modelGetOrNull(rawScene, "Vc");
+                Object comment = rawScene instanceof bitwig.obf.dYM stored ? stored.iUU() : null; // the scene comment
                 scenes.put(new JSONObject().put("index", i).put("name", scene.getTitle())
                         .put("comment", comment == null ? "" : comment)
                         .put("color", color == null ? JSONObject.NULL : color.toHex()));
@@ -2458,9 +2458,10 @@ public final class OpenwigDocument {
         }
         Track view = item instanceof Track direct ? direct : item.asTrack();
         Object rawTrack = ((ApiObject) view).getTarget();
-        Object comment = modelGetOrNull(rawTrack, "lzE");
-        Object channel = modelGetOrNull(rawTrack, "fcV");
-        Object solo = channel == null ? null : modelGetOrNull(channel, "oLP");
+        bitwig.obf.PiT model = rawTrack instanceof bitwig.obf.PiT t ? t : null;
+        Object comment = model == null ? null : model.wze(); // the track comment
+        bitwig.obf.nCQ channel = model == null ? null : model.pEy(); // the track's channel
+        Object solo = channel == null ? null : channel.tWW(); // soloed
         out.put("track_type", trackTypeName(view));
         out.put("is_active", view.isActive());
         out.put("comment", comment == null ? "" : comment);
@@ -3198,12 +3199,12 @@ public final class OpenwigDocument {
                     throw new IllegalArgumentException("solo state is required");
                 }
                 boolean on = params.getBoolean("on");
-                Object channel = modelGet(rawTrack, "fcV");
-                modifyModel((ApiObject) track, () -> invokeModelSetter(channel, "jPB", boolean.class, on));
+                bitwig.obf.nCQ channel = ((bitwig.obf.PiT) rawTrack).pEy(); // the track's channel
+                modifyModel((ApiObject) track, () -> channel.Gef(on)); // solo
             }
             case "comment" -> {
                 String comment = params == null ? "" : params.optString("comment", "");
-                modifyModel((ApiObject) track, () -> invokeModelSetter(rawTrack, "a1y", String.class, comment));
+                modifyModel((ApiObject) track, () -> ((bitwig.obf.PiT) rawTrack).Heb(comment)); // the track comment
             }
             case "active" -> {
                 if (params == null || !params.has("on")) {
