@@ -69,6 +69,14 @@ import bitwig.obf.QCX; // a named model object
 import bitwig.obf.dQh; // a Macro knob
 import bitwig.obf.kh; // a decimal parameter atom
 import bitwig.obf.xxu; // an enum parameter atom
+import com.bitwig.flt.document.core.master.device.SRR; // a nested device chain
+import bitwig.obf.WGX; // a drum pad
+import com.bitwig.flt.document.core.master.device.YVC; // a multi-chain container (layers, bands, outputs)
+import com.bitwig.flt.document.core.master.device.beU; // a chain slot
+import com.bitwig.flt.document.core.master.device.dZe; // a component container
+import com.bitwig.flt.document.core.master.device.k3K; // a device chain
+import bitwig.obf.jes; // a routing source with a label
+import bitwig.obf.nnO; // a sidechain component
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -1082,23 +1090,23 @@ public final class OpenwigDocument {
         if (depth > 32 || seen.size() >= 20000) return false;
         seen.put(node, true);
         if ((node instanceof bitwig.obf.nnO)) {
-            Object source = modelGet(modelGet(node, "APa"), "LZe");
+            Object source = ((nnO) node).DIi().BZt(); // the sidechain's routing, its source
             sidechains.put(new JSONObject().put("component_path", jsonModelValue(automationIdentifier(owner, node)))
                     .put("source", sourceInfo(source, context)));
             return true;
         }
         if ((node instanceof com.bitwig.flt.document.core.master.device.SRR)) {
             JSONObject item = readNestedChain(owner, node, "chain", out.length(), path, context, owners, atomOwners, out.length());
-            Object chainName = modelGetOrNull(node, "az_");
+            Object chainName = ((SRR) node).az_(); // the chain's name
             if (chainName instanceof String text && !text.isEmpty()) item.put("name", text);
             out.put(item);
             return true;
         }
         if ((node instanceof com.bitwig.flt.document.core.master.device.beU)) {
-            Object chain = modelGetOrNull(node, "Lg");
+            Object chain = ((beU) node).VNw(); // the chain slot's chain
             if (chain != null) {
                 JSONObject item = readNestedChain(owner, chain, "chain", out.length(), path, context, owners, atomOwners, out.length());
-                Object slotName = modelGetOrNull(node, "IYM");
+                Object slotName = ((beU) node).beI(); // the slot's name
                 if (slotName instanceof String text && !text.isEmpty()) item.put("name", text);
                 out.put(item);
             }
@@ -1109,9 +1117,9 @@ public final class OpenwigDocument {
                     ? "layer" : (node instanceof com.bitwig.flt.document.core.master.device.b3K)
                     ? "multi_out" : "band";
             int index = 0;
-            for (Object chain : (java.util.List<?>) modelGet(node, "NFl")) {
+            for (Object chain : ((YVC) node).LYs()) { // the container's chains
                 JSONObject item = readNestedChain(owner, chain, chainKind, index, path, context, owners, atomOwners, out.length());
-                Object chainName = modelGetOrNull(chain, "az_");
+                Object chainName = chain instanceof SRR named ? named.az_() : null;
                 if (chainName instanceof String text && !text.isEmpty()) item.put("name", text);
                 out.put(item);
                 index++;
@@ -1120,13 +1128,14 @@ public final class OpenwigDocument {
         }
         if ((node instanceof bitwig.obf.aIt)) {
             int index = 0;
-            for (Object pad : (java.util.List<?>) modelGet(node, "IYM")) {
-                Object chain = modelGet(pad, "n3R");
-                JSONObject item = chain == null ? new JSONObject().put("kind", "drum_pad")
+            for (Object item : ((bitwig.obf.aIt) node).beI()) { // the drum machine's pads
+                WGX pad = (WGX) item;
+                Object chain = pad.JTf(); // the pad's chain
+                JSONObject entry = chain == null ? new JSONObject().put("kind", "drum_pad")
                         .put("index", index).put("has_chain", false).put("devices", new JSONArray())
                         : readNestedChain(owner, chain, "drum_pad", index, path, context, owners, atomOwners, out.length());
-                item.put("key", modelGet(pad, "KF3"));
-                out.put(item);
+                entry.put("key", pad.unz()); // the pad's key
+                out.put(entry);
                 index++;
             }
             return true;
@@ -1135,18 +1144,9 @@ public final class OpenwigDocument {
         if ((node instanceof bitwig.obf.xdh) || (node instanceof bitwig.obf.cbF) ||
                 (node instanceof bitwig.obf.lpr)) return true;
         boolean complete = true;
-        try {
-            java.lang.reflect.Method childrenOf = node.getClass().getMethod("hMI");
-            childrenOf.setAccessible(true);
-            Object children = childrenOf.invoke(node);
-            if (children instanceof java.util.List<?> members)
-                for (Object child : members)
-                    complete &= readNestedComponents(owner, child, out, sidechains, seen, context, path, owners, atomOwners, depth + 1);
-        } catch (NoSuchMethodException leaf) {
-            // No stored component children.
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("stored nested component read", failure);
-        }
+        if (componentChildren(node) instanceof java.util.List<?> members) // no children: a leaf
+            for (Object child : members)
+                complete &= readNestedComponents(owner, child, out, sidechains, seen, context, path, owners, atomOwners, depth + 1);
         return complete;
     }
 
@@ -1154,15 +1154,11 @@ public final class OpenwigDocument {
             String path, java.util.IdentityHashMap<Object, JSONObject> context,
             java.util.IdentityHashMap<Object, JSONObject> owners,
             java.util.IdentityHashMap<Object, JSONObject> atomOwners, int chainPosition) {
-        Object stored = modelGet(chain, "nY");
+        k3K stored = ((SRR) chain).YQe(); // the nested chain's device chain
         JSONArray devices = new JSONArray();
         if (stored != null) {
-            try {
-                Class<?> wrapper = com.bitwig.flt.document.api.document.ApiDeviceChain.class;
-                java.lang.reflect.Constructor<?> constructor = wrapper.getDeclaredConstructor(
-                        com.bitwig.flt.document.core.master.device.k3K.class);
-                constructor.setAccessible(true);
-                DeviceChain api = (DeviceChain) constructor.newInstance(stored);
+            {
+                DeviceChain api = new com.bitwig.flt.document.api.document.ApiDeviceChain(stored);
                 java.util.List<?> members = api.getDevices();
                 for (int i = 0; i < members.size(); i++) {
                     Device member = (Device) members.get(i);
@@ -1182,8 +1178,6 @@ public final class OpenwigDocument {
                     }
                     devices.put(readDevice(member, i, path, context, owners, atomOwners));
                 }
-            } catch (ReflectiveOperationException failure) {
-                throw new IllegalStateException("stored nested chain wrapper", failure);
             }
         }
         return new JSONObject().put("kind", kind).put("index", index)
@@ -1227,12 +1221,17 @@ public final class OpenwigDocument {
         if (source == null) return JSONObject.NULL;
         JSONObject known = context.get(source);
         return known != null ? known : new JSONObject().put("model_class", source.getClass().getName())
-                .put("label", modelGet(source, "IxG")).put("resolved", false);
+                .put("label", source instanceof jes labelled ? labelled.iqe() : JSONObject.NULL).put("resolved", false);
     }
 
     // Optional-getter variant: absent methods read as null instead of failing
     // the surrounding read (used where the exact build may legitimately lack
     // a getter on a subclass).
+    /** A stored component's child components, or null for a leaf. */
+    private static java.util.List<?> componentChildren(Object node) {
+        return node instanceof dZe container ? container.ogS() : null;
+    }
+
     /** A model object's owner (parent) in Bitwig's document tree, or null. */
     private static Object modelOwner(Object node) {
         return node instanceof IqI child ? child.L_() : null;
