@@ -3910,7 +3910,7 @@ public final class OpenwigDocument {
     // Offline export through Bitwig's own "Exporting audio" job (Ovo), as its
     // project render tests do: post-fader, one track (master by default), beats.
     private static JSONObject startRender(ApiProject project, JSONObject params) {
-        Object document = project.getTarget();
+        CmH document = (CmH) project.getTarget();
         String base = params.getString("path");
         if (base.toLowerCase(java.util.Locale.ROOT).endsWith(".wav")) base = base.substring(0, base.length() - 4);
         double start = params.getDouble("start"), length = params.getDouble("length");
@@ -3919,29 +3919,22 @@ public final class OpenwigDocument {
         java.io.File output = new java.io.File(base + ".wav");
         if (output.exists()) throw new IllegalArgumentException("render destination exists: " + output);
         Object track = params.has("track") ? ((ApiObject) view(resolve(project, params.getString("track")))).getTarget()
-                : callApi(callApi(document, "Qjx"), "WS");
-        try {
-            Class<?> jobType = bitwig.obf.lKW.class;
+                : document.svk().smz(); // the effect track group's master track
+        {
             // The job takes the range as start and end beats.
-            Object job = jobType.getConstructors()[0].newInstance(document, java.util.List.of(track), new String[]{base}, true, start, start + length);
-            // Ovo opens the output folder in Explorer when it succeeds; keep the desktop quiet.
-            java.lang.reflect.Field folder = jobType.getDeclaredField("IYM");
-            folder.setAccessible(true);
-            folder.set(job, null);
-            Object settings = bitwig.obf.rll.class.getMethod("tDS").invoke(null);
-            @SuppressWarnings({"unchecked", "rawtypes"})
-            Object tap = Enum.valueOf((Class) bitwig.obf.vT.class, params.optString("tap", "POST_FADER"));
-            callApi(settings, "jPB", tap);
-            Object format = callApi(settings, "Mqo");
-            @SuppressWarnings({"unchecked", "rawtypes"})
-            Object depth = Enum.valueOf((Class) bitwig.obf.yvd.class, params.optString("bit_depth", "INT24"));
-            callApi(format, "IYM", depth);
-            callApi(format, "IYM", Boolean.FALSE);
+            bitwig.obf.lKW job = new bitwig.obf.lKW(document, java.util.List.of(track), new String[]{base}, true, start, start + length);
+            // The job opens the output folder in Explorer when it succeeds; keep the desktop quiet.
+            job.beI = null;
+            bitwig.obf.rll settings = bitwig.obf.rll.Bqk(); // default export settings
+            settings.Gef((bitwig.obf.vT) namedNativeEnum(bitwig.obf.vT.class, params.optString("tap", "POST_FADER"))); // the tap
+            com.bitwig.flt.document.core.master.Gcs format = settings.kwH(); // the file format
+            format.beI((bitwig.obf.yvd) namedNativeEnum(bitwig.obf.yvd.class, params.optString("bit_depth", "INT24"))); // bit depth
+            format.beI(false); // a format flag, off as the 6.1.5 bridge set it
             String id = java.util.UUID.randomUUID().toString();
             JSONObject status = new JSONObject().put("job", id).put("state", "running").put("path", output.getPath());
             renderJobs.put(id, status);
-            java.util.concurrent.CountDownLatch latch = (java.util.concurrent.CountDownLatch) callApi(job, "oLP");
-            callApi(job, "jPB", settings);
+            java.util.concurrent.CountDownLatch latch = job.tWW(); // released when the job ends
+            job.Gef(settings); // start the job
             Thread waiter = new Thread(() -> {
                 try {
                     boolean done = latch.await(params.optLong("timeout", 3600), java.util.concurrent.TimeUnit.SECONDS);
@@ -3952,8 +3945,6 @@ public final class OpenwigDocument {
             waiter.setDaemon(true);
             waiter.start();
             return new JSONObject(status.toString());
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("render job failed to start: " + failure, failure);
         }
     }
 
