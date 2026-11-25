@@ -9,6 +9,10 @@ from __future__ import annotations
 from openwig.bridge import BridgeClient, BridgeError
 from openwig.java_devices import JavaDeviceMethods
 
+# Bitwig builds an OpenWig Java bridge exists for: the direct-patch JAR (6.1.5)
+# and the Patchbay mod (6.1.7). Each bridge reports the build it was made for.
+JAVA_BRIDGE_VERSIONS = ("6.1.5", "6.1.7")
+
 
 class JavaSong:
     """Compose tracks and MIDI clips through the independent Java bridge."""
@@ -23,10 +27,10 @@ class JavaSong:
         self._owns_bridge = bridge is None
         self.b.start()
         if not self.b.wait_connected(10):
-            raise BridgeError("Bitwig 6.1.5 Java bridge is not reachable on port 7778")
+            raise BridgeError("OpenWig Java bridge is not reachable on port 7778")
         found = self.b.request("host.version").get("version")
-        if found != "6.1.5":
-            raise BridgeError(f"Java bridge requires Bitwig 6.1.5, found {found!r}")
+        if found not in JAVA_BRIDGE_VERSIONS:
+            raise BridgeError(f"Java bridge requires Bitwig {' or '.join(JAVA_BRIDGE_VERSIONS)}, found {found!r}")
         if not self.b.request("document.status").get("active"):
             raise BridgeError("open a Bitwig project before creating a JavaSong")
         if tempo is not None:
