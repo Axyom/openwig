@@ -2,6 +2,7 @@
 
   python lookup.py <class> [<member> [<arity>]]   class: SsT, com/bitwig/flt/app/eY1 or com.bitwig.flt.app.eY1
   python lookup.py --who <member> [<arity>]        6.1.5 classes declaring <member> (to find a receiver)
+  python lookup.py --rev <6.1.7 class>             its 6.1.5 class
 
 For a member, every overload with that name visible on the class (declared or
 inherited) is listed with its declaring class, and its 6.1.7 name with the
@@ -72,6 +73,10 @@ def to_b(A, B, cmap, mmap, subs, k, n, d, decl):
 def main():
     A, B, cmap, mmap, subs = state()
     args = sys.argv[1:]
+    if args[0] == "--rev":  # 6.1.7 class -> 6.1.5 class
+        want = args[1].replace(".", "/")
+        print(" ".join(a for a, b in cmap.items() if b == want or b.rsplit("/", 1)[-1] == want) or "no 6.1.5 class")
+        return
     if args[0] == "--who":
         name, n = args[1], int(args[2]) if len(args) > 2 else None
         for c in sorted(A):
