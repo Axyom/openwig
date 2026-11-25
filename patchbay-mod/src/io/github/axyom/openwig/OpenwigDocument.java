@@ -2621,7 +2621,7 @@ public final class OpenwigDocument {
     // Expression-specific unit overrides can use readModelPoints directly.
     private static JSONArray readExpressionPoints(Object timeline) {
         if (timeline == null) return new JSONArray();
-        Object type = ((bitwig.obf.tvm) timeline).scr(); // the expression's value type
+        Object type = timelineType(timeline); // the expression's value type
         return readModelPoints(timeline, type, automationUnit(type));
     }
 
@@ -2629,13 +2629,49 @@ public final class OpenwigDocument {
         JSONArray points = new JSONArray();
         if (timeline == null) return points;
         if (!(timeline instanceof QQZ lane)) {
-            for (Object point : ((bitwig.obf.uJi) timeline).beI()) // the timeline's stored points
+            for (Object point : timelinePoints(timeline)) // the timeline's stored points
                 points.put(readModelPoint(point, type, unit));
             return points;
         }
         // Walk the lane with its clips the way playback does, collecting each point played.
         lane.beI(lane.Xit(), 0.0, bitwig.obf.er.Gef, bitwig.obf.tB3.beI(), true, true, new AutomationCollector(points, type, unit));
         return points;
+    }
+
+    // Point timelines come in two unrelated hierarchies (lanes and clip content; note
+    // expressions), and each note expression kind declares its own type and kind getters.
+
+    /** A point timeline's stored points. */
+    private static java.util.List<?> timelinePoints(Object timeline) {
+        if (timeline instanceof bitwig.obf.uJi lane) return lane.beI();
+        if (timeline instanceof bitwig.obf.JrA expression) return expression.beI();
+        throw new IllegalStateException("not a point timeline: " + timeline.getClass().getName());
+    }
+
+    /** A point timeline's value type (the parameter range its points are stored in). */
+    private static Object timelineType(Object timeline) {
+        if (timeline instanceof bitwig.obf.tvm t) return t.scr();
+        if (timeline instanceof bitwig.obf.sQF t) return t.scr();
+        if (timeline instanceof bitwig.obf.JiN t) return t.scr();
+        if (timeline instanceof bitwig.obf.brA t) return t.scr();
+        if (timeline instanceof bitwig.obf.PsI t) return t.scr();
+        if (timeline instanceof bitwig.obf.CgT t) return t.scr();
+        if (timeline instanceof bitwig.obf.yFk t) return t.scr();
+        throw new IllegalStateException("no value type on " + timeline.getClass().getName());
+    }
+
+    /** A note expression timeline's kind (gain, pan, transpose, ...). */
+    private static Enum<?> expressionKind(Object timeline) {
+        Object kind = null;
+        if (timeline instanceof bitwig.obf.PsI t) kind = t.xDy();
+        else if (timeline instanceof bitwig.obf.uX1 t) kind = t.xDy();
+        else if (timeline instanceof bitwig.obf.sQF t) kind = t.xDy();
+        else if (timeline instanceof bitwig.obf.CgT t) kind = t.xDy();
+        else if (timeline instanceof bitwig.obf.yFk t) kind = t.xDy();
+        else if (timeline instanceof bitwig.obf.brA t) kind = t.xDy();
+        else if (timeline instanceof bitwig.obf.JiN t) kind = t.xDy();
+        if (kind == null) throw new IllegalStateException("no expression kind on " + timeline.getClass().getName());
+        return (Enum<?>) kind;
     }
 
     /** Collects the points a composite automation walk plays back; every other callback is a no-op. */
@@ -2806,45 +2842,46 @@ public final class OpenwigDocument {
     // and KoO audio events inherit these fields. No expression creation calls.
     private static JSONObject readNoteExtras(Object model) {
         if (model == null) return new JSONObject().put("status", "null_note_model");
-        int recurrence = ((Number) modelGet(model, "QmZ")).intValue();
+        bitwig.obf.D note = (bitwig.obf.D) model; // a note or audio event
+        int recurrence = note.fmw();
         int period = 1 + (recurrence & 7);
         JSONArray iterations = new JSONArray();
         for (int i = 0; i < period; i++) iterations.put((recurrence & (1 << (3 + i))) != 0);
-        int repeat = ((Number) modelGet(model, "XYl")).intValue();
+        int repeat = note.neH();
         JSONObject out = new JSONObject()
-                .put("chance_enabled", modelGet(model, "HT3"))
-                .put("chance", modelGet(model, "Mqo"))
-                .put("occurrence_enabled", modelGet(model, "WEC"))
-                .put("occurrence", ((Enum<?>) modelGet(model, "tY1")).name())
-                .put("recurrence_enabled", modelGet(model, "kAg"))
+                .put("chance_enabled", note.af())
+                .put("chance", note.kwH())
+                .put("occurrence_enabled", note.Hqm())
+                .put("occurrence", ((Enum<?>) (Object) note.nhI()).name())
+                .put("recurrence_enabled", note.XUO())
                 .put("recurrence", recurrence)
                 .put("recurrence_period", period)
                 .put("recurrence_iterations", iterations)
-                .put("repeat_enabled", modelGet(model, "ap"))
+                .put("repeat_enabled", note.IvP())
                 .put("repeat_count", repeat)
                 .put("repeat_subdivisions", Math.abs(repeat) + 1)
-                .put("repeat_curve", modelGet(model, "QPT"))
-                .put("content_start", modelGet(model, "ySK"));
+                .put("repeat_curve", note.iFu())
+                .put("content_start", note.SQL());
         JSONArray expressions = new JSONArray();
-        Object content = modelGet(model, "smZ");
+        bitwig.obf.Fu3 content = note.EVg(); // the note's expression content
         if (content != null) {
-            for (Object timeline : (java.util.List<?>) modelGet(content, "CZR")) {
-                String name = ((Enum<?>) modelGet(timeline, "bXk")).name();
+            for (Object timeline : content.QDQ()) { // its expression timelines
+                String name = expressionKind(timeline).name();
                 String unit = name.equals("TRANSPOSE") || name.equals("FORMANT") ? "semitones" : "linear";
-                Object type = modelGet(timeline, "eUA");
+                Object type = timelineType(timeline);
                 // This uses the same fK.IYM(raw, fG source, fH destination)
                 // conversion as ApiDawProjectExporter. In particular, gain is
                 // converted out of its CUBE_ROOT storage domain to linear.
                 JSONArray points = readModelPoints(timeline, type, unit);
-                java.util.List<?> stored = (java.util.List<?>) modelGet(timeline, "IYM");
+                java.util.List<?> stored = timelinePoints(timeline);
                 // Exporter flattens interpolation to linear. Retain the actual
                 // model interpolation/curve in JSON for native read fidelity.
                 for (int i = 0; i < stored.size(); i++) {
                     Object point = stored.get(i);
-                    if ((point instanceof bitwig.obf.g13)) {
+                    if (point instanceof g13 real) {
                         points.getJSONObject(i)
-                                .put("interpolation", ((Enum<?>) modelGet(point, "AOA")).name().toLowerCase(java.util.Locale.ROOT))
-                                .put("curvature", modelGet(point, "dT_"));
+                                .put("interpolation", ((Enum<?>) (Object) real.MgQ()).name().toLowerCase(java.util.Locale.ROOT))
+                                .put("curvature", real.dT_());
                     }
                 }
                 expressions.put(new JSONObject().put("expression", name.toLowerCase(java.util.Locale.ROOT))
@@ -2859,25 +2896,19 @@ public final class OpenwigDocument {
         JSONArray markers = new JSONArray();
         // The API returns a sanitized copy and can drop stored markers. Read
         // the original GLs timeline, exactly as the DAWproject exporter does.
-        Object storedWarp = modelGet(model, "p3P");
-        int count = ((Number) modelGet(storedWarp, "WEC")).intValue();
-        try {
-            java.lang.reflect.Method markerAt = storedWarp.getClass().getMethod("Gcr", int.class);
-            markerAt.setAccessible(true);
-            for (int i = 0; i < count; i++) {
-                Object marker = markerAt.invoke(storedWarp, i);
-                markers.put(new JSONObject().put("time", modelGet(marker, "tS"))
-                        .put("content_time", modelGet(marker, "IYM")));
-            }
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("stored warp marker read", failure);
+        bitwig.obf.MZX storedWarp = ((bitwig.obf.poA) model).Ml2(); // the stored warp timeline
+        int count = storedWarp.Hqm(); // its marker count
+        for (int i = 0; i < count; i++) {
+            bitwig.obf.oCa marker = storedWarp.sCA(i); // the marker at an index
+            markers.put(new JSONObject().put("time", marker.ie())
+                    .put("content_time", marker.beI()));
         }
         return markers;
     }
 
     private static JSONObject readAudioEvent(com.bitwig.extension.api.project.timeline.AudioNote event) {
-        Object model = ((ApiObject) event).getTarget();
-        Object sample = modelGet(model, "xFs");
+        bitwig.obf.poA model = (bitwig.obf.poA) ((ApiObject) event).getTarget(); // an audio event
+        Object sample = model.GKF(); // its sample
         java.io.File file = sample == null ? null : event.getAudioFile();
         JSONObject out = new JSONObject().put("start", event.getTime())
                 .put("duration", event.getDuration()).put("muted", event.isMuted())
@@ -2885,11 +2916,11 @@ public final class OpenwigDocument {
                 .put("sample_file_status", file == null ? "unresolved" : "resolved")
                 .put("sample_rate", sample == null ? JSONObject.NULL : event.getSampleRate()).put("channels", sample == null ? JSONObject.NULL : event.getChannelCount())
                 .put("sample_duration_seconds", sample == null ? JSONObject.NULL : event.getAudioFileDurationInSeconds())
-                .put("algorithm", modelGet(modelGet(model, "TdG"), "jPB"))
-                .put("fade_in", modelGet(model, "dM_"))
-                .put("fade_out", modelGet(model, "KF3"))
+                .put("algorithm", model.jTs().Gef()) // the stretch algorithm's name
+                .put("fade_in", model.dM_())
+                .put("fade_out", model.unz())
                 .put("fade_time_unit", "beats")
-                .put("play_start_offset", modelGet(model, "xTe"))
+                .put("play_start_offset", model.qJX())
                 .put("warp_mode", event.getWarpMode().name())
                 .put("preserve_transients_mode", event.getPreserveTransientsMode().name())
                 .put("transient_rate", event.getTransientRate().name())
@@ -2898,14 +2929,13 @@ public final class OpenwigDocument {
                 .put("preview_onsets", event.getPreviewOnsets())
                 .put("preserve_formants", event.getPreserveFormants())
                 .put("formant_envelope_resolution", event.getFormantEnvelopeResolution())
-                .put("reverse", modelGet(modelGet(model, "jsk"), "wtf"))
-                .put("sample_play_start_seconds", modelGet(model, "IT3"))
-                .put("sample_play_stop_seconds", modelGet(model, "Klm"));
+                .put("reverse", model.p1J().Anf()) // the reverse setting
+                .put("sample_play_start_seconds", model.odI())
+                .put("sample_play_stop_seconds", model.dvk());
         com.bitwig.extension.api.project.timeline.WarpMarkers warp = event.getWarpEvents();
         JSONArray markers = storedWarpMarkers(model);
         if (!event.getWarpMode().name().equals("RAW")) {
-            double mappedStop = modelDoubleArgument(modelGet(model, "p3P"), "IYM",
-                    ((Number) modelGet(model, "ySK")).doubleValue() + event.getDuration());
+            double mappedStop = model.Ml2().beI(model.SQL() + event.getDuration()); // map beats to source seconds
             out.put("sample_play_stop_seconds", Math.max(0, Math.min(event.getAudioFileDurationInSeconds(), mappedStop)));
         }
         out.put("warp_markers", event.getWarpMode().name().equals("RAW") ? new JSONArray() : markers)
@@ -2924,7 +2954,7 @@ public final class OpenwigDocument {
         return readNoteExtras(raw).put("channel", note.getChannel()).put("key", note.getKey())
                 .put("start", note.getTime()).put("duration", note.getDuration())
                 .put("on_velocity", note.getOnVelocity()).put("off_velocity", note.getOffVelocity())
-                .put("velocity_spread", modelGet(raw, "Qcu")).put("muted", note.isMuted());
+                .put("velocity_spread", ((bitwig.obf.c1N) raw).byf()).put("muted", note.isMuted());
     }
 
     private static JSONObject readClip(Clip clip) {
