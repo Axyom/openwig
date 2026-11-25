@@ -2213,37 +2213,22 @@ public final class OpenwigDocument {
 
     private static JSONArray listDeviceParameters(Device device) {
         Object target = ((ApiObject) device).getTarget();
-        // tjt.bhG() is a pure getter for the native device's CONTENTS root.
-        Object contents;
-        try {
-            contents = target.getClass().getMethod("bhG").invoke(target);
-        } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("native device contents unavailable", error);
-        }
+        // A pure getter for the native device's CONTENTS root.
+        if (!(target instanceof utt)) throw new IllegalStateException("native device contents unavailable");
+        Object contents = deviceContents(target);
         Class<?> decimal = bitwig.obf.xdh.class;
         Class<?> bool = bitwig.obf.cbF.class;
         Class<?> indexed = bitwig.obf.lpr.class;
         java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
         java.util.List<Object> found = new java.util.ArrayList<>();
         walkAtoms(contents, 0, seen, found, decimal, bool, indexed);
-        java.lang.reflect.Method pathOf = identifierPathMethod(target.getClass());
         JSONArray out = new JSONArray();
+        if (!hasIdentifierPaths(target)) return out;
         for (Object atom : found) {
             JSONObject item = new JSONObject().put("kind", atomKind(atom, decimal, bool, indexed));
-            if (pathOf != null) {
-                try {
-                    String path = (String) pathOf.invoke(target, atom);
-                    if (path != null && path.startsWith("CONTENTS/")) {
-                        item.put("path", path.substring("CONTENTS/".length()));
-                    } else {
-                        continue;
-                    }
-                } catch (Throwable ignored) {
-                    continue;
-                }
-            } else {
-                break;
-            }
+            String path = automationIdentifier(target, atom);
+            if (path == null || !path.startsWith("CONTENTS/")) continue;
+            item.put("path", path.substring("CONTENTS/".length()));
             out.put(item);
         }
         return out;
@@ -2259,14 +2244,6 @@ public final class OpenwigDocument {
         return kinds;
     }
 
-    private static Class<?> classForName(String name) {
-        try {
-            return Class.forName(name);
-        } catch (ClassNotFoundException missing) {
-            return null;
-        }
-    }
-
     private static String atomKind(Object atom, Class<?> decimal, Class<?> bool, Class<?> indexed) {
         if (decimal != null && decimal.isInstance(atom)) return "double";
         if (bool != null && bool.isInstance(atom)) return "boolean";
@@ -2274,27 +2251,9 @@ public final class OpenwigDocument {
         return "unknown";
     }
 
-    private static java.lang.reflect.Method identifierPathMethod(Class<?> owner) {
-        // Exact 6.1.5 signature: IYM(BIp) renders a preset identifier path.
-        Class<?> component = com.bitwig.flt.document.core.iface.YxJ.class;
-        if (component == null) return null;
-        try {
-            // The public implementation can be inherited from an interface.
-            return owner.getMethod("IYM", component);
-        } catch (NoSuchMethodException ignored) {
-            // Fall back to non-public superclass implementations.
-        }
-        for (Class<?> c = owner; c != null; c = c.getSuperclass()) {
-            try {
-                java.lang.reflect.Method method = c.getDeclaredMethod("IYM", component);
-                if (method.getReturnType() != String.class) continue;
-                method.setAccessible(true);
-                return method;
-            } catch (NoSuchMethodException ignored) {
-                // Look on the superclass.
-            }
-        }
-        return null;
+    /** Whether this model object renders component identifier paths (as preset files store them). */
+    private static boolean hasIdentifierPaths(Object owner) {
+        return owner instanceof LRP || owner instanceof com.bitwig.flt.document.core.master.device.QkE;
     }
 
     private static void walkAtoms(Object node, int depth,
@@ -2311,23 +2270,14 @@ public final class OpenwigDocument {
             found.add(node);
             return;
         }
-        if ((node instanceof com.bitwig.flt.document.core.master.device.nWI)) {
-            for (Object module : (java.util.List<?>) modelGet(node, "Klm"))
-                walkAtoms(modelGet(module, "dsw"), depth + 1, seen, found, decimal, bool, indexed);
+        if (node instanceof nWI grid) {
+            for (Object module : grid.dvk()) // a Grid's modules, each with its own contents
+                walkAtoms(((ZFS) module).MvA(), depth + 1, seen, found, decimal, bool, indexed);
             return;
         }
-        try {
-            Object value = node.getClass().getMethod("hMI").invoke(node);
-            if (value instanceof java.util.List<?> children) {
-                for (Object child : children) {
-                    walkAtoms(child, depth + 1, seen, found, decimal, bool, indexed);
-                }
-            }
-        } catch (NoSuchMethodException ignored) {
-            // Leaf model node.
-        } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("device component walk failed", error);
-        }
+        if (componentChildren(node) instanceof java.util.List<?> children) // no children: a leaf
+            for (Object child : children)
+                walkAtoms(child, depth + 1, seen, found, decimal, bool, indexed);
     }
 
     private static JSONObject setDeviceEnabledOnTrack(Track targetTrack, int deviceIndex, boolean enabled) {
@@ -2393,9 +2343,10 @@ public final class OpenwigDocument {
         }
         Color color = track.getColor();
         Object rawTrack = ((ApiObject) track).getTarget();
-        Object comment = modelGetOrNull(rawTrack, "lzE");
-        Object channel = modelGetOrNull(rawTrack, "fcV");
-        Object solo = channel == null ? null : modelGetOrNull(channel, "oLP");
+        bitwig.obf.PiT model = rawTrack instanceof bitwig.obf.PiT t ? t : null;
+        Object comment = model == null ? null : model.wze(); // the track comment
+        bitwig.obf.nCQ channel = model == null ? null : model.pEy(); // the track's channel
+        Object solo = channel == null ? null : channel.tWW(); // soloed
         return new JSONObject()
                 .put("index", index)
                 .put("name", track.getTitle())
@@ -2560,13 +2511,7 @@ public final class OpenwigDocument {
         JSONArray slots = new JSONArray();
         // Track slot banks can be shorter than the project scene bank.
         // Never ask clipSlot for a missing index: it silently appends a slot.
-        int slotCount;
-        try {
-            Object target = ((ApiObject) view).getTarget();
-            slotCount = (Integer) target.getClass().getMethod("ce_").invoke(target);
-        } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("launcher slot count unavailable for " + path, error);
-        }
+        int slotCount = ((bitwig.obf.PiT) ((ApiObject) view).getTarget()).ce_(); // the track's launcher slot count
         for (int i = 0; i < Math.min(slotCount, scenesCount); i++) {
             com.bitwig.extension.api.project.timeline.ClipSlot slot = view.clipSlot(i);
             Clip clip = slot.getClip();
@@ -2594,11 +2539,12 @@ public final class OpenwigDocument {
         JSONArray out = new JSONArray();
         Object pan = ((ApiObject) view.mixer().getPan()).getTarget();
         java.util.List<?> devices = view.deviceChain().getDevices();
-        for (Object lane : (java.util.List<?>) modelGet(modelGet(trackTarget, "HMG"), "IYM")) {
-            Object target = modelGet(lane, "DvC");
+        for (Object entry : ((bitwig.obf.PiT) trackTarget).Lna().beI()) { // the track's automation lanes
+            bitwig.obf.oci lane = (bitwig.obf.oci) entry;
+            Object target = lane.UnB(); // the automated parameter
             JSONObject item = new JSONObject().put("track_path", path)
                     .put("target_class", target == null ? JSONObject.NULL : target.getClass().getName())
-                    .put("target_name", target == null ? JSONObject.NULL : jsonModelValue(modelGet(target, "rqQ")))
+                    .put("target_name", target == null ? JSONObject.NULL : jsonModelValue(((OMh) target).Bqd()))
                     .put("target_path", JSONObject.NULL).put("target_status", target == null ? "null" : "model");
             String targetPath = automationIdentifier(trackTarget, target);
             if (targetPath != null) item.put("target_path", targetPath);
@@ -2612,28 +2558,29 @@ public final class OpenwigDocument {
                     break;
                 }
             }
-            Object timeline = modelGet(lane, "oLP");
+            QQZ timeline = lane.tWW(); // the lane's timeline
             if (timeline == null) {
                 out.put(item.put("status", "null_timeline").put("unit", JSONObject.NULL)
                         .put("points", new JSONArray()).put("point_count", 0));
                 continue;
             }
-            Object type = modelGet(modelGet(timeline, "Nsg"), "NFl");
+            Object type = timeline.Xit().LYs(); // the lane's value type
             boolean midi = (target instanceof bitwig.obf.E3p);
             boolean plugin = (target instanceof com.bitwig.flt.document.core.master.device.ogX);
             String unit = target == pan || midi || plugin ? "normalized" : automationUnit(type);
             if (midi) {
-                Object kind = modelGet(target, "ViH");
-                item.put("expression", enumField(kind, "Gcr") ? "channel_controller" :
-                        enumField(kind, "jPB") ? "channel_pressure" : "pitch_bend")
-                        .put("channel", modelGet(target, "wtf"));
-                if (enumField(kind, "Gcr")) item.put("controller", modelGet(target, "CaE"));
+                bitwig.obf.ViP expression = (bitwig.obf.ViP) target; // a MIDI expression parameter
+                String kind = ((Enum<?>) (Object) expression.XdI()).name();
+                item.put("expression", kind.equals("CHANNEL_CONTROLLER") ? "channel_controller" :
+                        kind.equals("CHANNEL_PRESSURE") ? "channel_pressure" : "pitch_bend")
+                        .put("channel", expression.Anf());
+                if (kind.equals("CHANNEL_CONTROLLER")) item.put("controller", expression.Q1());
             }
-            if (plugin) item.put("parameter_id", jsonModelValue(modelGet(target, "KF3")));
+            if (plugin) item.put("parameter_id", jsonModelValue(((com.bitwig.flt.document.core.master.device.ogX) target).unz()));
             JSONArray points = readModelPoints(timeline, type, unit);
             out.put(item.put("unit", jsonModelValue(unit)).put("time_unit", "beats")
                     .put("points", points).put("point_count", points.length()).put("status", "read"));
-            java.util.List<?> clips = (timeline instanceof bitwig.obf.QQZ) ? (java.util.List<?>) modelGet(timeline, "IYM") : null;
+            java.util.List<?> clips = timeline.beI(); // the lane's automation clips
             if (clips != null && !clips.isEmpty()) {
                 // The composite walk interleaves clip-relative points with the lane's own.
                 JSONArray read = new JSONArray();
@@ -2649,23 +2596,24 @@ public final class OpenwigDocument {
     }
 
     private static String automationIdentifier(Object owner, Object target) {
-        if (owner == null || target == null) return null;
-        java.lang.reflect.Method method = identifierPathMethod(owner.getClass());
-        if (method == null || !method.getParameterTypes()[0].isInstance(target)) return null;
-        try { return (String) method.invoke(owner, target); }
-        catch (ReflectiveOperationException | IllegalArgumentException absent) { return null; }
+        if (!(target instanceof com.bitwig.flt.document.core.iface.YxJ component)) return null;
+        try {
+            if (owner instanceof LRP paths) return paths.beI(component); // the component's identifier path
+            if (owner instanceof com.bitwig.flt.document.core.master.device.QkE paths) return paths.beI(component);
+        } catch (IllegalArgumentException absent) { return null; }
+        return null;
     }
 
     private static String automationUnit(Object type) {
-        if (!(type instanceof bitwig.obf.aG)) return null;
-        Object domain = modelGet(type, "ppu");
-        if (enumField(domain, "jPB")) return "decibel";
-        if (enumField(domain, "Gcr") || enumField(domain, "Qcu")) return "semitones";
-        Object unit = modelGet(type, "Mqo");
-        if (enumField(unit, "nsm")) return "beats";
-        if (enumField(unit, "eUA")) return "bpm";
-        if (enumField(unit, "xeZ")) return "seconds";
-        if (enumField(unit, "wtf")) return "hertz";
+        if (!(type instanceof aG range)) return null;
+        String domain = range.BCC() == null ? "" : ((Enum<?>) (Object) range.BCC()).name(); // the value mapping
+        if (domain.equals("DECIBEL")) return "decibel";
+        if (domain.equals("PITCH") || domain.equals("PITCH_RELATIVE")) return "semitones";
+        String unit = range.kwH() == null ? "" : ((Enum<?>) (Object) range.kwH()).name(); // the display unit
+        if (unit.equals("BEAT_TIME")) return "beats";
+        if (unit.equals("BPM")) return "bpm";
+        if (unit.equals("SECONDS")) return "seconds";
+        if (unit.equals("HERTZ")) return "hertz";
         return "linear";
     }
 
@@ -2878,10 +2826,6 @@ public final class OpenwigDocument {
         }
     }
 
-    private static boolean enumField(Object value, String field) {
-        try { return value != null && value == ((Enum<?>) value).getDeclaringClass().getField(field).get(null); }
-        catch (ReflectiveOperationException failure) { throw new IllegalStateException("model enum field " + field, failure); }
-    }
 
 
     // Read-only PNT/Tc getters from exact original 6.1.5. Both vuj MIDI notes
@@ -3117,24 +3061,14 @@ public final class OpenwigDocument {
             }
             java.util.Map<Object, Boolean> seen = new java.util.IdentityHashMap<>();
             java.util.List<Object> found = new java.util.ArrayList<>();
-            Object contents;
-            try {
-                contents = target.getClass().getMethod("bhG").invoke(target);
-            } catch (ReflectiveOperationException missing) {
-                continue;
-            }
+            if (!(target instanceof utt)) continue;
+            Object contents = deviceContents(target);
             walkAtoms(contents, 0, seen, found, decimal, null, null);
-            java.lang.reflect.Method pathOf = identifierPathMethod(target.getClass());
-            if (pathOf == null) {
+            if (!hasIdentifierPaths(target)) {
                 continue;
             }
             for (Object atom : found) {
-                String name;
-                try {
-                    name = (String) pathOf.invoke(target, atom);
-                } catch (Throwable unreadable) {
-                    continue;
-                }
+                String name = automationIdentifier(target, atom);
                 if (name == null || !name.startsWith("CONTENTS/")) {
                     continue;
                 }
@@ -3559,15 +3493,10 @@ public final class OpenwigDocument {
         return out;
     }
 
-    private static Object apiWrap(String type, Object target) {
-        Class<?> api = classForName("com.bitwig.flt.document.api.document." + type);
-        if (api == null || target == null) return null;
-        for (java.lang.reflect.Constructor<?> constructor : api.getConstructors())
-            if (constructor.getParameterCount() == 1 && constructor.getParameterTypes()[0].isInstance(target)) {
-                try { return constructor.newInstance(target); }
-                catch (ReflectiveOperationException failure) { throw new IllegalStateException(type + " wrapper failed", failure); }
-            }
-        throw new IllegalStateException("no " + type + " constructor for " + target.getClass().getName());
+    /** The document API wrapper of a raw audio or note clip event. */
+    private static Clip clipEventWrapper(boolean audio, Object raw) {
+        return audio ? new com.bitwig.flt.document.api.document.ApiAudioNoteClipEvent((bitwig.obf.DyF) raw)
+                : new com.bitwig.flt.document.api.document.ApiInstrumentNoteClipEvent((bitwig.obf.DrA) raw);
     }
 
     private static Object callApi(Object target, String method, Object... args) {
@@ -4895,11 +4824,7 @@ public final class OpenwigDocument {
                     Object raw = modelGet(((ApiObject) clip).getTarget(), "VxG");
                     com.bitwig.ramona.core.m1k.class.getMethod("IYM", com.bitwig.ramona.core.ytz.class)
                             .invoke(null, raw);
-                    Class<?> wrapper = classForName(clip instanceof AudioClip
-                            ? "com.bitwig.flt.document.api.document.ApiAudioNoteClipEvent"
-                            : "com.bitwig.flt.document.api.document.ApiInstrumentNoteClipEvent");
-                    Clip cloned = (Clip) wrapper.getConstructor(classForName(clip instanceof AudioClip ? "ukL" : "ME2"))
-                            .newInstance(raw);
+                    Clip cloned = clipEventWrapper(clip instanceof AudioClip, raw);
                     cloned.setTime(start);
                     Object selection = modelGet(modelGet(modelGet(project.getTarget(), "qVp"), "TcG"), "tY1");
                     Object context = modelGet(selection, "gn_");
@@ -5309,9 +5234,11 @@ public final class OpenwigDocument {
                 .put("queued", clip != null && (Boolean) modelGet(((ApiObject) clip).getTarget(), "Vgk"));
     }
 
-    private static Object namedNativeEnum(String type, String name) {
-        try { return classForName(type).getMethod("valueOf", String.class).invoke(null, name); }
-        catch (ReflectiveOperationException failure) { throw new IllegalArgumentException("unsupported " + type + " value: " + name, failure); }
+    /** A Bitwig enum constant by its stored name (enum names are readable and stable across builds). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Object namedNativeEnum(Class<?> type, String name) {
+        try { return Enum.valueOf((Class) type, name); }
+        catch (IllegalArgumentException failure) { throw new IllegalArgumentException("unsupported " + type.getSimpleName() + " value: " + name, failure); }
     }
 
     private static JSONObject launchSettings(Clip clip) {
@@ -5330,9 +5257,9 @@ public final class OpenwigDocument {
     private static Runnable launchSettingsEdit(Clip clip, JSONObject changes) {
         String reference = "use_loop_start_as_quantization_reference";
         if (changes.has(reference) && !(changes.get(reference) instanceof Boolean)) throw new IllegalArgumentException(reference + " must be boolean");
-        Object quantization = changes.has("launch_quantization") ? namedNativeEnum("RXG", changes.getString("launch_quantization")) : null;
-        Object mode = changes.has("launch_mode") ? namedNativeEnum("xSr", changes.getString("launch_mode")) : null;
-        Object action = changes.has("next_action") ? namedNativeEnum("bP", changes.getString("next_action")) : null;
+        Object quantization = changes.has("launch_quantization") ? namedNativeEnum(bitwig.obf.lhA.class, changes.getString("launch_quantization")) : null;
+        Object mode = changes.has("launch_mode") ? namedNativeEnum(bitwig.obf.MpD.class, changes.getString("launch_mode")) : null;
+        Object action = changes.has("next_action") ? namedNativeEnum(bitwig.obf.bX.class, changes.getString("next_action")) : null;
         double time = finiteField(changes, "next_action_time", 0);
         if (time < 0) throw new IllegalArgumentException("next action time must be nonnegative");
         Object raw = ((ApiObject) clip).getTarget();
@@ -5354,7 +5281,7 @@ public final class OpenwigDocument {
                 try {
                     if (method.equals("launcher.stop")) {
                         if (params.has("immediate") && !(params.get("immediate") instanceof Boolean)) throw new IllegalArgumentException("immediate must be boolean");
-                        Object quantization = namedNativeEnum("RXG", params.optBoolean("immediate", false) ? "OFF" : "DEFAULT");
+                        Object quantization = namedNativeEnum(bitwig.obf.lhA.class, params.optBoolean("immediate", false) ? "OFF" : "DEFAULT");
                         raw.getClass().getMethod("IYM", bitwig.obf.lhA.class, boolean.class, int.class).invoke(raw, quantization, false, -1);
                     } else modelGet(raw, "Sxv");
                 } catch (ReflectiveOperationException failure) { throw new IllegalStateException("launcher playback command failed", failure); }
@@ -5404,9 +5331,7 @@ public final class OpenwigDocument {
                 Object raw = modelGet(((ApiObject) source).getTarget(), "VxG");
                 try {
                     com.bitwig.ramona.core.m1k.class.getMethod("IYM", com.bitwig.ramona.core.ytz.class).invoke(null, raw);
-                    staged = (Clip) classForName(source instanceof AudioClip ? "com.bitwig.flt.document.api.document.ApiAudioNoteClipEvent"
-                            : "com.bitwig.flt.document.api.document.ApiInstrumentNoteClipEvent")
-                            .getConstructor(classForName(source instanceof AudioClip ? "ukL" : "ME2")).newInstance(raw);
+                    staged = clipEventWrapper(source instanceof AudioClip, raw);
                 } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native launcher copy failed", failure); }
                 staged.setTime(0);
             } else if (method.equals("launcher.put_notes")) {
@@ -5487,7 +5412,7 @@ public final class OpenwigDocument {
             if (value < 0 || value > 1) throw new IllegalArgumentException("chance must be in 0..1");
             note.setChance(value);
         }
-        if (data.has("occurrence")) invokeModelSetter(raw, "IYM", bitwig.obf.UQU.class, namedNativeEnum("Cff", data.getString("occurrence")));
+        if (data.has("occurrence")) invokeModelSetter(raw, "IYM", bitwig.obf.UQU.class, namedNativeEnum(bitwig.obf.UQU.class, data.getString("occurrence")));
         for (String name : new String[]{"recurrence", "repeat_count"}) {
             if (!data.has(name)) continue;
             double value = finiteField(data, name, 0);
