@@ -3958,14 +3958,8 @@ public final class OpenwigDocument {
                             : trackSource(project, params.getJSONObject("source"));
                     DirectAccess.runInUndo(track.clipTimeline(), () -> {
                         if (source != null) { track.sourceSelector().setSource(source); return; }
-                        Object selector = ((ApiObject) track.sourceSelector()).getTarget();
-                        for (java.lang.reflect.Method m : selector.getClass().getMethods())
-                            if (m.getName().equals("IYM") && m.getParameterCount() == 1 && !m.getParameterTypes()[0].isPrimitive()
-                                    && m.getParameterTypes()[0].getSimpleName().startsWith("iml")) {
-                                try { m.invoke(selector, new Object[]{null}); return; }
-                                catch (ReflectiveOperationException failure) { throw new IllegalStateException("source clear failed", failure); }
-                            }
-                        throw new IllegalStateException("source selector setter not found");
+                        bitwig.obf.jN selector = (bitwig.obf.jN) ((ApiObject) track.sourceSelector()).getTarget();
+                        selector.beI((bitwig.obf.wtA) null); // clear the source
                     });
                     com.bitwig.extension.api.project.routing.Source now = track.sourceSelector().getSource();
                     yield new JSONObject().put("source", sourceInfo(now == null ? null : ((ApiObject) now).getTarget(), routingContext(project)));
@@ -3973,67 +3967,49 @@ public final class OpenwigDocument {
                 case "device.set_sidechain" -> {
                     Track track = deviceScope(resolveTrack(project, params), params);
                     Object owner = deviceTargetAt(track, params.getInt("device"));
-                    Class<?> type = bitwig.obf.nnO.class;
                     Object component;
                     if (params.optString("component", "").isEmpty()) {
-                        // A plugin's own sidechain input (vgq.Oof().Idv()), as the reader reports it.
-                        Object plugin = modelGetOrNull(owner, "Oof");
-                        component = plugin == null ? null : modelGetOrNull(plugin, "Idv");
-                        if (component == null || !type.isInstance(component))
+                        // A plugin's own sidechain input, as the reader reports it.
+                        R1c plugin = owner instanceof Mv pluginDevice ? pluginDevice.dcC() : null;
+                        component = plugin == null ? null : plugin.pDG();
+                        if (!(component instanceof nnO))
                             throw new IllegalArgumentException("device has no plugin sidechain input");
-                    } else component = deviceComponent(owner, params.getString("component"), type);
+                    } else component = deviceComponent(owner, params.getString("component"), nnO.class);
                     com.bitwig.extension.api.project.routing.Source source = params.isNull("source") ? null
                             : trackSource(project, params.getJSONObject("source"));
-                    Object wrapper;
-                    try {
-                        wrapper = com.bitwig.flt.document.api.document.ApiSidechainRoutingComponent.class.getConstructor(type).newInstance(component);
-                    } catch (ReflectiveOperationException failure) { throw new IllegalStateException("sidechain wrapper failed", failure); }
-                    DirectAccess.runInUndo(track.clipTimeline(), () -> {
-                        try { wrapper.getClass().getMethod("setSource", com.bitwig.extension.api.project.routing.Source.class).invoke(wrapper, source); }
-                        catch (ReflectiveOperationException failure) { throw new IllegalStateException("sidechain source write failed", failure); }
-                    });
-                    yield new JSONObject().put("source", sourceInfo(modelGet(modelGet(component, "APa"), "LZe"), routingContext(project)));
+                    com.bitwig.flt.document.api.document.ApiSidechainRoutingComponent wrapper =
+                            new com.bitwig.flt.document.api.document.ApiSidechainRoutingComponent((nnO) component);
+                    DirectAccess.runInUndo(track.clipTimeline(), () -> wrapper.setSource(source));
+                    yield new JSONObject().put("source", sourceInfo(((nnO) component).DIi().BZt(), routingContext(project)));
                 }
                 case "device.create_band" -> {
                     Track track = deviceScope(resolveTrack(project, params), params);
                     Object owner = deviceTargetAt(track, params.getInt("device"));
-                    Class<?> bankType = com.bitwig.flt.document.core.master.device.YVC.class;
-                    Object bank = deviceComponent(owner, params.getString("component"), bankType);
+                    YVC bank = (YVC) deviceComponent(owner, params.getString("component"), YVC.class);
                     Object[] created = new Object[1];
                     DirectAccess.runInUndo(track.clipTimeline(), () -> {
-                        try {
-                            // Same construction as the native "add layer" container, on any chain bank.
-                            Class<?> chainType = com.bitwig.flt.document.core.master.device.SRR.class;
-                            Object chain = chainType.getMethod("gr2").invoke(null);
-                            Object initial = com.bitwig.flt.document.core.master.device.aCR.class.getMethod("xTe").invoke(null);
-                            java.lang.reflect.Method init = null;
-                            for (java.lang.reflect.Method m : chainType.getMethods())
-                                if (m.getName().equals("IYM") && m.getParameterCount() == 1 && m.getParameterTypes()[0].isInstance(initial)) { init = m; break; }
-                            if (init == null) throw new IllegalStateException("chain initializer not found");
-                            init.invoke(chain, initial);
-                            bankType.getMethod("tDS", chainType).invoke(bank, chain);
-                            created[0] = chain;
-                        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("band creation failed", failure); }
+                        // Same construction as the native "add layer" container, on any chain bank.
+                        SRR chain = SRR.rcd(); // a new nested chain
+                        chain.beI(com.bitwig.flt.document.core.master.device.aCR.qJX()); // with an empty device chain
+                        bank.Bqk(chain); // add it to the bank
+                        created[0] = chain;
                     });
                     yield new JSONObject().put("component", jsonModelValue(automationIdentifier(owner, created[0])))
-                            .put("count", ((java.util.List<?>) modelGet(bank, "NFl")).size());
+                            .put("count", bank.LYs().size());
                 }
                 case "device.drum_pad" -> {
                     Track track = deviceScope(resolveTrack(project, params), params);
                     Object owner = deviceTargetAt(track, params.getInt("device"));
-                    Class<?> padsType = bitwig.obf.aIt.class;
-                    Object pads = deviceComponent(owner, params.optString("component", "CONTENTS/DRUM_PADS"), padsType);
+                    Object pads = deviceComponent(owner, params.optString("component", "CONTENTS/DRUM_PADS"), bitwig.obf.aIt.class);
                     int key = params.getInt("key");
                     if (key < 0 || key > 127) throw new IllegalArgumentException("drum pad key must be 0..127");
                     Object[] chain = new Object[1];
                     DirectAccess.runInUndo(track.clipTimeline(), () -> {
-                        try {
-                            Object api = com.bitwig.flt.document.api.document.ApiDrumPads.class.getConstructor(padsType).newInstance(pads);
-                            Object pad = api.getClass().getMethod("getDrumPad", int.class).invoke(api, key);
-                            pad.getClass().getMethod("getDeviceChain").invoke(pad);
-                            if (params.has("name")) pad.getClass().getMethod("setName", String.class).invoke(pad, params.getString("name"));
-                            chain[0] = modelGet(((ApiObject) pad).getTarget(), "n3R");
-                        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("drum pad creation failed", failure); }
+                        com.bitwig.extension.api.project.component.DrumPad pad =
+                                new com.bitwig.flt.document.api.document.ApiDrumPads((bitwig.obf.aIt) pads).getDrumPad(key);
+                        pad.getDeviceChain(); // creates the pad's chain
+                        if (params.has("name")) pad.setName(params.getString("name"));
+                        chain[0] = ((WGX) ((ApiObject) pad).getTarget()).JTf(); // the pad's chain
                     });
                     yield new JSONObject().put("component", jsonModelValue(automationIdentifier(owner, chain[0]))).put("key", key);
                 }
@@ -4053,14 +4029,14 @@ public final class OpenwigDocument {
                     JSONArray out = new JSONArray();
                     java.util.LinkedList<Object> queue = new java.util.LinkedList<>();
                     java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
-                    queue.add(modelGet(owner, "bhG"));
+                    queue.add(deviceContents(owner));
                     while (!queue.isEmpty() && out.length() < 4000) {
                         Object node = queue.poll();
                         if (node == null || seen.put(node, true) != null) continue;
                         out.put(new JSONObject().put("path", jsonModelValue(automationIdentifier(owner, node)))
                                 .put("class", node.getClass().getName())
                                 .put("super", node.getClass().getSuperclass() == null ? JSONObject.NULL : node.getClass().getSuperclass().getName()));
-                        Object children = modelGetOrNull(node, "hMI");
+                        Object children = componentChildren(node);
                         if (children instanceof java.util.List<?> list) for (Object child : list) queue.add(child);
                     }
                     yield new JSONObject().put("components", out);
@@ -4098,12 +4074,11 @@ public final class OpenwigDocument {
                                 if (m.getParameterCount() == 1 && (m.getParameterTypes()[0] == boolean.class || m.getParameterTypes()[0] == double.class))
                                     methods.put(c.getName() + "." + m.getName() + "(" + m.getParameterTypes()[0].getName() + ")->" + m.getReturnType().getSimpleName()
                                             + (java.lang.reflect.Modifier.isPublic(m.getModifiers()) ? " public" : ""));
-                        java.lang.reflect.Method ht3 = null;
-                        try { ht3 = atom.getClass().getMethod("HT3"); } catch (NoSuchMethodException ignored) { }
-                        yield new JSONObject().put("methods", methods).put("HT3_declared_in", ht3 == null ? JSONObject.NULL : ht3.getDeclaringClass().getName());
+                        yield new JSONObject().put("methods", methods);
                     }
                     String name = params.getString("method");
                     boolean flag = params.getBoolean("value");
+                    // Reflection kept: a debugging aid that invokes a method the caller names.
                     DirectAccess.runInUndo(track.clipTimeline(), () -> {
                         for (Class<?> c = atom.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
                             try {
@@ -4117,7 +4092,7 @@ public final class OpenwigDocument {
                         throw new IllegalArgumentException("no method " + name + "(boolean)");
                     });
                     JSONObject after = describeGetters(atom);
-                    Object type = modelGetOrNull(atom, "ViH");
+                    Object type = atom instanceof kh decimal ? decimal.XdI() : null; // its value range
                     if (type != null) after.put("type", describeGetters(type));
                     yield after;
                 }
@@ -4127,23 +4102,20 @@ public final class OpenwigDocument {
                     java.util.List<?> modulators = modulatorList(owner);
                     Object modulator = modulators.get(params.getInt("modulator"));
                     JSONObject out = new JSONObject().put("modulator", describeGetters(modulator));
-                    Object contents = modelGetOrNull(modulator, "dsw");
+                    Object contents = ((QFr) modulator).MvA();
                     out.put("contents", describeGetters(contents));
                     JSONObject atoms = new JSONObject();
                     for (java.util.Map.Entry<String, Object> entry : modulatorAtoms(modulator).entrySet()) {
                         JSONObject atom = describeGetters(entry.getValue());
-                        Object type = modelGetOrNull(entry.getValue(), "ViH");
+                        aG type = entry.getValue() instanceof kh decimal ? decimal.XdI() : null; // its value range
                         if (type != null) {
                             atom.put("type_class", type.getClass().getName()).put("type", describeGetters(type));
-                            try {
-                                java.lang.reflect.Method normalize = type.getClass().getMethod("IYM", double.class);
-                                JSONArray probes = new JSONArray();
-                                for (double v : new double[]{-1, -0.5, 0, 0.5, 1}) probes.put(normalize.invoke(type, v));
-                                atom.put("normalize(-1,-.5,0,.5,1)", probes);
-                            } catch (ReflectiveOperationException ignored) { }
+                            JSONArray probes = new JSONArray();
+                            for (double v : new double[]{-1, -0.5, 0, 0.5, 1}) probes.put(type.beI(v)); // normalize
+                            atom.put("normalize(-1,-.5,0,.5,1)", probes);
                         }
-                        Object span = modelGetOrNull(modelGetOrNull(entry.getValue(), "VMm"), "Nwn");
-                        if (span != null) atom.put("modulation_span", span);
+                        bitwig.obf.bU modulation = entry.getValue() instanceof QCX modulated ? modulated.yy() : null;
+                        if (modulation != null) atom.put("modulation_span", modulation.y3f());
                         atoms.put(entry.getKey(), atom);
                     }
                     yield out.put("atoms", atoms);
@@ -4162,14 +4134,11 @@ public final class OpenwigDocument {
                     // Named stored components (Grid modules) share urr's undoable name setter.
                     Track track = deviceScope(resolveTrack(project, params), params);
                     Object owner = deviceTargetAt(track, params.getInt("device"));
-                    Class<?> named = com.bitwig.flt.document.core.master.device.JDx.class;
-                    Object component = deviceComponent(owner, params.getString("component"), named);
+                    com.bitwig.flt.document.core.master.device.JDx component = (com.bitwig.flt.document.core.master.device.JDx)
+                            deviceComponent(owner, params.getString("component"), com.bitwig.flt.document.core.master.device.JDx.class);
                     String name = params.getString("name");
-                    DirectAccess.runInUndo(track.clipTimeline(), () -> {
-                        try { named.getMethod("eUA", String.class).invoke(component, name); }
-                        catch (ReflectiveOperationException failure) { throw new IllegalStateException("rename failed", failure); }
-                    });
-                    yield new JSONObject().put("component", params.getString("component")).put("name", modelGet(component, "HT3"));
+                    DirectAccess.runInUndo(track.clipTimeline(), () -> component.scr(name)); // the undoable rename
+                    yield new JSONObject().put("component", params.getString("component")).put("name", component.af());
                 }
                 case "project.render_status" -> {
                     JSONObject status = renderJobs.get(params.getString("job"));
@@ -4181,17 +4150,19 @@ public final class OpenwigDocument {
                     Track track = deviceScope(resolveTrack(project, params), params);
                     Object owner = deviceTargetAt(track, params.getInt("device"));
                     JSONArray modulators = new JSONArray();
-                    Object list = modelGetOrNull(modelGetOrNull(owner, "YGC"), "Klm");
-                    if (list instanceof java.util.List<?> entries) for (Object modulator : entries) {
-                        Object contents = modelGetOrNull(modulator, "dsw");
-                        Object identity = contents == null ? null : modelGetOrNull(modelGetOrNull(contents, "ppu"), "Gcr");
+                    itZ bank = owner instanceof sgH device ? device.LdK() : null;
+                    Object list = bank == null ? null : bank.dvk();
+                    if (list instanceof java.util.List<?> entries) for (Object entry : entries) {
+                        QFr modulator = (QFr) entry;
+                        Mmq contents = modulator.MvA();
+                        Object identity = contents == null || contents.BCC() == null ? null : contents.BCC().sCA();
                         modulators.put(new JSONObject().put("index", modulators.length())
                                 .put("modulator_id", identity == null ? JSONObject.NULL : identity.toString())
-                                .put("device_name", modelGet(modulator, "HT3"))
-                                .put("x", modelGet(modulator, "AOA")).put("y", modelGet(modulator, "KF3")));
+                                .put("device_name", modulator.af())
+                                .put("x", modulator.MgQ()).put("y", modulator.unz()));
                     }
                     JSONArray light = new JSONArray();
-                    chainOutline(owner, modelGetOrNull(owner, "bhG"), light, new java.util.IdentityHashMap<>(), 0);
+                    chainOutline(owner, deviceContents(owner), light, new java.util.IdentityHashMap<>(), 0);
                     yield new JSONObject().put("modulators", modulators).put("chains", light);
                 }
                 default -> throw new IllegalArgumentException("unsupported rebuild method: " + method);
