@@ -5369,12 +5369,12 @@ public final class OpenwigDocument {
                 events.addPoint(time, value); previous = time;
             }
             expression.setEvents(events, unit);
-            Object content = modelGet(((ApiObject) note).getTarget(), "smZ");
+            bitwig.obf.Fu3 content = ((bitwig.obf.D) ((ApiObject) note).getTarget()).EVg(); // the note's expression content
             Object selected = null;
-            for (Object timeline : (java.util.List<?>) modelGet(content, "CZR"))
-                if (((Enum<?>) modelGet(timeline, "bXk")).name().equalsIgnoreCase(name)) selected = timeline;
+            for (Object timeline : content.QDQ())
+                if (expressionKind(timeline).name().equalsIgnoreCase(name)) selected = timeline;
             if (selected == null) throw new IllegalStateException("expression timeline missing");
-            java.util.List<?> stored = (java.util.List<?>) modelGet(selected, "IYM");
+            java.util.List<?> stored = timelinePoints(selected);
             if (stored.size() != points.length()) throw new IllegalStateException("expression point count mismatch");
             for (int j = 0; j < points.length(); j++) {
                 JSONArray input = points.getJSONArray(j);
@@ -5403,7 +5403,7 @@ public final class OpenwigDocument {
         InstrumentNote note = factory.createInstrumentNote((int) channel, (int) key, start, duration, on, off);
         note.setIsMuted(data.optBoolean("muted", false));
         note.setVelocitySpread(spread);
-        invokeModelSetter(((ApiObject) note).getTarget(), "UJq", double.class, offset);
+        ((bitwig.obf.D) ((ApiObject) note).getTarget()).CKj(offset); // the content start
         applyNoteConditions(note, data);
         if (data.has("expressions")) writeExpressions(factory, note, data.getJSONObject("expressions"), false);
         return note;
@@ -5416,33 +5416,30 @@ public final class OpenwigDocument {
             throw new IllegalArgumentException("a finite positive arranger range is required");
         ApiProject project = project();
         try {
-            Object raw = project.getTarget();
-            Object root = modelGet(raw, "Qjx");
-            Object selection = modelGet(modelGet(modelGet(raw, "qVp"), "TcG"), "tY1");
-            Object editor = bitwig.obf.vtX.class.getMethod("mjf").invoke(null);
+            CmH raw = (CmH) project.getTarget();
+            GJy root = raw.svk(); // the effect track group, root of the arrangement
+            bitwig.obf.hmr selection = raw.PqZ().DYQ().nhI(); // the current selection
+            bitwig.obf.vtX editor = bitwig.obf.vtX.Gak(); // the arranger time-range editor
             // These native commands own their undo transactions and handle
             // crossing clips, automation and cue markers across the root tree.
-            String method = switch (operation) {
-                case "duplicate" -> "wtf";
-                case "insert" -> "Gcr";
-                case "delete" -> "AOA";
+            java.util.List<?> roots = java.util.List.of(root.bV_()); // the arrangement timeline
+            switch (operation) {
+                case "duplicate" -> editor.Anf(roots, start, end, selection);
+                case "insert" -> editor.sCA(roots, start, end, selection);
+                case "delete" -> editor.MgQ(roots, start, end, selection);
                 default -> throw new IllegalArgumentException("unknown range operation");
-            };
-            editor.getClass().getMethod(method, java.util.List.class, double.class,
-                    double.class, bitwig.obf.hmr.class).invoke(editor,
-                    java.util.List.of(modelGet(root, "bV_")), start, end, selection);
+            }
             return new JSONObject().put("start", start).put("end", end)
                     .put(operation.equals("delete") ? "deleted_beats" : "inserted_beats", end - start);
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("native arranger " + operation + " failed", failure);
         } finally { project.dispose(); }
     }
 
-    private static java.util.List<Object> mediaIdentity(Object file) {
-        Object location = modelGet(file, "QmZ");
-        return java.util.List.of(modelGet(file, "Gcr"), modelGet(file, "tDS"),
-                modelGet(file, "kAg"), modelGet(file, "xTe"),
-                location == null ? "" : modelGet(location, "AOA"));
+    /** A project media file entry's identity: its stored names, size and location. */
+    private static java.util.List<Object> mediaIdentity(Object entry) {
+        com.bitwig.flt.document.core.master.Qgw file = (com.bitwig.flt.document.core.master.Qgw) entry;
+        com.bitwig.flt.document.core.master.Pip location = file.fmw();
+        return java.util.Arrays.asList(file.sCA(), file.Bqk(), file.XUO(), file.qJX(),
+                location == null ? "" : location.MgQ());
     }
 
     private static JSONObject saveNativeProjectCopy(String path) {
@@ -5451,7 +5448,7 @@ public final class OpenwigDocument {
         java.io.File target = new java.io.File(path).getAbsoluteFile();
         if (target.exists()) throw new IllegalArgumentException("destination already exists: " + target);
         ApiProject project = project();
-        Object copy = null;
+        CmH copy = null;
         java.nio.file.Path assets = null;
         boolean reserved = false;
         boolean markerCreated = false;
@@ -5465,39 +5462,40 @@ public final class OpenwigDocument {
                 java.nio.file.Files.createFile(marker);
                 markerCreated = true;
             }
-            Object source = project.getTarget();
-            Object serializer = com.bitwig.flt.document.file.JSA.class.getMethod("Gcr").invoke(null);
-            byte[] serialized = (byte[]) serializer.getClass().getMethod("jPB", Object.class).invoke(serializer, source);
-            copy = serializer.getClass().getMethod("IYM", byte[].class).invoke(serializer, (Object) serialized);
+            CmH source = (CmH) project.getTarget();
+            com.bitwig.flt.document.file.Jpp serializer = com.bitwig.flt.document.file.JSA.sCA(); // the project serializer
+            byte[] serialized = serializer.Gef(source); // serialize the project
+            copy = (CmH) serializer.beI(serialized);   // and read it back as a detached copy
             // Resolve the clone against the source directory first. Native
             // cloning drops unused media entries, so source/clone list indexes
             // cannot be paired after edits such as deleting an audio clip.
-            copy.getClass().getMethod("Qcu", String.class).invoke(copy, modelGet(source, "UBi"));
-            copy.getClass().getMethod("KF3", String.class).invoke(copy, modelGet(source, "BEq"));
-            modelGet(copy, "SOE");
-            java.util.List<?> copyFiles = (java.util.List<?>) modelGet(modelGet(copy, "mfz"), "IYM");
+            copy.byf(source.ckt()); // the project directory
+            copy.unz(source.iEE()); // the project file path
+            copy.ZRB(); // resolve its media
+            java.util.List<?> copyFiles = copy.SKH().beI(); // its media file entries
             java.util.Map<java.util.List<Object>, Object> originalByIdentity = new java.util.HashMap<>();
-            for (Object original : (java.util.List<?>) modelGet(modelGet(source, "mfz"), "IYM")) {
+            for (Object original : source.SKH().beI()) {
                 Object previous = originalByIdentity.put(mediaIdentity(original), original);
-                if (previous != null && !java.util.Objects.equals(modelGet(previous, "xeZ"), modelGet(original, "xeZ")))
+                if (previous != null && !java.util.Objects.equals(((com.bitwig.flt.document.core.master.Qgw) previous).BBg(),
+                        ((com.bitwig.flt.document.core.master.Qgw) original).BBg()))
                     throw new IllegalStateException("ambiguous native media identity");
             }
             java.util.List<java.io.File> resolvedFiles = new java.util.ArrayList<>();
             for (Object cloned : copyFiles) {
                 Object original = originalByIdentity.get(mediaIdentity(cloned));
                 if (original == null) throw new IllegalStateException("unmatched cloned media identity");
-                resolvedFiles.add((java.io.File) modelGet(original, "xeZ"));
+                resolvedFiles.add(((com.bitwig.flt.document.core.master.Qgw) original).BBg()); // the resolved file
             }
-            copy.getClass().getMethod("Qcu", String.class).invoke(copy, target.getParent());
-            copy.getClass().getMethod("KF3", String.class).invoke(copy, target.getPath());
+            copy.byf(target.getParent());
+            copy.unz(target.getPath());
             int mediaCount = 0;
             java.util.Map<java.nio.file.Path, String> collected = new java.util.HashMap<>();
             assets = java.nio.file.Files.createTempDirectory(target.getParentFile().toPath(), "openwig-media-");
             for (int i = 0; i < copyFiles.size(); i++) {
-                Object cloned = copyFiles.get(i);
+                com.bitwig.flt.document.core.master.Qgw cloned = (com.bitwig.flt.document.core.master.Qgw) copyFiles.get(i);
                 java.io.File sourceFile = resolvedFiles.get(i);
                 if (sourceFile == null || !sourceFile.isFile()) {
-                    if (!String.valueOf(modelGet(cloned, "kAg")).isEmpty()) continue;
+                    if (!String.valueOf(cloned.XUO()).isEmpty()) continue;
                     throw new IllegalStateException("source media unavailable at native file index " + i);
                 }
                 java.nio.file.Path canonical = sourceFile.toPath().toRealPath();
@@ -5509,29 +5507,28 @@ public final class OpenwigDocument {
                     collected.put(canonical, relative);
                     mediaCount++;
                 }
-                cloned.getClass().getMethod("jPB", String.class).invoke(cloned, relative);
-                cloned.getClass().getMethod("jPB", com.bitwig.flt.packaging.core.Hvv.class).invoke(cloned, new Object[]{null});
-                cloned.getClass().getMethod("jPB", java.io.File.class).invoke(cloned, new java.io.File(target.getParentFile(), relative));
+                cloned.Gef(relative); // its stored relative path
+                cloned.Gef((com.bitwig.flt.packaging.core.Hvv) null); // no package resource
+                cloned.Gef(new java.io.File(target.getParentFile(), relative)); // its file
             }
-            serializer.getClass().getMethod("jPB", Object.class, java.io.File.class).invoke(serializer, copy, target);
+            serializer.Gef(copy, target); // write the copy
             java.util.Set<String> states = new java.util.HashSet<>();
-            source.getClass().getMethod("IYM", java.util.Set.class).invoke(source, states);
-            Object embedded = bitwig.obf.CZ3.class.getConstructor().newInstance();
+            source.beI(states); // collect the plugin state file names
+            bitwig.obf.CZ3 embedded = new bitwig.obf.CZ3(); // files to embed in the project file
             for (String state : states) {
-                java.io.File stateFile = (java.io.File) bitwig.obf.seb.class.getMethod("Gcr", String.class).invoke(null, state);
+                java.io.File stateFile = bitwig.obf.seb.sCA(state); // a plugin state file by name
                 if (!stateFile.isFile()) throw new IllegalStateException("plugin state unavailable: " + state);
-                embedded.getClass().getMethod("IYM", String.class, java.io.File.class).invoke(embedded, "plugin-states/" + state, stateFile);
+                embedded.beI("plugin-states/" + state, stateFile);
             }
-            if (!states.isEmpty()) com.bitwig.base.serial.file.Pv.class
-                    .getMethod("IYM", java.io.File.class, bitwig.obf.bl3.class).invoke(null, target, embedded);
+            if (!states.isEmpty()) com.bitwig.base.serial.file.Pv.beI(target, (bitwig.obf.bl3) embedded); // embed them
             complete = true;
             return new JSONObject().put("path", target.getPath()).put("bytes", target.length())
                     .put("media_files", mediaCount).put("plugin_states", states.size());
-        } catch (ReflectiveOperationException | java.io.IOException failure) {
+        } catch (java.io.IOException failure) {
             throw new IllegalStateException("native project copy failed", failure);
         } finally {
             try {
-                if (copy != null) modelGet(copy, "iz_");
+                if (copy != null) copy.iz_(); // dispose the detached copy
             } finally {
                 project.dispose();
                 if (!complete) {
