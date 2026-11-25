@@ -4929,9 +4929,8 @@ public final class OpenwigDocument {
             EventTimeline timeline = ((NoteClip) clip).getContent().getEventTimeline();
             if (!method.equals("note.import")) {
                 Object raw = ((ApiObject) timeline.getEvents().get(index)).getTarget();
-                Object lane = modelGet(raw, "L_");
-                try { lane.getClass().getMethod("IYM", bitwig.obf.gZu.class, boolean.class).invoke(lane, raw, false); }
-                catch (ReflectiveOperationException failure) { throw new IllegalStateException("native note removal failed", failure); }
+                Object lane = modelOwner(raw); // the note's key lane
+                ((bitwig.obf.UGI) lane).beI((bitwig.obf.gZu) raw, false); // remove the note
             }
             if (replacement != null) {
                 timeline.addEvent(replacement);
@@ -4979,8 +4978,8 @@ public final class OpenwigDocument {
             if (changes.has(key) && !(changes.get(key) instanceof Boolean)) throw new IllegalArgumentException(key + " must be boolean");
         double start = finiteField(changes, "start", existing.getTime());
         double duration = finiteField(changes, "duration", existing.getDuration());
-        double fadeIn = finiteField(changes, "fade_in", ((Number) modelGet(((ApiObject) existing).getTarget(), "dM_")).doubleValue());
-        double fadeOut = finiteField(changes, "fade_out", ((Number) modelGet(((ApiObject) existing).getTarget(), "KF3")).doubleValue());
+        double fadeIn = finiteField(changes, "fade_in", ((bitwig.obf.poA) ((ApiObject) existing).getTarget()).dM_());
+        double fadeOut = finiteField(changes, "fade_out", ((bitwig.obf.poA) ((ApiObject) existing).getTarget()).unz());
         double offset = finiteField(changes, "source_offset", 0), gain = finiteField(changes, "gain_db", 0);
         com.bitwig.extension.api.project.timeline.WarpMode mode = changes.has("warp_mode")
                 ? com.bitwig.extension.api.project.timeline.WarpMode.valueOf(changes.getString("warp_mode")) : existing.getWarpMode();
@@ -5040,7 +5039,7 @@ public final class OpenwigDocument {
         // Events may start before their clip (content slid left); Bitwig stores negative starts.
         if (duration <= 0 || !Double.isFinite(start + duration) || fadeIn < 0 || fadeOut < 0 || fadeIn > duration || fadeOut > duration)
             throw new IllegalArgumentException("invalid audio event range/fades");
-        boolean reversed = (Boolean) modelGet(modelGet(((ApiObject) existing).getTarget(), "jsk"), "wtf");
+        boolean reversed = ((bitwig.obf.poA) ((ApiObject) existing).getTarget()).p1J().Anf(); // the reverse setting
         if (changes.has("source_offset") && (offset < 0 || offset > existing.getAudioFileDurationInSeconds()
                 || (offset == existing.getAudioFileDurationInSeconds() && (!reversed || mode.name().equals("RAW")))))
             throw new IllegalArgumentException("source offset outside audio file");
@@ -5087,16 +5086,15 @@ public final class OpenwigDocument {
             makeUnique(((ApiObject) clip).getTarget());
             EventTimeline timeline = ((AudioClip) clip).getContent().getEventTimeline();
             com.bitwig.extension.api.project.timeline.AudioNote event = (com.bitwig.extension.api.project.timeline.AudioNote) timeline.getEvents().get(index);
-            Object raw = ((ApiObject) event).getTarget();
+            bitwig.obf.poA raw = (bitwig.obf.poA) ((ApiObject) event).getTarget();
             boolean reposition = changes.has("start") || changes.has("duration");
-            try {
+            {
                 if (method.equals("audio_event.delete") || reposition) {
                     // API audio content wraps the polyphonic bank; its events
                     // actually belong to the (channel=0,key=0) native lane.
-                    Object bank = ((ApiObject) timeline).getTarget();
-                    Object lane = bank.getClass().getMethod("Qcu", int.class, int.class, boolean.class)
-                            .invoke(bank, 0, 0, false);
-                    lane.getClass().getMethod("IYM", bitwig.obf.gZu.class, boolean.class).invoke(lane, raw, false);
+                    bitwig.obf.lgA bank = (bitwig.obf.lgA) ((ApiObject) timeline).getTarget();
+                    Object lane = bank.byf(0, 0, false); // the lane for a channel and key, not created
+                    ((bitwig.obf.UGI) lane).beI((bitwig.obf.gZu) raw, false); // remove the event
                 }
                 if (method.equals("audio_event.delete")) {
                     result[0] = new JSONObject().put("deleted", index).put("count", timeline.getEvents().size());
@@ -5105,8 +5103,8 @@ public final class OpenwigDocument {
                 if (reposition) { event.setTime(start); event.setDuration(duration); timeline.addEvent(event); }
                 if (stagedWarps != null) event.setWarpEvents(stagedWarps);
                 if (changes.has("warp_mode")) event.setWarpMode(mode);
-                if (changes.has("content_offset")) invokeModelSetter(raw, "UJq", double.class, contentOffset);
-                if (changes.has("source_offset")) invokeModelSetter(raw, "UJq", double.class, sourceContentOffset);
+                if (changes.has("content_offset")) raw.CKj(contentOffset); // the content offset
+                if (changes.has("source_offset")) raw.CKj(sourceContentOffset);
                 if (changes.has("gain_db")) event.getGain().setValue(gain, Unit.DECIBEL);
                 if (changes.has("transpose")) event.getTranspose().setValue(transpose, Unit.SEMITONES);
                 if (changes.has("formant")) event.getFormant().setValue(formant, Unit.SEMITONES);
@@ -5122,21 +5120,20 @@ public final class OpenwigDocument {
                 if (changes.has("fade_in")) event.setFadeInTime(fadeIn);
                 if (changes.has("fade_out")) event.setFadeOutTime(fadeOut);
                 if (changes.has("reverse") && changes.getBoolean("reverse") != reversed) {
-                    Object selection = modelGet(modelGet(modelGet(project.getTarget(), "qVp"), "TcG"), "tY1");
-                    raw.getClass().getMethod("IYM", bitwig.obf.Pws.class).invoke(raw, modelGet(selection, "gn_"));
+                    raw.beI((bitwig.obf.Pws) selectionContext(project)); // reverse the event
                 }
                 applyNoteConditions(event, changes);
                 if (changes.has("expressions")) writeExpressions(project.getFactory(), event, changes.getJSONObject("expressions"), true);
                 result[0] = audioEventLocation(timeline, raw);
-            } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native audio event edit failed", failure); }
+            }
         });
         return result[0];
     }
 
     private static com.bitwig.extension.api.project.timeline.ClipSlot launcherSlot(ApiProject project, Track track, int index, boolean create) {
-        int scenes = ((Number) modelGet(modelGet(project.getTarget(), "Qjx"), "ce_")).intValue();
+        int scenes = ((CmH) project.getTarget()).svk().ce_(); // the project's scene count
         if (index < 0 || index >= scenes) throw new IllegalArgumentException("slot index outside project scene bank");
-        int slots = ((Number) modelGet(((ApiObject) track).getTarget(), "ce_")).intValue();
+        int slots = ((bitwig.obf.PiT) ((ApiObject) track).getTarget()).ce_(); // the track's slot count
         if (!create && index >= slots) return null;
         return track.clipSlot(index);
     }
@@ -5145,8 +5142,8 @@ public final class OpenwigDocument {
         Clip clip = slot == null ? null : slot.getClip();
         return new JSONObject().put("slot", index).put("has_stop", slot != null && slot.hasStopButton())
                 .put("clip", clip == null ? JSONObject.NULL : readClip(clip))
-                .put("playing", clip != null && (Boolean) modelGet(((ApiObject) clip).getTarget(), "TEI"))
-                .put("queued", clip != null && (Boolean) modelGet(((ApiObject) clip).getTarget(), "Vgk"));
+                .put("playing", clip != null && ((bitwig.obf.ogn) ((ApiObject) clip).getTarget()).zzi())
+                .put("queued", clip != null && ((bitwig.obf.ogn) ((ApiObject) clip).getTarget()).UIe());
     }
 
     /** A Bitwig enum constant by its stored name (enum names are readable and stable across builds). */
@@ -5157,11 +5154,11 @@ public final class OpenwigDocument {
     }
 
     private static JSONObject launchSettings(Clip clip) {
-        Object raw = ((ApiObject) clip).getTarget();
-        return new JSONObject().put("launch_quantization", ((Enum<?>) modelGet(raw, "sGy")).name())
-                .put("launch_mode", ((Enum<?>) modelGet(raw, "yi1")).name())
-                .put("next_action", ((Enum<?>) modelGet(raw, "CaN")).name())
-                .put("next_action_time", modelGet(raw, "ncg"))
+        bitwig.obf.ogn raw = (bitwig.obf.ogn) ((ApiObject) clip).getTarget();
+        return new JSONObject().put("launch_quantization", ((Enum<?>) (Object) raw.sLx()).name())
+                .put("launch_mode", ((Enum<?>) (Object) raw.jKl()).name())
+                .put("next_action", ((Enum<?>) (Object) raw.EzB()).name())
+                .put("next_action_time", raw.xw3())
                 .put("use_loop_start_as_quantization_reference", clip.useLoopStartAsQuantizationReference());
     }
 
@@ -5177,12 +5174,12 @@ public final class OpenwigDocument {
         Object action = changes.has("next_action") ? namedNativeEnum(bitwig.obf.bX.class, changes.getString("next_action")) : null;
         double time = finiteField(changes, "next_action_time", 0);
         if (time < 0) throw new IllegalArgumentException("next action time must be nonnegative");
-        Object raw = ((ApiObject) clip).getTarget();
+        bitwig.obf.ogn raw = (bitwig.obf.ogn) ((ApiObject) clip).getTarget();
         return () -> {
-            if (quantization != null) invokeModelSetter(raw, "IYM", bitwig.obf.lhA.class, quantization);
-            if (mode != null) invokeModelSetter(raw, "jPB", bitwig.obf.MpD.class, mode);
-            if (action != null) invokeModelSetter(raw, "IYM", bitwig.obf.bX.class, action);
-            if (changes.has("next_action_time")) invokeModelSetter(raw, "p3P", double.class, time);
+            if (quantization != null) raw.beI((bitwig.obf.lhA) quantization);
+            if (mode != null) raw.Gef((bitwig.obf.MpD) mode);
+            if (action != null) raw.beI((bitwig.obf.bX) action);
+            if (changes.has("next_action_time")) raw.Ml2(time);
             if (changes.has(reference)) clip.setUseLoopStartAsQuantizationReference(changes.getBoolean(reference));
         };
     }
@@ -5192,14 +5189,12 @@ public final class OpenwigDocument {
         try {
             Track track = resolveTrack(project, params);
             if (method.equals("launcher.stop") || method.equals("launcher.return_to_arranger")) {
-                Object raw = ((ApiObject) track).getTarget();
-                try {
-                    if (method.equals("launcher.stop")) {
-                        if (params.has("immediate") && !(params.get("immediate") instanceof Boolean)) throw new IllegalArgumentException("immediate must be boolean");
-                        Object quantization = namedNativeEnum(bitwig.obf.lhA.class, params.optBoolean("immediate", false) ? "OFF" : "DEFAULT");
-                        raw.getClass().getMethod("IYM", bitwig.obf.lhA.class, boolean.class, int.class).invoke(raw, quantization, false, -1);
-                    } else modelGet(raw, "Sxv");
-                } catch (ReflectiveOperationException failure) { throw new IllegalStateException("launcher playback command failed", failure); }
+                bitwig.obf.PiT raw = (bitwig.obf.PiT) ((ApiObject) track).getTarget();
+                if (method.equals("launcher.stop")) {
+                    if (params.has("immediate") && !(params.get("immediate") instanceof Boolean)) throw new IllegalArgumentException("immediate must be boolean");
+                    Object quantization = namedNativeEnum(bitwig.obf.lhA.class, params.optBoolean("immediate", false) ? "OFF" : "DEFAULT");
+                    raw.beI((bitwig.obf.lhA) quantization, false, -1); // stop the track's launcher clips
+                } else raw.xpL(); // return to the arrangement
                 return new JSONObject().put("requested", method);
             }
             int index = params.getInt("slot");
@@ -5207,9 +5202,7 @@ public final class OpenwigDocument {
             if (method.equals("launcher.read")) return launcherSnapshot(existing, index);
             if (method.equals("launcher.launch")) {
                 if (existing == null) throw new IllegalArgumentException("launcher slot does not exist");
-                try { ((ApiObject) existing).getTarget().getClass().getMethod("jPB", boolean.class, boolean.class)
-                        .invoke(((ApiObject) existing).getTarget(), true, false); }
-                catch (ReflectiveOperationException failure) { throw new IllegalStateException("native launcher trigger failed", failure); }
+                ((bitwig.obf.RK3) ((ApiObject) existing).getTarget()).Gef(true, false); // launch the slot
                 return launcherSnapshot(existing, index);
             }
             if (method.equals("launcher.settings")) {
@@ -5229,7 +5222,7 @@ public final class OpenwigDocument {
             if (method.equals("launcher.clear")) {
                 if (existing != null || params.has("has_stop")) DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
                     com.bitwig.extension.api.project.timeline.ClipSlot slot = existing == null ? launcherSlot(project, track, index, true) : existing;
-                    invokeModelSetter(((ApiObject) slot).getTarget(), "jPB", bitwig.obf.BVS.class, null);
+                    ((bitwig.obf.vMh) ((ApiObject) slot).getTarget()).Gef((bitwig.obf.BVS) null); // empty the slot
                     if (params.has("has_stop")) slot.setHasStopButton(params.getBoolean("has_stop"));
                 });
                 return launcherSnapshot(launcherSlot(project, track, index, false), index);
