@@ -3713,7 +3713,7 @@ public final class OpenwigDocument {
             if ((node instanceof com.bitwig.flt.document.core.master.device.SRR)
                     || (node instanceof com.bitwig.flt.document.core.master.device.beU)
                     || (node instanceof com.bitwig.flt.document.core.master.device.YVC)) continue;
-            Object children = modelGetOrNull(node, "hMI");
+            Object children = componentChildren(node);
             if (children instanceof java.util.List<?> list) for (Object child : list) queue.add(child);
         }
         return found;
@@ -4593,7 +4593,8 @@ public final class OpenwigDocument {
     private static JSONObject sceneSnapshot(ApiProject project, int index) {
         com.bitwig.extension.api.project.Scene scene = project.getScene(index);
         Color color = scene.getColor();
-        Object comment = modelGetOrNull(((ApiObject) scene).getTarget(), "Vc");
+        Object raw = ((ApiObject) scene).getTarget();
+        Object comment = raw instanceof bitwig.obf.dYM stored ? stored.iUU() : null; // the scene comment
         return new JSONObject().put("index", index).put("name", scene.getTitle())
                 .put("comment", comment == null ? "" : comment)
                 .put("color", color == null ? JSONObject.NULL : color.toHex());
@@ -4603,7 +4604,7 @@ public final class OpenwigDocument {
         ApiProject project = project();
         try {
             int before = sceneCount();
-            Object root = ((CmH) project.getTarget()).svk();
+            GJy root = ((CmH) project.getTarget()).svk(); // the effect track group, owner of the scene bank
             if (method.equals("scene.snapshot")) {
                 JSONArray scenes = new JSONArray();
                 for (int i = 0; i < before; i++) scenes.put(sceneSnapshot(project, i));
@@ -4612,29 +4613,23 @@ public final class OpenwigDocument {
             int index = params.has("index") ? sceneIndex(params, "index", before, method.equals("scene.insert")) : before;
             if (method.equals("scene.insert")) {
                 if (before >= 4096) throw new IllegalArgumentException("scene bank limit exceeded");
-                java.lang.reflect.Method insert = GJy.class.getDeclaredMethod("Gcr", int.class, bitwig.obf.Eoh.class);
-                insert.setAccessible(true);
-                insert.invoke(root, index, null);
+                root.sCA(index, (bitwig.obf.Eoh) null); // insert an empty scene
                 if (sceneCount() != before + 1) throw new IllegalStateException("scene insertion count mismatch");
             } else if (method.equals("scene.delete")) {
                 index = sceneIndex(params, "index", before, false);
-                java.lang.reflect.Method delete = GJy.class.getDeclaredMethod("IYM", int[].class);
-                delete.setAccessible(true);
-                delete.invoke(root, (Object) new int[]{index});
+                root.beI(new int[]{index}); // delete scenes
                 if (sceneCount() != before - 1) throw new IllegalStateException("scene deletion count mismatch");
                 return new JSONObject().put("count", sceneCount());
             } else if (method.equals("scene.move")) {
                 index = sceneIndex(params, "index", before, false);
                 int destination = sceneIndex(params, "destination", before, false);
                 if (index != destination)
-                    root.getClass().getMethod("IYM", int[].class, int.class)
-                            .invoke(root, new int[]{index}, destination > index ? destination + 1 : destination);
+                    root.beI(new int[]{index}, destination > index ? destination + 1 : destination); // move scenes
                 if (sceneCount() != before) throw new IllegalStateException("scene reorder changed bank size");
                 index = destination;
             } else throw new IllegalArgumentException("unsupported scene operation");
             return new JSONObject().put("count", sceneCount()).put("index", index).put("data", sceneSnapshot(project, index));
-        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native scene operation failed", failure); }
-        finally { project.dispose(); }
+        } finally { project.dispose(); }
     }
 
     private static JSONObject updateScene(JSONObject params) {
@@ -4659,7 +4654,7 @@ public final class OpenwigDocument {
                 if (params.has("name")) scene.setTitle(params.getString("name"));
                 if (params.has("comment")) {
                     Object rawScene = ((ApiObject) scene).getTarget();
-                    modifyModel((ApiObject) scene, () -> invokeModelSetter(rawScene, "nsm", String.class, params.getString("comment")));
+                    modifyModel((ApiObject) scene, () -> ((bitwig.obf.dYM) rawScene).wGt(params.getString("comment"))); // the scene comment
                 }
                 if (color != null) scene.setColor(color);
             });
