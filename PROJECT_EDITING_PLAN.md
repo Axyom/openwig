@@ -114,7 +114,21 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - `7eb8492`: arranger Duplicate and Push; **106 unit tests**, Java offline
   smoke, and all five GitHub CI jobs passed.
 
-## Latest checkpoint: editable reconstruction from reader dumps (2026-10-21)
+## Latest checkpoint: Patchbay mod for Bitwig 6.1.7 (2026-11-26)
+
+- Branch `patchbay-port` (from `68d05f2`, not pushed): `patchbay-mod/` ports the
+  Java bridge to a Patchbay (BML 0.36.0-dev.17) mod built against Bitwig 6.1.7.
+  All reflection on obfuscated 6.1.5 names is now typed Java against
+  `bitwig.obf.*`; the integrity-check redirect is dropped (Patchbay leaves
+  `bitwig.jar` untouched). `JavaSong` accepts host version 6.1.7.
+- Evidence: `python patchbay-mod/build.py --check` gives `PREPARE_OK` on 6.1.7;
+  unit tests pass. Details, remaining reflection and behaviour changes:
+  `patchbay-mod/README.md`.
+- Not done: no live run on 6.1.7 yet (bridge start, operations, no integrity
+  melody, `[openwig]` log lines). Waits for the owner to relaunch Bitwig
+  through Patchbay.
+
+## Previous checkpoint: editable reconstruction from reader dumps (2026-10-21)
 
 Owner request (2026-10-21): rebuild one of the owner's released tracks from its dump and
 fix the gaps found. This is milestone 6 (documented JSON reconstruction) applied to a real,
