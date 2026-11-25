@@ -4662,12 +4662,14 @@ public final class OpenwigDocument {
         } finally { project.dispose(); }
     }
 
-    private static double modelDoubleArgument(Object target, String method, double value) {
-        try {
-            return ((Number) target.getClass().getMethod(method, double.class).invoke(target, value)).doubleValue();
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("native numeric operation " + method, failure);
-        }
+    /** The open project's current selection context, which native edit entries take. */
+    private static Object selectionContext(ApiProject project) {
+        return ((CmH) project.getTarget()).PqZ().DYQ().nhI().gn_();
+    }
+
+    /** Bitwig's make-unique operation on a clip or event whose content a clone may share. */
+    private static void makeUnique(Object clip) {
+        ((bitwig.obf.ogn) clip).el();
     }
 
     private static double finiteField(JSONObject value, String key, double fallback) {
@@ -4731,7 +4733,7 @@ public final class OpenwigDocument {
                 for (int i = 0; i < notes.length(); i++) staged.add(stageInstrumentNote(project.getFactory(), notes.getJSONObject(i)));
                 DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
                     // A split or native copy may still reference shared content.
-                    modelGet(((ApiObject) clip).getTarget(), "knw");
+                    makeUnique(((ApiObject) clip).getTarget());
                     EventTimeline content = ((NoteClip) clip).getContent().getEventTimeline();
                     double low = 0, high = 1;
                     for (Object member : content.getEvents()) {
@@ -4749,37 +4751,31 @@ public final class OpenwigDocument {
                 Track destination = params.has("destination") ? resolveTrack(project, params.getJSONObject("destination")) : track;
                 ClipTimeline output = destination.clipTimeline();
                 noClipOverlap(output, null, start, clip.getDuration());
-                try {
-                    Object raw = modelGet(((ApiObject) clip).getTarget(), "VxG");
-                    com.bitwig.ramona.core.m1k.class.getMethod("IYM", com.bitwig.ramona.core.ytz.class)
-                            .invoke(null, raw);
+                {
+                    bitwig.obf.TKq raw = ((bitwig.obf.TKq) ((ApiObject) clip).getTarget()).waK(); // a clone of the clip
+                    com.bitwig.ramona.core.m1k.beI(raw); // prepare the clone for insertion
                     Clip cloned = clipEventWrapper(clip instanceof AudioClip, raw);
                     cloned.setTime(start);
-                    Object selection = modelGet(modelGet(modelGet(project.getTarget(), "qVp"), "TcG"), "tY1");
-                    Object context = modelGet(selection, "gn_");
-                    java.lang.reflect.Method inserted = raw.getClass().getMethod("IYM", bitwig.obf.snd.class, bitwig.obf.ee.class);
+                    Object context = selectionContext(project);
                     Object originalRaw = ((ApiObject) clip).getTarget();
                     double fadeTime = clip instanceof AudioClip ? ((AudioClip) clip).getFadeInTime() : 0;
-                    double fadeGain = clip instanceof AudioClip ? ((Number) modelGet(originalRaw, "tDS")).doubleValue() : 1;
-                    Object fadeCurve = clip instanceof AudioClip ? modelGet(originalRaw, "wtf") : null;
+                    double fadeGain = clip instanceof AudioClip ? ((bitwig.obf.oFQ) originalRaw).Bqk() : 1; // fade gain
+                    bitwig.obf.fta fadeCurve = clip instanceof AudioClip ? ((bitwig.obf.oFQ) originalRaw).Anf() : null; // fade curve
                     DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
                         output.addEvent(cloned);
                         // Native clone references can share content. Unlink using
                         // Bitwig's own make-unique operation after attaching it.
-                        modelGet(raw, "knw");
-                        try { inserted.invoke(raw, ((ApiObject) output).getTarget(), context); }
-                        catch (ReflectiveOperationException failure) { throw new IllegalStateException("native copy insertion finalization failed", failure); }
+                        makeUnique(raw);
+                        ((bitwig.obf.VfZ) raw).beI((bitwig.obf.snd) ((ApiObject) output).getTarget(), (bitwig.obf.ee) context); // finish the insertion
                         if (cloned instanceof AudioClip) {
                             // Insertion initializes automatic fade-in defaults;
                             // retain the source's explicit time, gain and curve.
                             ((AudioClip) cloned).setFadeInTime(fadeTime);
-                            invokeModelSetter(raw, "HT3", double.class, fadeGain);
-                            invokeModelSetter(raw, "KF3", bitwig.obf.fta.class, fadeCurve);
+                            ((bitwig.obf.oFQ) raw).af(fadeGain);
+                            ((bitwig.obf.oFQ) raw).unz(fadeCurve);
                         }
                     });
                     return clipLocation(output, raw);
-                } catch (ReflectiveOperationException failure) {
-                    throw new IllegalStateException("native clip copy failed", failure);
                 }
             }
             if (method.equals("clip.split")) {
@@ -4787,14 +4783,11 @@ public final class OpenwigDocument {
                 double beat = finiteField(params, "beat", Double.NaN);
                 if (beat <= clip.getTime() + 1e-6 || beat >= clip.getTime() + clip.getDuration() - 1e-6)
                     throw new IllegalArgumentException("split must be strictly inside the clip");
-                try {
-                    Object selection = modelGet(modelGet(modelGet(project.getTarget(), "qVp"), "TcG"), "tY1");
-                    Object context = modelGet(selection, "gn_");
-                    Object rawTimeline = ((ApiObject) timeline).getTarget();
+                {
+                    Object context = selectionContext(project);
+                    bitwig.obf.snd rawTimeline = (bitwig.obf.snd) ((ApiObject) timeline).getTarget();
                     // The native Split Event entry point owns its transaction.
-                    rawTimeline.getClass().getMethod("IYM", bitwig.obf.UdX.class, double.class,
-                            bitwig.obf.rBG.class, bitwig.obf.Bpj.class)
-                            .invoke(rawTimeline, ((ApiObject) clip).getTarget(), beat, context, null);
+                    rawTimeline.beI((bitwig.obf.UdX) ((ApiObject) clip).getTarget(), beat, (bitwig.obf.rBG) context, (bitwig.obf.Bpj) null);
                     JSONArray pieces = new JSONArray();
                     for (Object member : timeline.getEvents()) {
                         Clip piece = (Clip) member;
@@ -4804,14 +4797,12 @@ public final class OpenwigDocument {
                     }
                     if (pieces.length() != 2) throw new IllegalStateException("split did not produce two clips");
                     return new JSONObject().put("clips", pieces);
-                } catch (ReflectiveOperationException failure) {
-                    throw new IllegalStateException("native clip split failed", failure);
                 }
             }
             if (method.equals("clip.delete")) {
                 if (launcher) {
                     DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(),
-                            () -> invokeModelSetter(((ApiObject) launcherSlot(project, track, index, false)).getTarget(), "jPB", bitwig.obf.BVS.class, null));
+                            () -> ((bitwig.obf.vMh) ((ApiObject) launcherSlot(project, track, index, false)).getTarget()).Gef((bitwig.obf.BVS) null)); // empty the slot
                     return launcherSnapshot(launcherSlot(project, track, index, false), index);
                 }
                 DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(),
@@ -4850,13 +4841,8 @@ public final class OpenwigDocument {
             boolean reposition = !launcher && (start != clip.getTime() || duration != clip.getDuration());
             DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
                 if (reposition) {
-                    try {
-                        Object rawTimeline = ((ApiObject) timeline).getTarget();
-                        rawTimeline.getClass().getMethod("IYM", bitwig.obf.gZu.class, boolean.class)
-                                .invoke(rawTimeline, ((ApiObject) clip).getTarget(), false);
-                    } catch (ReflectiveOperationException failure) {
-                        throw new IllegalStateException("cannot detach arranger clip", failure);
-                    }
+                    // Detach the clip from the arranger timeline (without deleting it).
+                    ((bitwig.obf.tRn) ((ApiObject) timeline).getTarget()).beI((bitwig.obf.TKq) ((ApiObject) clip).getTarget(), false);
                     clip.setTime(start);
                     clip.setDuration(duration);
                 }
@@ -4939,7 +4925,7 @@ public final class OpenwigDocument {
         final InstrumentNote replacement = staged;
         final JSONObject[] result = new JSONObject[1];
         DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
-            modelGet(((ApiObject) clip).getTarget(), "knw");
+            makeUnique(((ApiObject) clip).getTarget());
             EventTimeline timeline = ((NoteClip) clip).getContent().getEventTimeline();
             if (!method.equals("note.import")) {
                 Object raw = ((ApiObject) timeline.getEvents().get(index)).getTarget();
@@ -4971,7 +4957,7 @@ public final class OpenwigDocument {
             }
             final JSONObject[] result = new JSONObject[1];
             DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
-                modelGet(((ApiObject) clip).getTarget(), "knw");
+                makeUnique(((ApiObject) clip).getTarget());
                 EventTimeline timeline = ((AudioClip) clip).getContent().getEventTimeline();
                 timeline.addEvent(staged);
                 result[0] = audioEventLocation(timeline, ((ApiObject) staged).getTarget());
@@ -5098,7 +5084,7 @@ public final class OpenwigDocument {
         }
         final JSONObject[] result = new JSONObject[1];
         DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
-            modelGet(((ApiObject) clip).getTarget(), "knw");
+            makeUnique(((ApiObject) clip).getTarget());
             EventTimeline timeline = ((AudioClip) clip).getContent().getEventTimeline();
             com.bitwig.extension.api.project.timeline.AudioNote event = (com.bitwig.extension.api.project.timeline.AudioNote) timeline.getEvents().get(index);
             Object raw = ((ApiObject) event).getTarget();
@@ -5287,7 +5273,7 @@ public final class OpenwigDocument {
             DirectAccess.runInUndo(project.getTrackGroup().masterTrack().clipTimeline(), () -> {
                 com.bitwig.extension.api.project.timeline.ClipSlot slot = launcherSlot(project, track, index, true);
                 slot.setClip(staged);
-                modelGet(((ApiObject) staged).getTarget(), "knw");
+                makeUnique(((ApiObject) staged).getTarget());
                 if (params.has("has_stop")) slot.setHasStopButton(params.getBoolean("has_stop"));
             });
             return launcherSnapshot(launcherSlot(project, track, index, false), index);
@@ -5313,8 +5299,9 @@ public final class OpenwigDocument {
         double seconds = sample.getDurationInSeconds() - offset;
         if (sample.getSampleRate() <= 0 || sample.getChannelCount() <= 0 || seconds <= 0)
             throw new IllegalArgumentException("audio source has no usable frames at this offset");
-        Object transport = modelGet(project.getTarget(), "THS");
-        double natural = modelDoubleArgument(transport, "AOA", modelDoubleArgument(transport, "xeZ", globalStart) + seconds) - globalStart;
+        bitwig.obf.yrG transport = ((CmH) project.getTarget()).jPe(); // the document's transport model
+        // Beats to seconds, add the source length, back to beats: the event's natural length.
+        double natural = transport.MgQ(transport.BBg(globalStart) + seconds) - globalStart;
         double duration = finiteField(params, "duration", natural);
         if (duration <= 0 || !Double.isFinite(globalStart + duration)) throw new IllegalArgumentException("invalid audio duration");
         com.bitwig.extension.api.project.timeline.AudioNote event = factory.createAudioNote(0, duration, sample);
