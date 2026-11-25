@@ -39,6 +39,8 @@ import com.bitwig.flt.document.core.master.sJU; // a track item of a track group
 import com.bitwig.flt.document.core.master.CmH; // a project document
 import bitwig.obf.aCG; // an open project tab
 import com.bitwig.flt.app.gEH; // the application
+import com.bitwig.flt.app.lfZ; // project open flags
+import com.bitwig.base.async.Pv; // a completion callback
 import com.bitwig.flt.document.core.master.TzU; // a document with a file
 import bitwig.obf.Ae2; // a parameter model that can be automated
 import bitwig.obf.BrN; // an automation lane's list of points
@@ -160,79 +162,66 @@ public final class OpenwigDocument {
         documentJobs.put(job, status);
     }
 
-    /** Native F3z/rdP callback: completion succeeds the job, an exception or message fails it. */
-    private static Object documentCallback(String type, JSONObject status) {
-        Class<?> callbackType = classForName(type);
-        if (callbackType == null) throw new IllegalStateException("missing native callback type " + type);
-        return java.lang.reflect.Proxy.newProxyInstance(callbackType.getClassLoader(), new Class<?>[]{callbackType}, (proxy, call, args) -> {
-            Object value = args == null || args.length == 0 ? null : args[0];
-            switch (call.getName()) {
-                case "hashCode": return System.identityHashCode(proxy);
-                case "equals": return proxy == value;
-                case "toString": return "OpenwigDocumentJob";
-                case "taskCompleted":
-                    synchronized (status) { status.put("state", "complete"); }
-                    return null;
-                case "IYM":
-                    synchronized (status) {
-                        if (value instanceof Throwable failure)
-                            status.put("state", "failed").put("error", String.valueOf(failure.getMessage() == null ? failure : failure.getMessage()));
-                        else if (value instanceof String message) status.put("state", "failed").put("error", message);
-                        else status.put("state", "complete");
-                    }
-                    return null;
-                default: return null;
+    /** Bitwig's completion callback for an open or close: completion succeeds the job, an exception or message fails it. */
+    private static final class DocumentJobCallback implements Pv {
+        private final JSONObject status;
+        DocumentJobCallback(JSONObject status) { this.status = status; }
+        private void finish(String error) {
+            synchronized (status) {
+                if (error == null) status.put("state", "complete");
+                else status.put("state", "failed").put("error", error);
             }
-        });
+        }
+        @Override public void taskCompleted() { finish(null); }
+        @Override public void beI(Object result) { finish(null); }           // completed with a result
+        @Override public void beI(String message) { finish(message); }       // failed with a message
+        @Override public void beI(Exception failure) {                       // failed with an exception
+            finish(String.valueOf(failure.getMessage() == null ? failure : failure.getMessage()));
+        }
+        @Override public String toString() { return "OpenwigDocumentJob"; }
     }
 
-    private static Object application() throws ReflectiveOperationException {
-        Object app = classForName("com.bitwig.flt.app.eY1").getMethod("ncg").invoke(null);
+    private static gEH application() {
+        gEH app = gEH.xw3();
         if (app == null) throw new IllegalStateException("Bitwig application is not ready");
         return app;
     }
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @SuppressWarnings("unchecked")
     private static JSONObject openDocument(JSONObject params) {
         java.io.File file = projectFile(params);
         if (!file.isFile()) throw new IllegalArgumentException("project file not found: " + file);
         // Without the folder marker Bitwig never finishes opening the file (verified live).
         if (!new java.io.File(file.getParentFile(), ".bitwig-project").isFile())
             throw new IllegalArgumentException("not a Bitwig project folder (no .bitwig-project next to the file): " + file);
-        try {
-            Object app = application();
-            Object tab = app.getClass().getMethod("Trh", java.io.File.class).invoke(app, file);
-            if (tab != null) {
-                Object selection = modelGet(app, "kxC");
-                selection.getClass().getMethod("jPB", classForName("aBx")).invoke(selection, tab);
-                return new JSONObject().put("operation", "open").put("state", "complete")
-                        .put("path", file.getPath()).put("already_open", true);
-            }
-            java.util.List<?> tabs = (java.util.List<?>) modelGet(modelGet(app, "Lg"), "getValue");
-            // Editions without multiple projects would prompt to close the current one.
-            if (!Boolean.TRUE.equals(modelGet(modelGet(modelGet(app, "H3n"), "Klm"), "getBoolValue")) && !tabs.isEmpty())
-                throw new IllegalStateException("this Bitwig edition opens one project at a time; close the open project first");
-            Class<Enum> flagType = (Class<Enum>) classForName("com.bitwig.flt.app.rLC");
-            java.util.EnumSet flags = java.util.EnumSet.of(Enum.valueOf(flagType, "SELECT"));
-            if (params.optBoolean("activate_engine", false)) flags.add(Enum.valueOf(flagType, "ACTIVATE_ENGINE"));
-            JSONObject status = new JSONObject().put("operation", "open").put("path", file.getPath());
-            startDocumentJob(status);
-            Object callback = documentCallback("com.bitwig.base.async.F3z", status);
-            app.getClass().getMethod("IYM", String.class, int.class, java.util.Set.class, classForName("com.bitwig.base.async.F3z"))
-                    .invoke(app, file.getPath(), tabs.size(), flags, callback);
-            return jobSnapshot(status);
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("cannot open project", failure);
+        gEH app = application();
+        aCG tab = app.ymo(file); // the tab already showing this file, if any
+        if (tab != null) {
+            app.cCV().Gef(tab); // select it
+            return new JSONObject().put("operation", "open").put("state", "complete")
+                    .put("path", file.getPath()).put("already_open", true);
         }
+        java.util.List<?> tabs = (java.util.List<?>) app.VNw().getValue();
+        // Editions without multiple projects would prompt to close the current one.
+        if (!app.IDq().dvk().getBoolValue() && !tabs.isEmpty()) // the edition's "multiple projects" feature
+            throw new IllegalStateException("this Bitwig edition opens one project at a time; close the open project first");
+        // The compile jar drops the enum's generic signature, so the set stays raw.
+        @SuppressWarnings({"unchecked", "rawtypes"}) java.util.EnumSet flags = java.util.EnumSet.of((Enum) lfZ.valueOf("SELECT")); // open flags
+        if (params.optBoolean("activate_engine", false)) flags.add(lfZ.valueOf("ACTIVATE_ENGINE"));
+        JSONObject status = new JSONObject().put("operation", "open").put("path", file.getPath());
+        startDocumentJob(status);
+        app.beI(file.getPath(), tabs.size(), flags, new DocumentJobCallback(status)); // open the file in a new tab at this index
+        return jobSnapshot(status);
     }
 
     /** The one never-saved tab with this name (e.g. "New 1" from the startup template). */
-    private static Object unsavedTab(Object app, String name) throws ReflectiveOperationException {
-        Object found = null;
-        for (Object tab : (java.util.List<?>) modelGet(modelGet(app, "Lg"), "getValue")) {
-            Object raw = modelGet(tab, "wtf");
-            Object path = modelGet(raw, "BEq");
-            if ((path == null || String.valueOf(path).isEmpty()) && name.equals(String.valueOf(modelGet(raw, "IT3")))) {
+    private static aCG unsavedTab(gEH app, String name) {
+        aCG found = null;
+        for (Object item : (java.util.List<?>) app.VNw().getValue()) {
+            aCG tab = (aCG) item;
+            TzU raw = (TzU) tab.Anf();
+            Object path = raw.iEE();
+            if ((path == null || String.valueOf(path).isEmpty()) && name.equals(String.valueOf(raw.odI()))) {
                 if (found != null) throw new IllegalArgumentException("more than one unsaved project is named " + name);
                 found = tab;
             }
@@ -246,29 +235,15 @@ public final class OpenwigDocument {
             throw new IllegalArgumentException("document.close discards unsaved changes; pass discard_changes=true");
         String unsaved = params.optString("unsaved", "");
         java.io.File file = unsaved.isBlank() ? projectFile(params) : null;
-        try {
-            Object app = application();
-            Object tab = file == null ? unsavedTab(app, unsaved)
-                    : app.getClass().getMethod("Trh", java.io.File.class).invoke(app, file);
-            if (tab == null) throw new IllegalArgumentException("project is not open: " + file);
-            Class<?> tabType = classForName("aBx");
-            Class<?> doneType = classForName("com.bitwig.base.async.rdP");
-            java.lang.reflect.Method close = null;
-            for (java.lang.reflect.Method candidate : app.getClass().getMethods()) {
-                Class<?>[] types = candidate.getParameterTypes();
-                if (candidate.getName().equals("IYM") && types.length == 4 && types[0] == tabType
-                        && types[1] == boolean.class && types[3] == doneType) { close = candidate; break; }
-            }
-            if (close == null) throw new IllegalStateException("native close method not found");
-            JSONObject status = new JSONObject().put("operation", "close");
-            if (file == null) status.put("unsaved", unsaved); else status.put("path", file.getPath());
-            startDocumentJob(status);
-            // false skips the interactive save branch; the native path still stops the engine first.
-            close.invoke(app, tab, false, null, documentCallback("com.bitwig.base.async.rdP", status));
-            return jobSnapshot(status);
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("cannot close project", failure);
-        }
+        gEH app = application();
+        aCG tab = file == null ? unsavedTab(app, unsaved) : app.ymo(file);
+        if (tab == null) throw new IllegalArgumentException("project is not open: " + file);
+        JSONObject status = new JSONObject().put("operation", "close");
+        if (file == null) status.put("unsaved", unsaved); else status.put("path", file.getPath());
+        startDocumentJob(status);
+        // false skips the interactive save branch; the native path still stops the engine first.
+        app.beI(tab, false, (bitwig.obf.dwF) null, (Pv) new DocumentJobCallback(status)); // close the tab
+        return jobSnapshot(status);
     }
 
     private static ApiProject project() {
