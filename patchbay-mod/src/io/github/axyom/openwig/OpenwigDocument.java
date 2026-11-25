@@ -53,6 +53,9 @@ import bitwig.obf.xdh; // a parameter model with a value range
 import com.bitwig.flt.document.core.master.device.Dr; // a plugin-state save callback
 import com.bitwig.flt.document.core.master.device.Mv; // a plugin device
 import com.bitwig.flt.document.core.master.device.R1c; // a plugin instance holder
+import com.bitwig.flt.document.core.master.device.ogX; // a plugin parameter
+import com.bitwig.flt.document.core.master.device.sgH; // a device
+import com.bitwig.flt.document.core.master.device.utt; // a native device
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -705,10 +708,11 @@ public final class OpenwigDocument {
         context.put(target, result);
         result.put("reading", true);
         // Pure stored-model getters, cross-checked against ApiDawProjectExporter.
-        result.put("device_name", modelGet(target, "HT3"))
-                .put("preset", modelGet(target, "SVb"))
-                .put("displayed_preset", modelGet(target, "Sxv"));
-        String role = ((Enum<?>) modelGet(target, "Jxd")).name();
+        sgH model = (sgH) target; // the device model
+        result.put("device_name", model.af())
+                .put("preset", model.VmZ())
+                .put("displayed_preset", model.xpL());
+        String role = ((Enum<?>) (Object) model.sM3()).name(); // the device's role (audio/note in and out)
         result.put("role", switch (role) {
             case "AUDIO_TO_AUDIO" -> "audioFX";
             case "NOTE_TO_NOTE" -> "noteFX";
@@ -717,7 +721,7 @@ public final class OpenwigDocument {
             default -> role;
         });
         if (device instanceof NativeDevice nativeDevice) {
-            result.put("device_id", modelGet(modelGet(target, "odb"), "Gcr").toString());
+            result.put("device_id", ((utt) target).GGt().sCA().toString()); // the definition's UUID
             JSONArray available = listDeviceParameters(device);
             JSONObject values = new JSONObject();
             for (int n = 0; n < available.length(); n++) {
@@ -736,31 +740,32 @@ public final class OpenwigDocument {
             if (!impulses.isEmpty()) result.put("impulses", impulses);
             JSONArray modelFields = readModelFields(target);
             if (!modelFields.isEmpty()) result.put("model_fields", modelFields);
-            Object contents = modelGet(target, "bhG");
+            Object contents = ((utt) target).edx(); // the device's contents
             Object modules = modelGetOrNull(contents, "hMI");
             if (modules instanceof java.util.List<?> children)
                 for (Object child : children)
                     if ((child instanceof com.bitwig.flt.document.core.master.device.nWI))
                         result.put("grid", readGrid(nativeDevice));
         } else if (device instanceof PluginDevice) {
-            Class<?> clap = com.bitwig.flt.document.core.master.device.jyE.class;
-            if (clap != null && clap.isInstance(target)) result.put("kind", "clap");
-            result.put("device_id", modelGet(modelGet(target, "urJ"), "Gcr"));
-            Object plugin = modelGet(target, "Oof");
+            if (target instanceof com.bitwig.flt.document.core.master.device.jyE) result.put("kind", "clap");
+            Mv pluginDevice = (Mv) target;
+            result.put("device_id", pluginDevice.egT().sCA()); // the plugin's ID
+            R1c plugin = pluginDevice.dcC(); // the plugin instance holder
             JSONArray parameters = new JSONArray();
             if (plugin != null) {
-                result.put("vendor", modelGet(plugin, "bla"));
-                for (Object parameter : (java.util.List<?>) modelGet(plugin, "HT3")) {
+                result.put("vendor", plugin.Bqr());
+                for (Object item : plugin.af()) { // the plugin's cached parameters
+                    ogX parameter = (ogX) item;
                     parameters.put(new JSONObject()
-                            .put("id", modelGet(parameter, "KF3"))
-                            .put("name", modelGet(parameter, "rqQ"))
-                            .put("value", modelGet(parameter, "YiG"))
-                            .put("gui_value", modelGet(parameter, "wtf"))
-                            .put("display", modelGet(parameter, "SSK"))
-                            .put("unit", modelGet(parameter, "AAj")));
+                            .put("id", parameter.unz())
+                            .put("name", parameter.Bqd())
+                            .put("value", parameter.FOm())
+                            .put("gui_value", parameter.Anf())
+                            .put("display", parameter.sSO())
+                            .put("unit", parameter.zdi()));
                 }
             }
-            java.io.File stateFile = plugin == null ? null : (java.io.File) modelGetOrNull(plugin, "qP3");
+            java.io.File stateFile = plugin == null ? null : plugin.fpX(); // the saved state file
             boolean hasState = stateFile != null && stateFile.isFile();
             result.put("state", hasState ? stateFile.getAbsolutePath() : JSONObject.NULL)
                     .put("state_file", hasState ? stateFile.getAbsolutePath() : JSONObject.NULL)
@@ -769,16 +774,16 @@ public final class OpenwigDocument {
             result.put("parameters", parameters).put("parameter_unit", "normalized")
                     .put("parameters_available", parameters.length() > 0)
                     .put("parameters_status", parameters.length() == 0 ? "unavailable_model_cache" : "resident_model_cache");
-            Object sidechain = plugin == null ? null : modelGet(modelGet(modelGet(plugin, "Idv"), "APa"), "LZe");
+            Object sidechain = plugin == null ? null : plugin.pDG().DIi().BZt(); // sidechain routing, its source
             result.put("sidechain", sourceInfo(sidechain, context));
             JSONArray rawPluginChains = new JSONArray();
             JSONArray sidechains = new JSONArray();
             java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
             boolean complete = true;
             if (plugin != null) {
-                complete &= readNestedComponents(target, modelGetOrNull(plugin, "Ce"), rawPluginChains, sidechains, seen,
+                complete &= readNestedComponents(target, plugin.RiZ(), rawPluginChains, sidechains, seen, // the plugin's note/audio chains
                         context, path, owners, atomOwners, 0);
-                complete &= readNestedComponents(target, modelGetOrNull(plugin, "vCL"), rawPluginChains, sidechains, seen,
+                complete &= readNestedComponents(target, plugin.QfO(), rawPluginChains, sidechains, seen,
                         context, path, owners, atomOwners, 0);
             }
             JSONArray chains = new JSONArray();
@@ -794,7 +799,7 @@ public final class OpenwigDocument {
             JSONArray chains = new JSONArray();
             JSONArray sidechains = new JSONArray();
             java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
-            boolean complete = readNestedComponents(target, modelGet(target, "bhG"), chains, sidechains, seen,
+            boolean complete = readNestedComponents(target, ((utt) target).edx(), chains, sidechains, seen,
                     context, path, owners, atomOwners, 0);
             result.put("chains", chains).put("chains_complete", complete).put("sidechains", sidechains)
                     .put("sidechain", sidechains.length() == 0 ? JSONObject.NULL :
@@ -817,7 +822,7 @@ public final class OpenwigDocument {
                                             java.util.IdentityHashMap<Object, JSONObject> context,
                                             java.util.IdentityHashMap<Object, JSONObject> atomOwners) {
         JSONArray modulators = new JSONArray();
-        Object bankList = modelGet(modelGet(target, "YGC"), "Klm");
+        Object bankList = ((sgH) target).LdK().dvk(); // the modulator bank's entries
         if (!(bankList instanceof java.util.List<?> entries)) return modulators;
         Class<?> decimal = bitwig.obf.xdh.class;
         Class<?> bool = bitwig.obf.cbF.class;
