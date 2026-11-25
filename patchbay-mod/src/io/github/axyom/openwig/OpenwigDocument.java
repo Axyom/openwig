@@ -3357,19 +3357,11 @@ public final class OpenwigDocument {
     private static Object findTargetAtom(Object owner, String target) {
         // The owner's own preset-identifier resolver handles most paths directly.
         try {
-            Object direct = owner.getClass().getMethod("IYM", String.class, Class.class).invoke(owner, target, bitwig.obf.Ae2.class);
+            Object direct = owner instanceof LRP paths ? paths.beI(target, Ae2.class) : null; // resolve the path
             if (direct != null && target.equals(automationIdentifier(owner, direct))) return direct;
-        } catch (ReflectiveOperationException | RuntimeException unresolved) {
+        } catch (RuntimeException unresolved) {
             // Fall back to walking the stored model.
         }
-        Class<?> bankType = com.bitwig.flt.document.core.master.device.YVC.class;
-        Class<?> slotType = com.bitwig.flt.document.core.master.device.beU.class;
-        Class<?> selectorType = com.bitwig.flt.document.core.master.device.Hvv.class;
-        Class<?> padsType = bitwig.obf.aIt.class;
-        Class<?> deviceType = com.bitwig.flt.document.core.master.device.sgH.class;
-        Class<?> chainType = com.bitwig.flt.document.core.master.device.SRR.class;
-        Class<?> modulatorType = com.bitwig.flt.document.core.master.device.QFr.class;
-        Class<?> trackType = bitwig.obf.PiT.class;
         // A device's optional fields can be null (a plugin without its engine), and ArrayDeque refuses nulls.
         java.util.LinkedList<Object> queue = new java.util.LinkedList<>();
         java.util.IdentityHashMap<Object, Boolean> seen = new java.util.IdentityHashMap<>();
@@ -3378,36 +3370,30 @@ public final class OpenwigDocument {
             Object node = queue.poll();
             if (node == null || seen.put(node, true) != null) continue;
             if (node != owner && target.equals(automationIdentifier(owner, node))) return node;
-            if (deviceType != null && deviceType.isInstance(node)) {
-                queue.add(modelGetOrNull(node, "bhG"));
-                queue.add(modelGetOrNull(node, "tek"));
-                Object modulators = modelGetOrNull(modelGetOrNull(node, "YGC"), "Klm");
-                if (modulators instanceof java.util.List<?> list) for (Object item : list) queue.add(item);
+            if (node instanceof sgH device) {
+                queue.add(deviceContents(node)); // a native device's contents
+                queue.add(device.GAx());          // the device's own atoms (On switch and others)
+                itZ bank = device.LdK();          // its modulators
+                if (bank != null && bank.dvk() instanceof java.util.List<?> list) for (Object item : list) queue.add(item);
                 continue;
             }
-            if (modulatorType != null && modulatorType.isInstance(node)) {
-                queue.add(modelGetOrNull(node, "dsw"));
+            if (node instanceof QFr modulator) {
+                queue.add(modulator.MvA()); // the modulator's contents
                 continue;
             }
-            if (trackType != null && trackType.isInstance(node)) {
-                Object stored = modelGetOrNull(node, "nY");
+            if (node instanceof bitwig.obf.PiT track) {
+                Object stored = track.YQe(); // the track's device chain
                 if (stored != null) for (Object device : wrapDeviceChain(stored).getDevices()) queue.add(((ApiObject) device).getTarget());
             }
-            if (chainType != null && chainType.isInstance(node)) {
-                Object stored = modelGetOrNull(node, "nY");
+            if (node instanceof SRR chain) {
+                Object stored = chain.YQe(); // the nested chain's device chain
                 if (stored != null) for (Object device : wrapDeviceChain(stored).getDevices()) queue.add(((ApiObject) device).getTarget());
             }
-            if (bankType != null && bankType.isInstance(node)) {
-                Object chains = modelGetOrNull(node, "NFl");
-                if (chains instanceof java.util.List<?> list) for (Object item : list) queue.add(item);
-            }
-            if (selectorType != null && selectorType.isInstance(node)) queue.add(modelGetOrNull(node, "gr2"));
-            if (slotType != null && slotType.isInstance(node)) queue.add(modelGetOrNull(node, "Lg"));
-            if (padsType != null && padsType.isInstance(node)) {
-                Object pads = modelGetOrNull(node, "IYM");
-                if (pads instanceof java.util.List<?> list) for (Object pad : list) queue.add(modelGetOrNull(pad, "n3R"));
-            }
-            Object children = modelGetOrNull(node, "hMI");
+            if (node instanceof YVC bank) for (Object item : bank.LYs()) queue.add(item); // its chains
+            if (node instanceof com.bitwig.flt.document.core.master.device.Hvv selector) queue.add(selector.rcd()); // the selected chain holder
+            if (node instanceof beU slot) queue.add(slot.VNw()); // the slot's chain
+            if (node instanceof bitwig.obf.aIt pads) for (Object pad : pads.beI()) queue.add(((WGX) pad).JTf()); // each pad's chain
+            Object children = componentChildren(node);
             if (children instanceof java.util.List<?> list) for (Object item : list) if (item != null) queue.add(item);
         }
         return null;
