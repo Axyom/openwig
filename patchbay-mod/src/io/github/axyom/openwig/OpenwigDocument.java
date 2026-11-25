@@ -77,6 +77,12 @@ import com.bitwig.flt.document.core.master.device.dZe; // a component container
 import com.bitwig.flt.document.core.master.device.k3K; // a device chain
 import bitwig.obf.jes; // a routing source with a label
 import bitwig.obf.nnO; // a sidechain component
+import com.bitwig.flt.document.core.master.device.KFW; // a parallel layer bank
+import com.bitwig.flt.document.core.master.device.LpH; // a Grid module definition
+import com.bitwig.flt.document.core.master.device.ZFS; // a Grid module
+import com.bitwig.flt.document.core.master.device.aII; // a Grid input port
+import com.bitwig.flt.document.core.master.device.nWI; // a Grid
+import bitwig.obf.LRP; // a model object that resolves component paths
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -1287,22 +1293,28 @@ public final class OpenwigDocument {
     }
 
     private static DeviceChain wrapDeviceChain(Object stored) {
-        try {
-            java.lang.reflect.Constructor<?> constructor = com.bitwig.flt.document.api.document.ApiDeviceChain.class
-                    .getDeclaredConstructor(com.bitwig.flt.document.core.master.device.k3K.class);
-            constructor.setAccessible(true);
-            return (DeviceChain) constructor.newInstance(stored);
-        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("nested device chain wrapper failed", failure); }
+        return new com.bitwig.flt.document.api.document.ApiDeviceChain((k3K) stored);
     }
 
     private static Object deviceComponent(Object owner, String path, Class<?> type) {
         if (path == null || path.isBlank() || path.contains("..") || path.length() > 2048)
             throw new IllegalArgumentException("native component path required");
-        try {
-            Object value = owner.getClass().getMethod("IYM", String.class, Class.class).invoke(owner, path, type);
-            if (value == null || !type.isInstance(value)) throw new IllegalArgumentException("component has the wrong kind: " + path);
-            return value;
-        } catch (ReflectiveOperationException failure) { throw new IllegalArgumentException("cannot resolve component: " + path, failure); }
+        Object value = ((LRP) owner).beI(path, type); // the component at this path
+        if (value == null || !type.isInstance(value)) throw new IllegalArgumentException("component has the wrong kind: " + path);
+        return value;
+    }
+
+    /** Bitwig's completion callback for a native edit: success runs the check, a message or exception fails the job. */
+    private static final class NativeCallback implements Pv {
+        private final JSONObject status;
+        private final Runnable success;
+        private final String label;
+        NativeCallback(JSONObject status, Runnable success, String label) { this.status = status; this.success = success; this.label = label; }
+        @Override public void taskCompleted() { success.run(); }
+        @Override public void beI(Object result) { success.run(); }                                          // completed
+        @Override public void beI(String message) { status.put("state", "failed").put("error", message); }   // failed with a message
+        @Override public void beI(Exception failure) { status.put("state", "failed").put("error", String.valueOf(failure)); }
+        @Override public String toString() { return label; }
     }
 
     private static Track deviceScope(Track track, JSONObject params) {
@@ -1320,7 +1332,7 @@ public final class OpenwigDocument {
             if (index < 0 || index >= chain.getDevices().size()) throw new IllegalArgumentException("nested owner device index out of range");
             Object owner = ((ApiObject) chain.getDevices().get(index)).getTarget();
             Object layer = deviceComponent(owner, step.getString("component"), com.bitwig.flt.document.core.master.device.SRR.class);
-            Object stored = modelGet(layer, "nY");
+            Object stored = ((SRR) layer).YQe(); // the nested chain's device chain
             if (stored == null) throw new IllegalArgumentException("nested component has no device chain");
             chain = wrapDeviceChain(stored);
         }
@@ -1334,29 +1346,30 @@ public final class OpenwigDocument {
 
     private static JSONObject readGrid(NativeDevice device) {
         Object owner = ((ApiObject) device).getTarget();
-        Object grid = deviceComponent(owner, "CONTENTS/MODULES", com.bitwig.flt.document.core.master.device.nWI.class);
+        nWI grid = (nWI) deviceComponent(owner, "CONTENTS/MODULES", nWI.class);
         JSONArray modules = new JSONArray();
-        for (Object module : (java.util.List<?>) modelGet(grid, "Klm")) {
-            Object definition = modelGet(module, "dsw");
+        for (Object item : grid.dvk()) { // the Grid's modules
+            ZFS module = (ZFS) item;
+            LpH definition = module.MvA(); // the module's definition
             JSONArray inputs = new JSONArray(), outputs = new JSONArray();
-            try (java.util.stream.Stream<?> atoms = (java.util.stream.Stream<?>) modelGet(module, "wGq")) {
+            try (java.util.stream.Stream<?> atoms = module.vUU()) { // the module's atoms
                 for (Object atom : atoms.toList()) {
                     boolean input = (atom instanceof com.bitwig.flt.document.core.master.device.aII);
                     boolean output = (atom instanceof com.bitwig.flt.document.core.master.device.GoC);
                     if (!input && !output) continue;
                     JSONObject port = new JSONObject().put("component", automationIdentifier(owner, atom));
                     if (input) {
-                        Object source = modelGet(atom, "xFs");
+                        Object source = ((aII) atom).GKF(); // the connected output
                         port.put("source", source == null ? JSONObject.NULL : automationIdentifier(owner, source));
                     }
                     (input ? inputs : outputs).put(port);
                 }
             }
             modules.put(new JSONObject().put("component", automationIdentifier(owner, module))
-                    .put("module_id", modelGet(definition, "KF3").toString())
-                    .put("name", modelGet(module, "HT3"))
-                    .put("x", modelGet(module, "AOA")).put("y", modelGet(module, "KF3"))
-                    .put("width", modelGet(module, "ap")).put("height", modelGet(module, "XK"))
+                    .put("module_id", definition.unz().toString())
+                    .put("name", module.af())
+                    .put("x", module.MgQ()).put("y", module.unz())
+                    .put("width", module.IvP()).put("height", module.CtA())
                     .put("inputs", inputs).put("outputs", outputs));
         }
         return new JSONObject().put("modules", modules);
@@ -1369,12 +1382,13 @@ public final class OpenwigDocument {
         return (Integer) value;
     }
 
-    private static void gridPosition(Object grid, Object module, int x, int y) {
-        int width = ((Number) modelGet(module, "ap")).intValue(), height = ((Number) modelGet(module, "XK")).intValue();
-        for (Object other : (java.util.List<?>) modelGet(grid, "Klm")) {
-            if (other == module) continue;
-            int ox = ((Number) modelGet(other, "AOA")).intValue(), oy = ((Number) modelGet(other, "KF3")).intValue();
-            int ow = ((Number) modelGet(other, "ap")).intValue(), oh = ((Number) modelGet(other, "XK")).intValue();
+    private static void gridPosition(nWI grid, ZFS module, int x, int y) {
+        int width = module.IvP(), height = module.CtA(); // the module's size
+        for (Object item : grid.dvk()) {
+            if (item == module) continue;
+            ZFS other = (ZFS) item;
+            int ox = other.MgQ(), oy = other.unz(); // its position
+            int ow = other.IvP(), oh = other.CtA();
             if (x < ox + ow && x + width > ox && y < oy + oh && y + height > oy)
                 throw new IllegalArgumentException("module position overlaps another module");
         }
@@ -1383,22 +1397,18 @@ public final class OpenwigDocument {
     private static JSONObject executeGrid(String method, Track track, JSONObject params) {
         NativeDevice device = nativeDeviceOnTrack(track, params.getInt("device"));
         Object owner = ((ApiObject) device).getTarget();
-        Class<?> gridClass = com.bitwig.flt.document.core.master.device.nWI.class;
-        Class<?> moduleClass = com.bitwig.flt.document.core.master.device.ZFS.class;
-        Object grid = deviceComponent(owner, "CONTENTS/MODULES", gridClass);
-        try {
+        nWI grid = (nWI) deviceComponent(owner, "CONTENTS/MODULES", nWI.class);
+        {
             if (method.equals("device.grid_add")) {
-                if (((java.util.List<?>) modelGet(grid, "Klm")).size() >= 4096) throw new IllegalArgumentException("Grid module limit exceeded");
+                if (grid.dvk().size() >= 4096) throw new IllegalArgumentException("Grid module limit exceeded");
                 java.util.UUID id = java.util.UUID.fromString(params.getString("module_id"));
                 int x = gridCoordinate(params, "x"), y = gridCoordinate(params, "y");
-                Object module = moduleClass.getMethod("tDS", java.util.UUID.class).invoke(null, id);
+                ZFS module = ZFS.Bqk(id); // a new module from its definition ID
                 gridPosition(grid, module, x, y);
-                java.util.List<?> before = new java.util.ArrayList<>((java.util.List<?>) modelGet(grid, "Klm"));
+                java.util.List<?> before = new java.util.ArrayList<>(grid.dvk());
                 // Match the GUI's cloned-content insertion and its own undo operation.
-                gridClass.getMethod("jPB", java.util.Collection.class, int.class, int.class, boolean.class,
-                        com.bitwig.base.async.PPR.class)
-                        .invoke(grid, java.util.List.of(module), x, y, true, null);
-                Object inserted = ((java.util.List<?>) modelGet(grid, "Klm")).stream().filter(candidate -> !before.contains(candidate)).findFirst()
+                grid.Gef(java.util.List.of(module), x, y, true, (com.bitwig.base.async.PPR) null); // insert modules at a position
+                Object inserted = ((java.util.List<?>) grid.dvk()).stream().filter(candidate -> !before.contains(candidate)).findFirst()
                         .orElseThrow(() -> new IllegalStateException("Grid module insertion did not add a module"));
                 return new JSONObject().put("component", automationIdentifier(owner, inserted)).put("grid", readGrid(device));
             }
@@ -1413,26 +1423,26 @@ public final class OpenwigDocument {
                     if (!outputPath.startsWith("CONTENTS/MODULES/")) throw new IllegalArgumentException("Grid output required");
                     output = deviceComponent(owner, outputPath, com.bitwig.flt.document.core.master.device.GoC.class);
                 }
-                // BIC's public edit entry handles cable graph notifications and undo.
-                invokeModelSetter(input, "IYM", bitwig.obf.tRH.class, output);
+                // The input's public edit entry handles cable graph notifications and undo.
+                ((aII) input).beI((bitwig.obf.tRH) output); // connect (null disconnects)
                 return readGrid(device);
             }
             String component = params.getString("component");
-            Object module = deviceComponent(owner, component, moduleClass);
-            if (!((java.util.List<?>) modelGet(grid, "Klm")).contains(module)) throw new IllegalArgumentException("module outside selected grid");
+            ZFS module = (ZFS) deviceComponent(owner, component, ZFS.class);
+            if (!grid.dvk().contains(module)) throw new IllegalArgumentException("module outside selected grid");
             if (method.equals("device.grid_move")) {
                 int x = gridCoordinate(params, "x"), y = gridCoordinate(params, "y");
                 gridPosition(grid, module, x, y);
                 DirectAccess.runInUndo(track.clipTimeline(), () -> {
-                    invokeModelSetter(module, "Gcr", int.class, x);
-                    invokeModelSetter(module, "a1y", int.class, y);
+                    module.sCA(x);  // set x
+                    module.Heb(y);  // set y
                 });
             } else if (method.equals("device.grid_delete")) {
                 // Native deletion cleans up attached cables and owns its undo transaction.
-                invokeModelSetter(grid, "IYM", java.util.List.class, java.util.List.of(module));
+                grid.beI((java.util.List<?>) java.util.List.of(module)); // delete modules
             } else throw new IllegalArgumentException("unsupported Grid operation");
             return readGrid(device);
-        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native Grid operation failed", failure); }
+        }
     }
 
     private static JSONObject newDeviceJob() {
@@ -1449,17 +1459,13 @@ public final class OpenwigDocument {
     }
 
     private static Mixer layerMixer(Object layer) {
-        try {
-            Object api = com.bitwig.flt.document.api.document.ApiNestedDeviceChain.class
-                    .getConstructor(com.bitwig.flt.document.core.master.device.SRR.class).newInstance(layer);
-            return (Mixer) api.getClass().getMethod("getMixer").invoke(api);
-        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("nested mixer wrapper failed", failure); }
+        return new com.bitwig.flt.document.api.document.ApiNestedDeviceChain((SRR) layer).getMixer();
     }
 
     private static JSONObject layerState(Object owner, Object layer) {
         Mixer mixer = layerMixer(layer);
         JSONObject result = new JSONObject().put("component", automationIdentifier(owner, layer))
-                .put("name", modelGet(layer, "fNm")).put("title", modelGet(layer, "cc_"));
+                .put("name", ((SRR) layer).eXf()).put("title", ((SRR) layer).cc_()); // stored name, shown title
         if (mixer == null) return result.put("mixer", JSONObject.NULL);
         double db = mixer.getVolume().getValue(Unit.DECIBEL);
         return result.put("mixer", new JSONObject().put("volume", mixer.getVolume().getValue(Unit.RATIO))
@@ -1470,85 +1476,53 @@ public final class OpenwigDocument {
 
     private static JSONObject editLayer(String method, Track track, JSONObject params) {
         Object owner = ((ApiObject) nativeDeviceOnTrack(track, params.getInt("device"))).getTarget();
-        Class<?> layerType = com.bitwig.flt.document.core.master.device.SRR.class;
-        Object layer = deviceComponent(owner, params.getString("component"), layerType);
+        SRR layer = (SRR) deviceComponent(owner, params.getString("component"), SRR.class);
         if (method.equals("device.layer_read")) return layerState(owner, layer);
         if (method.equals("device.layer_move")) {
-            Object bank = modelGet(layer, "ExU");
-            if (!(bank instanceof com.bitwig.flt.document.core.master.device.KFW)) throw new IllegalArgumentException("reordering requires a parallel layer");
-            java.util.List<?> members = (java.util.List<?>) modelGet(bank, "NFl");
+            Object owning = layer.Fhl(); // the bank that owns the layer
+            if (!(owning instanceof KFW bank)) throw new IllegalArgumentException("reordering requires a parallel layer");
+            java.util.List<?> members = bank.LYs(); // its layers
             int source = members.indexOf(layer);
             Object value = params.get("index");
             if (!(value instanceof Integer index) || index < 0 || index >= members.size()) throw new IllegalArgumentException("layer destination index out of range");
             int destination = (Integer) value;
             if (source == destination) return new JSONObject().put("state", "complete").put("data", layerState(owner, layer));
             JSONObject status = newDeviceJob();
-            try {
-                Class<?> type = com.bitwig.base.async.Pv.class;
-                Object callback = java.lang.reflect.Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, (proxy, call, args) -> {
-                    if (call.getDeclaringClass() == Object.class) return switch (call.getName()) {
-                        case "hashCode" -> System.identityHashCode(proxy);
-                        case "equals" -> proxy == args[0];
-                        default -> "OpenwigLayerMove";
-                    };
-                    if (call.getName().equals("taskCompleted") || (call.getName().equals("IYM") && call.getParameterTypes()[0] == Object.class)) {
-                        try {
-                            if (modelGet(layer, "ExU") != bank || ((java.util.List<?>) modelGet(bank, "NFl")).indexOf(layer) != destination)
-                                throw new IllegalStateException("layer did not reach its requested index");
-                            status.put("data", layerState(owner, layer)).put("state", "complete");
-                        } catch (RuntimeException failure) { status.put("state", "failed").put("error", failure.toString()); }
-                    } else if (call.getName().equals("IYM")) status.put("state", "failed").put("error", String.valueOf(args[0]));
-                    return null;
-                });
-                bank.getClass().getMethod("jPB", java.util.List.class, int.class, boolean.class, type)
-                        .invoke(bank, java.util.List.of(layer), destination > source ? destination + 1 : destination, false, callback);
-            } catch (ReflectiveOperationException failure) {
-                status.put("state", "failed").put("error", failure.toString());
-                throw new IllegalStateException("native layer reordering failed", failure);
-            }
+            Pv callback = new NativeCallback(status, () -> {
+                try {
+                    if (layer.Fhl() != bank || bank.LYs().indexOf(layer) != destination)
+                        throw new IllegalStateException("layer did not reach its requested index");
+                    status.put("data", layerState(owner, layer)).put("state", "complete");
+                } catch (RuntimeException failure) { status.put("state", "failed").put("error", failure.toString()); }
+            }, "OpenwigLayerMove");
+            // Move the layers to an index, without copying, then report.
+            bank.Gef(java.util.List.of(layer), destination > source ? destination + 1 : destination, false, callback);
             return new JSONObject(status.toString());
         }
         if (method.equals("device.layer_delete")) {
-            Object bank = modelGet(layer, "ExU");
-            if (!(bank instanceof com.bitwig.flt.document.core.master.device.KFW))
+            Object owning = layer.Fhl(); // the bank that owns the layer
+            if (!(owning instanceof KFW bank))
                 throw new IllegalArgumentException("deletion requires a parallel layer");
             JSONObject status = newDeviceJob();
             Runnable remove = () -> {
                 try {
-                    if (modelGet(layer, "ExU") != bank) throw new IllegalArgumentException("layer moved during state preparation");
-                    int before = ((java.util.List<?>) modelGet(bank, "NFl")).size();
+                    if (layer.Fhl() != bank) throw new IllegalArgumentException("layer moved during state preparation");
+                    int before = bank.LYs().size();
                     DirectAccess.runInUndo(track.clipTimeline(), () -> {
-                        modelGet(bank, "VMm");
+                        bank.yy(); // begin a bank edit
                         try {
-                            try {
-                                com.bitwig.flt.document.core.master.device.ypF.class.getMethod("IYM", bitwig.obf.szU.class).invoke(null, layer);
-                                bank.getClass().getMethod("IYM", layerType, boolean.class).invoke(bank, layer, true);
-                            } catch (ReflectiveOperationException failure) { throw new IllegalStateException("native layer deletion failed", failure); }
-                        } finally { modelGet(bank, "VxG"); }
+                            com.bitwig.flt.document.core.master.device.ypF.beI(layer); // detach the layer's references
+                            bank.beI(layer, true); // delete it from the bank
+                        } finally { bank.waK(); } // end the bank edit
                     });
-                    int after = ((java.util.List<?>) modelGet(bank, "NFl")).size();
-                    if (after != before - 1 || modelGetOrNull(layer, "L_") != null) throw new IllegalStateException("layer ownership was not removed");
+                    int after = bank.LYs().size();
+                    if (after != before - 1 || layer.L_() != null) throw new IllegalStateException("layer ownership was not removed");
                     status.put("data", new JSONObject().put("count", after)).put("state", "complete");
                 } catch (RuntimeException failure) { status.put("state", "failed").put("error", failure.toString()); }
             };
-            try {
-                Class<?> errorType = com.bitwig.base.async.JDx.class;
-                Object errors = java.lang.reflect.Proxy.newProxyInstance(errorType.getClassLoader(), new Class<?>[]{errorType}, (proxy, call, args) -> {
-                    if (call.getDeclaringClass() == Object.class) return switch (call.getName()) {
-                        case "hashCode" -> System.identityHashCode(proxy);
-                        case "equals" -> proxy == args[0];
-                        default -> "OpenwigLayerDeleteError";
-                    };
-                    if (call.getName().equals("IYM")) status.put("state", "failed").put("error", String.valueOf(args[0]));
-                    return null;
-                });
-                com.bitwig.flt.document.core.master.oIf.class
-                        .getMethod("IYM", java.util.Collection.class, Runnable.class, errorType)
-                        .invoke(null, java.util.List.of(layer), remove, errors);
-            } catch (ReflectiveOperationException failure) {
-                status.put("state", "failed").put("error", failure.toString());
-                throw new IllegalStateException("layer state preparation failed", failure);
-            }
+            // Prepare the layers' plugin states, then remove; errors fail the job.
+            com.bitwig.flt.document.core.master.oIf.beI(java.util.List.of(layer), remove,
+                    (com.bitwig.base.async.JDx) new NativeCallback(status, () -> { }, "OpenwigLayerDeleteError"));
             return new JSONObject(status.toString());
         }
         JSONObject changes = params.getJSONObject("changes");
@@ -1571,7 +1545,7 @@ public final class OpenwigDocument {
             }
         }
         DirectAccess.runInUndo(track.clipTimeline(), () -> {
-            if (changes.has("name")) invokeModelSetter(layer, "Qcu", String.class, changes.getString("name"));
+            if (changes.has("name")) layer.byf(changes.getString("name")); // rename
             if (changes.has("volume")) mixer.getVolume().setValue(changes.getDouble("volume"), Unit.RATIO);
             if (changes.has("volume_db")) mixer.getVolume().setValue(changes.getDouble("volume_db"), Unit.DECIBEL);
             if (changes.has("pan")) mixer.getPan().setValue(changes.getDouble("pan") * 100, Unit.PERCENTAGE_OF_RANGE);
