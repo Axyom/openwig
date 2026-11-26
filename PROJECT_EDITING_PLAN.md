@@ -125,9 +125,10 @@ Baseline implementation commits (use `git log` for subsequent increments):
   unit tests pass. Details, remaining reflection and behaviour changes:
   `patchbay-mod/README.md`.
 - Live (2026-11-26, Bitwig 6.1.7 via Patchbay, mod copied to `<BML>\mods\openwig`):
-  bridge starts, 44 operations pass on the unsaved startup project (list in
-  `patchbay-mod/README.md`). Not yet checked: UI undo, integrity melody, and
-  the plugin/Grid/layer/sampler/import paths.
+  145 of 146 bridge methods pass on the unsaved startup project and a scratch
+  copy (details in `patchbay-mod/README.md`); `debug.atom_invoke` not run, VST2
+  insertion not exercised (no VST2 plugin). No port bug found. Still for the
+  owner: UI undo and the integrity-melody listening check.
 
 ## Previous checkpoint: editable reconstruction from reader dumps (2026-10-21)
 

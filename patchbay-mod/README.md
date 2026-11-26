@@ -82,22 +82,34 @@ These follow what the 6.1.5 code meant to do; none is verified live yet.
 
 ## Live check (2026-11-26, Bitwig 6.1.7 through Patchbay, only this mod loaded)
 
-On the unsaved startup project ("New 1"), never saved:
+All runs used the unsaved startup project ("New 1") or a scratch copy of it
+(`scratch/live617/copy`), opened and closed without saving. Scripts:
+`scratch/live_617*.py` (not committed).
 
 - The log shows `[openwig] ... bridge starting on 127.0.0.1:7778`; the port
   answers, `host.version` is 6.1.7, no exceptions from the mod in the log.
-- 44 operations passed: document info/list, full project dump, tempo,
-  transport snapshot/position/loop/play/stop, beats to seconds, instrument
-  track with Polysynth, device read/parameters/rename/expand, note clip,
-  clip copy/split/update, volume automation write and readback, track
-  volume/pan/mute/solo/comment/color, modulator catalog/add/read/bind/unbind/
-  delete, launcher notes/settings/launch/stop/return to arranger, effect and
-  group tracks, scene insert/update/move/delete, cue marker, metadata,
-  insert/delete/duplicate time, audio status, offline render of 4 beats.
-- Not checked: undo of an edit from Bitwig's UI, and that no integrity-check
-  (random pulse) melody plays (the project's audio engine was off). Not run:
-  plugin state, Grid, layers, sampler, impulses, CLAP/VST2 insertion, audio
-  events, DAWproject import/export, project open/close/save-copy.
+- **145 of the 146 methods ran and returned correct results**, read back
+  where possible. Highlights beyond the basics: plugin parameters, plugin
+  state capture and `.vstpreset` export, VST3 insertion with that state, CLAP
+  insertion with a `.clap-preset` state and CLAP state capture, Grid
+  add/move/connect/rename/delete, layers create/update/move/delete, bands,
+  Drum Machine pads, Sampler sample loading, model fields, Convolution impulse
+  loading, native and plugin sidechains, modulator move/parameters/rename,
+  notes and audio events, launcher audio/copy/clear, automation targets and
+  automation clips, track routing (destination, input source), DAWproject
+  export and re-import, native save-copy, opening and closing a project,
+  offline render, and every clear/delete operation.
+- Not run: `debug.atom_invoke` (calls a method the caller names; diagnostic
+  only). VST2 insertion was not exercised: the test project has no VST2
+  plugin (the method itself passed with VST3 and CLAP).
+- Failures seen during the runs were test-script or setup issues, not the
+  port: the template's tracks are named like "Kick/Bass" and `/` is the
+  track-path separator; job-status calls need the track address; the audio
+  engine was off until `document.activate_audio`, so plugins first reported
+  NOT_LOADED; a device's own track is refused as its sidechain source by
+  Bitwig (the bridge then returns the unchanged source, as on 6.1.5).
+- Still for the owner: undo of a bridge edit from Bitwig's UI, and listening
+  for the integrity-check (random pulse) melody.
 
 ## Building
 
