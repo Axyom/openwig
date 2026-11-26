@@ -20,5 +20,11 @@ public final class OpenwigHooks {
         } catch (Throwable t) {
             MOD.log("bridge failed to start", t);
         }
+        try {
+            McpServer.start();
+            MOD.log("mcp listening on http://127.0.0.1:" + McpServer.port() + McpServer.PATH);
+        } catch (Throwable t) {
+            MOD.log("mcp server failed to start", t);
+        }
     }
 }

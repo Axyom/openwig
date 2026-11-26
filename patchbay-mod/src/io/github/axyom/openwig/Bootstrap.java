@@ -75,9 +75,16 @@ public final class Bootstrap {
             if (!request.has("id")) {
                 continue;
             }
-            JSONObject response = new JSONObject().put("jsonrpc", "2.0")
-                    .put("id", request.get("id"));
-            String method = request.optString("method", "");
+            send(output, respond(request));
+        }
+    }
+
+    /** Runs one bridge request (JSON-RPC 2.0 object with an id) and returns its response; shared by port 7778 and MCP. */
+    static JSONObject respond(JSONObject request) {
+        JSONObject response = new JSONObject().put("jsonrpc", "2.0")
+                .put("id", request.opt("id"));
+        String method = request.optString("method", "");
+        {
             try {
                 switch (method) {
                 case "ping" -> response.put("result", "pong");
@@ -504,8 +511,8 @@ public final class Bootstrap {
                 response.put("error", new JSONObject().put("code", -32000)
                         .put("message", describeFailure(failure)));
             }
-            send(output, response);
         }
+        return response;
     }
 
     private static void send(BufferedWriter output, JSONObject value) throws Exception {

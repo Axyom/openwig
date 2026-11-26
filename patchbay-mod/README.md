@@ -10,6 +10,31 @@ Status: builds, passes Patchbay's offline check (`PREPARE_OK`, Bitwig 6.1.7,
 1 hook, 10 opened members) and runs in Bitwig 6.1.7 launched through Patchbay
 (2026-11-26, see "Live check").
 
+## MCP server
+
+With the mod loaded, Bitwig also serves MCP at `http://127.0.0.1:7779/mcp`
+(Streamable HTTP, JSON responses, local connections only). Change the port with
+the system property `openwig.mcp.port` or the environment variable
+`OPENWIG_MCP_PORT`. The JSON-RPC bridge on port 7778 keeps working.
+
+Tools: `bitwig_methods` (what can be done, by area), `bitwig_call` (run any of
+the 146 bridge methods with its params), `bitwig_project` (project summary) and
+`bitwig_transport` (playback state). Each call goes through the same dispatch
+as port 7778, so every edit is one undo step in Bitwig.
+
+Handwritten on the JDK's HTTP server and Bitwig's own org.json: the official
+MCP Java SDK needs Reactor and its own Jackson version, while Bitwig already
+ships another Jackson on the same class path.
+
+Connect Claude Code:
+
+```
+claude mcp add --transport http openwig http://127.0.0.1:7779/mcp
+```
+
+Claude Desktop: Settings, Connectors, add a custom connector with the URL
+`http://127.0.0.1:7779/mcp`.
+
 ## What the patched jar changed (bml-modkit jar-diff, 6.1.5 stock vs patched)
 
 ```
