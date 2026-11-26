@@ -51,7 +51,7 @@ public final class AgentPanels implements PanelProvider {
         } catch (Exception failure) {
             LOG.log("agent gate failed to start", failure);
         }
-        ui(() -> add("Ask for something in the box below, then Send. Edits wait for Allow."));
+        ui(() -> add("Type in the box above, then Enter or Send. Edits wait for Allow."));
     }
 
     /** An edit the agent wants to make: shown with Allow / Deny, answered by the buttons. */

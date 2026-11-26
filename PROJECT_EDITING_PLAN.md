@@ -116,6 +116,10 @@ Baseline implementation commits (use `git log` for subsequent increments):
 
 ## Latest checkpoint: Patchbay mod for Bitwig 6.1.7 (2026-11-26)
 
+- Agent panel (2026-11-26): new mod `patchbay-agent-mod/` (`openwig-agent`), a Panels-framework column where
+  the owner's Claude Code edits the project through the bridge's MCP; edits wait for Allow (gate proxy on 7780).
+  Verified live: a request created "Agent test" after Allow. Deny, Stop and New not yet exercised.
+
 - MCP server inside the mod (2026-11-26, owner's choice: no Python layer): `http://127.0.0.1:7779/mcp`, tools bitwig_methods/bitwig_call/bitwig_project/bitwig_transport over the port-7778 dispatch. Offline: PREPARE_OK and HTTP transport tests pass; live test waits for a Bitwig restart through Patchbay.
 - Branch `patchbay-port` (from `68d05f2`, not pushed): `patchbay-mod/` ports the
   Java bridge to a Patchbay (BML 0.36.0-dev.17) mod built against Bitwig 6.1.7.
