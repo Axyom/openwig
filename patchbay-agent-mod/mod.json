@@ -13,13 +13,31 @@
     "architecture": "x64"
   },
   "resources": {
-    "agent_icon": { "kind": "bitwig", "path": "icons/chat_view.svg" }
+    "agent_icon": {
+      "kind": "bitwig",
+      "path": "icons/chat_view.svg"
+    },
+    "data": {
+      "kind": "directory",
+      "path": "agent",
+      "persistence": "preserve"
+    }
   },
   "registrations": [
-    { "id": "panels", "consumer": "panel-management-framework", "descriptor": "panels.properties", "jar": "helper.jar" }
+    {
+      "id": "panels",
+      "consumer": "panel-management-framework",
+      "descriptor": "panels.properties",
+      "jar": "helper.jar"
+    }
   ],
   "requires": [
-    { "id": "panel-management-framework", "min_version": "0.3.0-dev.8" },
-    { "id": "openwig" }
+    {
+      "id": "panel-management-framework",
+      "min_version": "0.3.0-dev.8"
+    },
+    {
+      "id": "openwig"
+    }
   ]
 }

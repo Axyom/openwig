@@ -7,16 +7,24 @@ import bitwig.obf.eeu; // a scrolling multi-line text editor
 import bml.api.Bml;
 import bml.panels.PanelProvider;
 import bml.panels.Panels;
-import java.time.LocalTime;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import org.json.JSONObject;
 
-/** Spike: a panel with a live transcript and a text input, to prove Bitwig's widgets can host a chat. */
+/**
+ * The Agent panel: a transcript (newest message first, so new text is always in view), a message box, and
+ * Send / Stop / New, plus Allow / Deny for the edit the agent is waiting on.
+ */
 public final class AgentPanels implements PanelProvider {
     static final Bml.Mod LOG = Bml.mod("openwig-agent");
-    static final TextValue TRANSCRIPT = new TextValue("OpenWig Agent spike\n", false);
-    private static ScheduledExecutorService ticker;
+    private static final TextValue TRANSCRIPT = new TextValue("", false);
+    private static final List<StringBuilder> ENTRIES = new ArrayList<>(); // oldest first; shown newest first
+    private static final int KEEP = 200;
+    private static Agent agent;
+    private static CompletableFuture<Boolean> pending;
+    private static boolean streaming; // the newest entry is the agent's reply being written
 
     @Override
     public void declare(Panels panels) {
@@ -25,43 +33,104 @@ public final class AgentPanels implements PanelProvider {
               .content(context -> build())
               .side("browser")
               .sideColumnShare(0.35);
-        startTicker();
-        LOG.log("agent panel declared");
+        start();
     }
 
-    static void append(String line) {
-        drf.EO().asyncExec(() -> TRANSCRIPT.set(TRANSCRIPT.text() + line + "\n")); // on Bitwig's UI thread
-    }
-
-    private static synchronized void startTicker() {
-        if (ticker != null) return;
-        ticker = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "openwig-agent-spike");
-            t.setDaemon(true);
-            return t;
+    private static synchronized void start() {
+        if (agent != null) return;
+        Path dir = LOG.resource("data");
+        agent = new Agent(dir, new Agent.View() {
+            @Override public void text(String text) { ui(() -> stream(text)); }
+            @Override public void line(String line) { ui(() -> add(line)); }
+            @Override public void busy(boolean busy) { if (!busy) ui(() -> streaming = false); }
         });
-        int[] n = {0};
-        ticker.scheduleAtFixedRate(() -> {
-            if (n[0] >= 150) return; // 30 s of ticks, then quiet
-            append("tick " + (++n[0]) + " at " + LocalTime.now().withNano(0));
-        }, 2, 200, TimeUnit.MILLISECONDS);
+        agent.killOnExit();
+        try {
+            new GateProxy(AgentPanels::ask).start();
+            LOG.log("agent panel ready; gate on http://127.0.0.1:" + GateProxy.PORT + "/mcp");
+        } catch (Exception failure) {
+            LOG.log("agent gate failed to start", failure);
+        }
+        ui(() -> add("Ask for something in the box below, then Send. Edits wait for Allow."));
     }
+
+    /** An edit the agent wants to make: shown with Allow / Deny, answered by the buttons. */
+    private static CompletableFuture<Boolean> ask(String method, JSONObject params) {
+        CompletableFuture<Boolean> answer = new CompletableFuture<>();
+        ui(() -> {
+            if (pending != null) pending.complete(false); // only one question at a time
+            pending = answer;
+            streaming = false;
+            add("ALLOW? " + method + (params.isEmpty() ? "" : " " + params) + "   (Allow / Deny below)");
+        });
+        return answer;
+    }
+
+    private static void answer(boolean allow) {
+        if (pending == null) return;
+        CompletableFuture<Boolean> p = pending;
+        pending = null;
+        add(allow ? "  allowed" : "  denied");
+        p.complete(allow);
+    }
+
+    // ---- transcript (UI thread) -------------------------------------------------------------------------------
+
+    private static void ui(Runnable r) { drf.EO().asyncExec(r); } // on Bitwig's UI thread
+
+    private static void add(String line) {
+        ENTRIES.add(new StringBuilder(line));
+        streaming = false;
+        render();
+    }
+
+    private static void stream(String text) {
+        if (!streaming) {
+            if (text.isBlank()) return;
+            ENTRIES.add(new StringBuilder("agent: "));
+            streaming = true;
+        }
+        ENTRIES.get(ENTRIES.size() - 1).append(text);
+        render();
+    }
+
+    private static void render() {
+        while (ENTRIES.size() > KEEP) ENTRIES.remove(0);
+        StringBuilder out = new StringBuilder();
+        for (int i = ENTRIES.size() - 1; i >= 0; i--) out.append(ENTRIES.get(i).toString().strip()).append("\n\n");
+        TRANSCRIPT.set(out.toString());
+    }
+
+    // ---- widgets ------------------------------------------------------------------------------------------------
 
     private static Object build() {
         TextValue input = new TextValue("", true);
-        input.onEdit(text -> {
-            if (!text.endsWith("\n")) return; // Enter sends
-            String message = text.strip();
-            drf.EO().asyncExec(() -> input.set(""));
-            if (!message.isEmpty()) append("you: " + message);
-            LOG.log("input sent: " + message.length() + " chars");
-        });
+        Runnable send = () -> {
+            String message = input.text().strip();
+            ui(() -> input.set(""));
+            if (message.isEmpty()) return;
+            ui(() -> add("you: " + message));
+            Agent.daemon("openwig-agent-send", () -> agent.send(message));
+        };
+        input.onEdit(text -> { if (text.endsWith("\n")) send.run(); }); // Enter sends
+
+        dXL buttons = dXL.BBg(5); // a horizontal group with room for five buttons
+        buttons.IvP(button("Send", send));
+        buttons.IvP(button("Allow", () -> answer(true)));
+        buttons.IvP(button("Deny", () -> answer(false)));
+        buttons.IvP(button("Stop", () -> { answer(false); Agent.daemon("openwig-agent-stop", agent::stop); add("[stopped]"); }));
+        buttons.IvP(button("New", () -> { answer(false); Agent.daemon("openwig-agent-new", agent::reset); ENTRIES.clear(); add("New discussion."); }));
+
         dXL column = dXL.unz(3); // a vertical group with room for three widgets
-        column.IvP(eeu.beI(TRANSCRIPT)); // the transcript: a scrolling text bound to the transcript value
-        column.IvP(eeu.beI(input));      // the input: a multi-line editor bound to the input value
-        dBz send = dBz.wLf("Send");      // a button labelled Send
-        send.sCA(() -> input.setValue(input.text() + "\n")); // the button's click: send as Enter does
-        column.IvP(send);
+        column.IvP(eeu.beI(input));      // the message box: a multi-line editor
+        column.IvP(buttons);
+        column.IvP(eeu.beI(TRANSCRIPT)); // the transcript, newest first
         return column;
+    }
+
+    private static dBz button(String label, Runnable click) {
+        dBz b = dBz.wLf(label); // a button with this label
+        b.sCA(click);           // its click
+        return b;
     }
 }
