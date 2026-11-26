@@ -1,0 +1,5 @@
+{
+  "release": 21,
+  "kit": true,
+  "classpath_mods": ["panel-management-framework@0.3.0-dev.8"]
+}
