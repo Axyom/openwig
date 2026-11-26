@@ -1,10 +1,12 @@
 """Build the OpenWig Patchbay mod (Patchbay docs/sdk/building.md, steps 1-8).
 
-    python patchbay-mod/build.py [--check]
+    python patchbay-mod/build.py [--check] [--release]
 
 Writes the installable folder to scratch/patchbay-out/openwig. --check then runs
 Patchbay's offline check (loader/prepare-mod.cmd) on it, which reads Bitwig's
-install and modifies nothing there.
+install and modifies nothing there. --release also writes the ZIP to attach to a
+GitHub release (the installed folder plus src/ and build.json); users install it
+with Patchbay's Add Mod.
 """
 from __future__ import annotations
 
@@ -27,6 +29,7 @@ COMPILE_JAR = REPO / "scratch" / "bitwig617-compile.jar"   # made from your own 
 WORK = REPO / "scratch" / "patchbay-build"
 CHECK = REPO / "scratch" / "patchbay-out"
 OUT = CHECK / "openwig"
+RELEASE = REPO / "scratch" / "patchbay-release"
 
 
 def run(*cmd: object) -> str:
@@ -133,13 +136,31 @@ def check() -> None:
         raise SystemExit("offline check failed")
 
 
+def release() -> Path:
+    """building.md step 8 for a release: the installed folder plus src/ and build.json, zipped with the folder on top."""
+    version = json.loads((HERE / "mod.json").read_text("utf-8"))["mod"]["version"]
+    stage = RELEASE / "stage"
+    shutil.rmtree(stage, ignore_errors=True)
+    shutil.copytree(OUT, stage / "openwig")
+    shutil.copytree(HERE / "src", stage / "openwig" / "src")
+    shutil.copy2(HERE / "build.json", stage / "openwig" / "build.json")
+    archive = Path(shutil.make_archive(str(RELEASE / f"openwig-{version}"), "zip", root_dir=stage, base_dir="openwig"))
+    shutil.rmtree(stage)
+    print(f"release {archive} ({archive.stat().st_size} bytes)")
+    return archive
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="run Patchbay's offline check after building")
+    parser.add_argument("--release", action="store_true",
+                        help="also write scratch/patchbay-release/openwig-<version>.zip for GitHub Releases")
     args = parser.parse_args()
     build()
     if args.check:
         check()
+    if args.release:
+        release()
 
 
 if __name__ == "__main__":
