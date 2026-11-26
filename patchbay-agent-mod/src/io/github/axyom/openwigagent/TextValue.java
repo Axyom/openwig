@@ -28,7 +28,7 @@ final class TextValue implements JW {
         String before = text;
         text = next == null ? "" : next;
         if (Objects.equals(before, text)) return;
-        MNh event = new MNh(this, before, text); // a change event: old and new text
+        MNh event = new MNh(this, text, before); // a change event: the new text, then the old
         for (NVD listener : listeners) listener.eventOccurred(event);
     }
 
