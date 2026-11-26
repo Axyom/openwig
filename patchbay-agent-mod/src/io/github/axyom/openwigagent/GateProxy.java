@@ -19,6 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
@@ -35,8 +36,9 @@ final class GateProxy {
 
     /** Asks the user about one edit: (method, params) to a future that completes with true to allow it. */
     private final BiFunction<String, JSONObject, CompletableFuture<Boolean>> ask;
+    private final ModBuilder mods; // null when the mod builder could not start
 
-    GateProxy(BiFunction<String, JSONObject, CompletableFuture<Boolean>> ask) { this.ask = ask; }
+    GateProxy(BiFunction<String, JSONObject, CompletableFuture<Boolean>> ask, ModBuilder mods) { this.ask = ask; this.mods = mods; }
 
     synchronized void start() throws IOException {
         if (server != null) return;
@@ -55,6 +57,17 @@ final class GateProxy {
             byte[] body = exchange.getRequestBody().readAllBytes();
             if ("POST".equals(exchange.getRequestMethod())) {
                 JSONObject request = parse(body);
+                if (request != null && mods != null && "tools/list".equals(request.optString("method"))) {
+                    listWithModTools(exchange, body);
+                    return;
+                }
+                if (request != null && mods != null && "tools/call".equals(request.optString("method"))
+                        && request.optJSONObject("params") != null && request.getJSONObject("params").optString("name").startsWith("mod_")) {
+                    JSONObject result = modTool(request.getJSONObject("params"));
+                    reply(exchange, 200, "application/json",
+                            new JSONObject().put("jsonrpc", "2.0").put("id", request.get("id")).put("result", result).toString());
+                    return;
+                }
                 String denial = request == null ? null : gate(request);
                 if (denial != null) {
                     JSONObject result = new JSONObject().put("content", List.of(Map.of("type", "text", "text", denial)))
@@ -88,6 +101,61 @@ final class GateProxy {
         } catch (Exception interrupted) {
             return "No answer for " + method + " (the turn was stopped).";
         }
+    }
+
+    // ---- mod tools (handled here, not by the bridge) ---------------------------------------------------------------
+
+    private static final JSONArray MOD_TOOLS = new JSONArray()
+            .put(tool("mod_docs", "Read Patchbay's modder guide (how to write a Bitwig mod: mod.json, @Hook, frameworks). "
+                    + "Call with no name for the page list; start with writing.md and mods.md.", props().put("name", str("page, e.g. writing.md"))))
+            .put(tool("mod_write_file", "Write one file of a mod you are making, under its own folder: mod.json, src/<package>/<Class>.java, "
+                    + "README.md, package/... The mod id is lowercase words joined by -. built_against must be this Bitwig "
+                    + "(6.1.7, windows, x64).", props().put("mod_id", str("e.g. hello-mod")).put("path", str("relative path, e.g. mod.json"))
+                    .put("content", str("the whole file")), "mod_id", "path", "content"))
+            .put(tool("mod_read_file", "Read a file of a mod you are making, or list its files (path empty).",
+                    props().put("mod_id", str("mod id")).put("path", str("relative path, empty to list")), "mod_id"))
+            .put(tool("mod_build", "Compile the mod and run Patchbay's offline check. Returns PREPARE_OK or the errors to fix.",
+                    props().put("mod_id", str("mod id")), "mod_id"))
+            .put(tool("mod_install", "Install a built mod into Patchbay (the user allows it first). It loads when Bitwig restarts.",
+                    props().put("mod_id", str("mod id")), "mod_id"));
+
+    private static JSONObject tool(String name, String description, JSONObject properties, String... required) {
+        return new JSONObject().put("name", name).put("description", description)
+                .put("inputSchema", new JSONObject().put("type", "object").put("properties", properties).put("required", new JSONArray(List.of(required))));
+    }
+    private static JSONObject props() { return new JSONObject(); }
+    private static JSONObject str(String description) { return new JSONObject().put("type", "string").put("description", description); }
+
+    /** The bridge's tool list plus the mod tools. */
+    private void listWithModTools(HttpExchange exchange, byte[] body) throws IOException {
+        HttpURLConnection c = post(new String(body, StandardCharsets.UTF_8), exchange.getRequestHeaders().getFirst("Mcp-Session-Id"));
+        JSONObject response = new JSONObject(json(readAll(c)));
+        JSONObject result = response.optJSONObject("result");
+        if (result != null && result.optJSONArray("tools") != null)
+            for (int i = 0; i < MOD_TOOLS.length(); i++) result.getJSONArray("tools").put(MOD_TOOLS.get(i));
+        reply(exchange, 200, "application/json", response.toString());
+    }
+
+    private JSONObject modTool(JSONObject params) {
+        String name = params.optString("name");
+        JSONObject a = params.optJSONObject("arguments") == null ? new JSONObject() : params.getJSONObject("arguments");
+        String text;
+        boolean error = false;
+        try {
+            text = switch (name) {
+                case "mod_docs" -> mods.docs(a.optString("name"));
+                case "mod_write_file" -> mods.writeFile(a.getString("mod_id"), a.getString("path"), a.getString("content"));
+                case "mod_read_file" -> mods.readFile(a.getString("mod_id"), a.optString("path"));
+                case "mod_build" -> mods.build(a.getString("mod_id"));
+                case "mod_install" -> ask.apply("mod_install", new JSONObject().put("mod_id", a.getString("mod_id"))).get()
+                        ? mods.install(a.getString("mod_id")) : "The user denied installing " + a.getString("mod_id") + ".";
+                default -> throw new IllegalArgumentException("unknown tool " + name);
+            };
+        } catch (Exception failure) {
+            error = true;
+            text = String.valueOf(failure.getMessage() == null ? failure : failure.getMessage());
+        }
+        return new JSONObject().put("content", List.of(Map.of("type", "text", "text", text))).put("isError", error);
     }
 
     private static boolean isRead(String method) {

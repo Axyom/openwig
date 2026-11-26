@@ -21,6 +21,10 @@
       "kind": "directory",
       "path": "agent",
       "persistence": "preserve"
+    },
+    "ecj": {
+      "kind": "file",
+      "path": "tools/ecj-3.44.0.jar"
     }
   },
   "registrations": [

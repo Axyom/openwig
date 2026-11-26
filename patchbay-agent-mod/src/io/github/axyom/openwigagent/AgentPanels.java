@@ -46,7 +46,10 @@ public final class AgentPanels implements PanelProvider {
         });
         agent.killOnExit();
         try {
-            new GateProxy(AgentPanels::ask).start();
+            ModBuilder mods = null;
+            try { mods = new ModBuilder(dir, LOG.resource("ecj")); }
+            catch (RuntimeException failure) { LOG.log("mod builder unavailable", failure); }
+            new GateProxy(AgentPanels::ask, mods).start();
             LOG.log("agent panel ready; gate on http://127.0.0.1:" + GateProxy.PORT + "/mcp");
         } catch (Exception failure) {
             LOG.log("agent gate failed to start", failure);
@@ -76,7 +79,11 @@ public final class AgentPanels implements PanelProvider {
 
     // ---- transcript (UI thread) -------------------------------------------------------------------------------
 
-    private static void ui(Runnable r) { drf.EO().asyncExec(r); } // on Bitwig's UI thread
+    /** On Bitwig's UI thread; dropped while Bitwig shuts down (the application is gone by then). */
+    private static void ui(Runnable r) {
+        drf app = drf.EO();
+        if (app != null) app.asyncExec(r);
+    }
 
     private static void add(String line) {
         ENTRIES.add(new StringBuilder(line));
