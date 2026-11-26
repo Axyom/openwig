@@ -124,9 +124,10 @@ Baseline implementation commits (use `git log` for subsequent increments):
 - Evidence: `python patchbay-mod/build.py --check` gives `PREPARE_OK` on 6.1.7;
   unit tests pass. Details, remaining reflection and behaviour changes:
   `patchbay-mod/README.md`.
-- Not done: no live run on 6.1.7 yet (bridge start, operations, no integrity
-  melody, `[openwig]` log lines). Waits for the owner to relaunch Bitwig
-  through Patchbay.
+- Live (2026-11-26, Bitwig 6.1.7 via Patchbay, mod copied to `<BML>\mods\openwig`):
+  bridge starts, 44 operations pass on the unsaved startup project (list in
+  `patchbay-mod/README.md`). Not yet checked: UI undo, integrity melody, and
+  the plugin/Grid/layer/sampler/import paths.
 
 ## Previous checkpoint: editable reconstruction from reader dumps (2026-10-21)
 

@@ -6,9 +6,9 @@ project. Port of the ASM-patched jar in `../java_bridge` (Bitwig 6.1.5) to a
 Patchbay (BML) mod for Bitwig **6.1.7 on Windows x64 only**: it is built
 against 6.1.7's names and no map pack translates from that build.
 
-Status: builds and passes Patchbay's offline check (`PREPARE_OK`, Bitwig
-6.1.7, 1 hook, 10 opened members). **Not yet run in Bitwig**: nothing below
-has been tested live on 6.1.7.
+Status: builds, passes Patchbay's offline check (`PREPARE_OK`, Bitwig 6.1.7,
+1 hook, 10 opened members) and runs in Bitwig 6.1.7 launched through Patchbay
+(2026-11-26, see "Live check").
 
 ## What the patched jar changed (bml-modkit jar-diff, 6.1.5 stock vs patched)
 
@@ -80,14 +80,24 @@ Patchbay translates this mod without source changes.
 
 These follow what the 6.1.5 code meant to do; none is verified live yet.
 
-## Not verified
+## Live check (2026-11-26, Bitwig 6.1.7 through Patchbay, only this mod loaded)
 
-Everything that needs Bitwig running on 6.1.7: the bridge starting on port
-7778, each document/transport/undo operation, that no integrity-check
-(random pulse) melody plays, and the `[openwig]` lines in
-`%LOCALAPPDATA%\Bitwig Studio\BitwigStudio.log`. Javac proves names and
-types; it cannot prove that a chosen 6.1.7 method behaves like its 6.1.5
-counterpart.
+On the unsaved startup project ("New 1"), never saved:
+
+- The log shows `[openwig] ... bridge starting on 127.0.0.1:7778`; the port
+  answers, `host.version` is 6.1.7, no exceptions from the mod in the log.
+- 44 operations passed: document info/list, full project dump, tempo,
+  transport snapshot/position/loop/play/stop, beats to seconds, instrument
+  track with Polysynth, device read/parameters/rename/expand, note clip,
+  clip copy/split/update, volume automation write and readback, track
+  volume/pan/mute/solo/comment/color, modulator catalog/add/read/bind/unbind/
+  delete, launcher notes/settings/launch/stop/return to arranger, effect and
+  group tracks, scene insert/update/move/delete, cue marker, metadata,
+  insert/delete/duplicate time, audio status, offline render of 4 beats.
+- Not checked: undo of an edit from Bitwig's UI, and that no integrity-check
+  (random pulse) melody plays (the project's audio engine was off). Not run:
+  plugin state, Grid, layers, sampler, impulses, CLAP/VST2 insertion, audio
+  events, DAWproject import/export, project open/close/save-copy.
 
 ## Building
 
