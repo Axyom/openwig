@@ -25,3 +25,7 @@ Needs: the OpenWig Bridge mod, Framework: Panels, and Claude Code installed and 
 ## Build
 
 `python patchbay-agent-mod/build.py --check` (build the bridge first with `patchbay-mod/build.py`).
+
+## Making mods (spike)
+
+The agent can write a mod (`mod_write_file`), build it (`mod_build`) and install it (`mod_install`, asks Allow) with Bitwig's own Java only: a bundled Eclipse compiler (ECJ 3.44.0, EPL-2.0), Patchbay's kit, and Patchbay's offline check on a private loader copy. The mod loads the next time Bitwig starts. Verified from the command line; not yet run inside Bitwig.

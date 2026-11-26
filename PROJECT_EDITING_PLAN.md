@@ -135,6 +135,10 @@ Baseline implementation commits (use `git log` for subsequent increments):
   insertion not exercised (no VST2 plugin). No port bug found. The owner heard no
   integrity-check melody with the mod loaded. Still for the owner: UI undo.
 
+- Agent mod-builder spike (2026-11-26): `mod_write_file`/`mod_build`/`mod_install` in the agent relay; ECJ + Patchbay kit +
+  preparer all run on Bitwig's own Java (command line verified, PREPARE_OK). Not yet live in Bitwig: Bitwig hung on exit
+  from an agent-mod shutdown crash (fixed in ec6374f, not yet loaded).
+
 ## Previous checkpoint: editable reconstruction from reader dumps (2026-10-21)
 
 Owner request (2026-10-21): rebuild one of the owner's released tracks from its dump and
