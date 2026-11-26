@@ -27,7 +27,7 @@ How each becomes part of the mod:
 | jar change | in this mod |
 |---|---|
 | `BitwigStudioMain.main` ENTRY | `OpenwigHooks.startBridge`, one `@Hook(at = ENTRY)` |
-| `oZU.<clinit>` REWRITE | dropped: Bitwig's engine hashes chunks of `bitwig.jar` on disk, and Patchbay never modifies that file, so the check sees the stock jar without help (to confirm in Bitwig) |
+| `oZU.<clinit>` REWRITE | dropped: Bitwig's engine hashes chunks of `bitwig.jar` on disk, and Patchbay never modifies that file, so the check sees the stock jar without help (no melody heard on 6.1.7, 2026-11-26) |
 | added classes | `src/io/github/axyom/openwig/`; `OpenwigUndo` leaves `com.bitwig.ramona.core` (Patchbay refuses classes in Bitwig's packages) and reaches the members it needs through `opens` |
 
 ## Porting from 6.1.5 names to 6.1.7
@@ -108,8 +108,9 @@ All runs used the unsaved startup project ("New 1") or a scratch copy of it
   engine was off until `document.activate_audio`, so plugins first reported
   NOT_LOADED; a device's own track is refused as its sidechain source by
   Bitwig (the bridge then returns the unchanged source, as on 6.1.5).
-- Still for the owner: undo of a bridge edit from Bitwig's UI, and listening
-  for the integrity-check (random pulse) melody.
+- The owner heard no integrity-check (random pulse) melody with the mod
+  loaded (2026-11-26). Still for the owner: undo of a bridge edit from
+  Bitwig's UI.
 
 ## Building
 
