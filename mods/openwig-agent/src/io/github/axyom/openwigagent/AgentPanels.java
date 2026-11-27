@@ -7,23 +7,18 @@ import bitwig.obf.eeu; // a scrolling multi-line text editor
 import bml.api.Bml;
 import bml.panels.PanelProvider;
 import bml.panels.Panels;
+import io.github.axyom.openwigagent.Transcript.Kind;
 import java.nio.file.Path;
-import java.util.ArrayDeque;
-import java.util.Iterator;
 
 /**
- * The Agent panel: a transcript (newest message first, so new text is always in view), a message box, and
- * Send / Stop / New. The agent's tool calls run without asking.
+ * The Agent panel: a message box, Send / Stop / New, and the transcript, which the mod paints itself
+ * ({@link TranscriptView}). The agent's tool calls run without asking.
  */
 public final class AgentPanels implements PanelProvider {
     static final Bml.Mod LOG = Bml.mod("openwig-agent");
-    private static final TextValue TRANSCRIPT = new TextValue(false);
-    private static final ArrayDeque<StringBuilder> ENTRIES = new ArrayDeque<>(); // oldest first; shown newest first
-    private static final int KEEP = 200;
+    private static final Transcript TRANSCRIPT = new Transcript(); // UI thread
     private static Agent agent;
     private static boolean streaming; // the newest entry is the agent's reply being written
-    private static String older = "";  // rendered entries except the newest (UI thread)
-    private static boolean olderStale;
     // Streamed text waiting for the UI thread: the reader appends, one scheduled flush shows it.
     private static final StringBuilder PENDING = new StringBuilder();
     private static boolean flushScheduled; // guarded by PENDING
@@ -53,7 +48,7 @@ public final class AgentPanels implements PanelProvider {
         } catch (RuntimeException failure) {
             LOG.log("mod builder unavailable", failure);
         }
-        ui(() -> add("Type in the box above, then Enter or Send."));
+        ui(() -> add("Type in the box above, then Enter or Send. Drag over text to select it, Ctrl+C copies."));
     }
 
     // ---- transcript (UI thread) -------------------------------------------------------------------------------
@@ -84,39 +79,24 @@ public final class AgentPanels implements PanelProvider {
         if (!text.isEmpty()) stream(text);
     }
 
+    /** A whole line from the agent or the panel: what the user sent, a tool call, or a status line. */
     private static void add(String line) {
         flush(); // streamed text that came before this line goes first
-        ENTRIES.add(new StringBuilder(line));
-        olderStale = true;
         streaming = false;
-        render();
+        if (line.startsWith("you: ")) TRANSCRIPT.add(Kind.USER, line.substring(5));
+        else if (line.startsWith("  > ")) TRANSCRIPT.add(Kind.TOOL, line.substring(4));
+        else TRANSCRIPT.add(Kind.NOTE, line);
     }
 
     private static void stream(String text) {
         if (!streaming) {
             String start = text.stripLeading();
             if (start.isEmpty()) return;
-            ENTRIES.add(new StringBuilder("agent: "));
-            olderStale = true;
+            TRANSCRIPT.add(Kind.AGENT, start);
             streaming = true;
-            text = start;
+            return;
         }
-        ENTRIES.peekLast().append(text);
-        render();
-    }
-
-    private static void render() {
-        while (ENTRIES.size() > KEEP) ENTRIES.pollFirst();
-        Iterator<StringBuilder> newestFirst = ENTRIES.descendingIterator();
-        if (!newestFirst.hasNext()) { TRANSCRIPT.set(""); return; }
-        String newest = newestFirst.next().toString().strip() + "\n\n";
-        if (olderStale) {
-            StringBuilder out = new StringBuilder();
-            while (newestFirst.hasNext()) out.append(newestFirst.next().toString().strip()).append("\n\n");
-            older = out.toString();
-            olderStale = false;
-        }
-        TRANSCRIPT.set(newest + older);
+        TRANSCRIPT.append(text);
     }
 
     // ---- widgets ------------------------------------------------------------------------------------------------
@@ -135,12 +115,15 @@ public final class AgentPanels implements PanelProvider {
         dXL buttons = dXL.BBg(3); // a horizontal group with room for three buttons
         buttons.IvP(button("Send", send));
         buttons.IvP(button("Stop", () -> { Agent.daemon("openwig-agent-stop", agent::stop); add("[stopped]"); }));
-        buttons.IvP(button("New", () -> { Agent.daemon("openwig-agent-new", agent::reset); ENTRIES.clear(); add("New discussion."); }));
+        buttons.IvP(button("New", () -> { Agent.daemon("openwig-agent-new", agent::reset); TRANSCRIPT.clear(); add("New discussion."); }));
+
+        eeu box = eeu.beI(input);   // the message box: a multi-line editor
+        box.Gef(FreeSize.exactly(52)); // its height: a few lines (it would otherwise share the spare height)
 
         dXL column = dXL.unz(3); // a vertical group with room for three widgets
-        column.IvP(eeu.beI(input));      // the message box: a multi-line editor
+        column.IvP(box);
         column.IvP(buttons);
-        column.IvP(eeu.beI(TRANSCRIPT)); // the transcript, newest first
+        column.beI(TranscriptView.create(TRANSCRIPT), 1f); // the transcript takes the rest of the height
         return column;
     }
 
