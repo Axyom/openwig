@@ -1,5 +1,5 @@
 {
   "release": 21,
   "kit": true,
-  "classpath_mods": ["panel-management-framework@0.3.0-dev.8"]
+  "classpath_mods": ["panel-management-framework@0.3.0-dev.8", "openwig@0.2.0"]
 }

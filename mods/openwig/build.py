@@ -101,31 +101,40 @@ def finished_manifest(source: dict, hooks: dict) -> dict:
     return {k: manifest[k] for k in order if k in manifest} | {k: v for k, v in manifest.items() if k not in order}
 
 
-def build() -> None:
-    shutil.rmtree(WORK, ignore_errors=True)
-    shutil.rmtree(OUT, ignore_errors=True)
-    classes = WORK / "classes"
+def build_mod(here: Path, work: Path, out: Path, deps: tuple[Path, ...] = (), package: bool = False) -> None:
+    """Steps 1-8 for the mod in here: compile against Bitwig, the kit and deps (other mods' helper jars), finish,
+    write helper.jar and the finished mod.json to out, plus README.md and, with package, the package/ folder."""
+    shutil.rmtree(work, ignore_errors=True)
+    shutil.rmtree(out, ignore_errors=True)
+    classes = work / "classes"
     classes.mkdir(parents=True)
-    OUT.mkdir(parents=True)
+    out.mkdir(parents=True)
     if not COMPILE_JAR.exists():
         print(run(JDK / "java", "-jar", KIT / "bml-modkit.jar", "compile-jar", BITWIG_JAR, COMPILE_JAR).strip())
-    sources = sorted((HERE / "src").rglob("*.java"))
-    classpath = ";".join(map(str, [COMPILE_JAR, LIBS_JAR, KIT / "bml-api.jar"]))
+    sources = sorted((here / "src").rglob("*.java"))
+    classpath = ";".join(map(str, [COMPILE_JAR, LIBS_JAR, KIT / "bml-api.jar", *deps]))
     run(JDK / "javac", "--release", "21", "-proc:none", "-encoding", "UTF-8", "-implicit:none",
-        "-sourcepath", HERE / "src", "-cp", classpath, "-d", classes, *sources)
-    print(run(JDK / "java", "-jar", KIT / "bml-modkit.jar", "finish", classes, WORK / "hooks.json",
-              BITWIG_JAR, LIBS_JAR).strip().splitlines()[-1])
-    for extra in (HERE / "src").rglob("*"):
+        "-sourcepath", here / "src", "-cp", classpath, "-d", classes, *sources)
+    print(run(JDK / "java", "-jar", KIT / "bml-modkit.jar", "finish", classes, work / "hooks.json",
+              BITWIG_JAR, LIBS_JAR, *deps).strip().splitlines()[-1])
+    for extra in (here / "src").rglob("*"):
         if extra.is_file() and extra.suffix != ".java":
-            dest = classes / extra.relative_to(HERE / "src")
+            dest = classes / extra.relative_to(here / "src")
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(extra, dest)
-    run(JDK / "jar", "--create", "--file", OUT / "helper.jar", "-C", classes, ".")
-    source = json.loads((HERE / "mod.json").read_text("utf-8"))
-    hooks = json.loads((WORK / "hooks.json").read_text("utf-8"))
-    (OUT / "mod.json").write_text(json.dumps(finished_manifest(source, hooks), indent=2) + "\n", "utf-8")
-    shutil.copy2(HERE / "README.md", OUT / "README.md")
-    print(f"built {OUT}: {len(hooks.get('hooks', []))} hook(s), {len(hooks.get('access', []))} opened member(s)")
+    run(JDK / "jar", "--create", "--file", out / "helper.jar", "-C", classes, ".")
+    source = json.loads((here / "mod.json").read_text("utf-8"))
+    hooks = json.loads((work / "hooks.json").read_text("utf-8"))
+    (out / "mod.json").write_text(json.dumps(finished_manifest(source, hooks), indent=2) + "\n", "utf-8")
+    shutil.copy2(here / "README.md", out / "README.md")
+    if package:
+        for item in (here / "package").iterdir():
+            (shutil.copytree if item.is_dir() else shutil.copy2)(item, out / item.name)
+    print(f"built {out}: {len(hooks.get('hooks', []))} hook(s), {len(hooks.get('access', []))} opened member(s)")
+
+
+def build() -> None:
+    build_mod(HERE, WORK, OUT)
 
 
 LOADER_COPY = REPO / "scratch" / "patchbay-check"
@@ -176,11 +185,12 @@ def release(here: Path = HERE, out: Path = OUT) -> Path:
     return archive
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+def cli(doc: str, build, check, release) -> None:
+    """The --check / --release command line every build script shares: build, then check and release if asked."""
+    parser = argparse.ArgumentParser(description=doc)
     parser.add_argument("--check", action="store_true", help="run Patchbay's offline check after building")
     parser.add_argument("--release", action="store_true",
-                        help="also write scratch/release/openwig-<version>.zip for GitHub Releases")
+                        help="also write scratch/release/<mod-id>-<version>.zip for GitHub Releases")
     args = parser.parse_args()
     build()
     if args.check:
@@ -190,4 +200,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    cli(__doc__, build, check, release)

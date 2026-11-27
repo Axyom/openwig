@@ -13,8 +13,9 @@ that let agents control Bitwig Studio from inside the running app.
   `porting/` holds the tools that ported the old 6.1.5 bridge to 6.1.7 names (FabricMC
   Matcher output, lookups, name tables); keep them for the next Bitwig version.
 - `mods/openwig-agent/`: mod id `openwig-agent`. Agent panel inside Bitwig (runs the
-  user's Claude Code through a gate on `127.0.0.1:7780/mcp` that asks Allow for edits),
-  and builds/installs mods with a bundled ECJ (`package/tools/ecj-3.44.0.jar`, EPL-2.0,
+  user's Claude Code on openwig's MCP server, no approval step), and adds `mod_*` tools to
+  that server in-JVM (`McpServer.addTool`, so it compiles against openwig's `helper.jar`)
+  to build/install mods with a bundled ECJ (`package/tools/ecj-3.44.0.jar`, EPL-2.0,
   keep its NOTICE and about file). Requires `openwig` and `panel-management-framework`.
 
 Targets Bitwig **6.1.7, Windows x64 only**, Patchbay 0.36.0-dev.17. The old Python SDK
@@ -27,7 +28,7 @@ is history of that design, not current work.
 python build.py --release              # both mods + scratch/release/<mod-id>-<version>.zip
 python build.py --check                # both mods + Patchbay's offline check (prepare-mod.cmd)
 python mods/openwig/build.py [--check] [--release]
-python mods/openwig-agent/build.py [--check] [--release]   # needs the openwig mod built first
+python mods/openwig-agent/build.py [--check] [--release]   # builds openwig first (compiles against it)
 ```
 
 Builds need JDK 25 (`C:\Program Files\Eclipse Adoptium\jdk-25.0.5.8-hotspot`), the Patchbay
