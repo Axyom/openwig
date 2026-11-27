@@ -14,8 +14,8 @@ from pathlib import Path
 import name_table as nt
 
 HERE = Path(__file__).resolve().parent
-MATCHES = HERE.parent.parent / "scratch" / "bitwig-615-617.match"
-CACHE = HERE.parent.parent / "scratch" / "lookup-cache.pickle"
+MATCHES = HERE.parents[2] / "scratch" / "bitwig-615-617.match"
+CACHE = HERE.parents[2] / "scratch" / "lookup-cache.pickle"
 
 
 def state():

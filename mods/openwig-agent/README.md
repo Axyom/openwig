@@ -24,7 +24,7 @@ Needs: the OpenWig Bridge mod, Framework: Panels, and Claude Code installed and 
 
 ## Build
 
-`python patchbay-agent-mod/build.py --check` (build the bridge first with `patchbay-mod/build.py`).
+`python mods/openwig-agent/build.py --check` (build the bridge first with `mods/openwig/build.py`).
 
 ## Making mods (spike)
 

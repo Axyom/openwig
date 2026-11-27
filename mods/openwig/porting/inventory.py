@@ -6,6 +6,8 @@
 2. Reflection strings: name literals in OpenwigDocument.java passed to
    getMethod/getDeclaredMethod/getField/getDeclaredField/forName and to the
    modelGet/modelGetOrNull/invokeModelSetter helpers.
+
+java_bridge/ was removed from the repo: check out tag python-sdk-final to rerun this.
 """
 import re, subprocess, sys, json
 from collections import defaultdict

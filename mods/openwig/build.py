@@ -1,6 +1,6 @@
 """Build the OpenWig Patchbay mod (Patchbay docs/sdk/building.md, steps 1-8).
 
-    python patchbay-mod/build.py [--check] [--release]
+    python mods/openwig/build.py [--check] [--release]
 
 Writes the installable folder to scratch/patchbay-out/openwig. --check then runs
 Patchbay's offline check (loader/prepare-mod.cmd) on it, which reads Bitwig's
@@ -18,7 +18,7 @@ import subprocess
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parent
+REPO = HERE.parents[1]
 JDK = Path(r"C:\Program Files\Eclipse Adoptium\jdk-25.0.5.8-hotspot\bin")
 BML = Path.home() / "AppData" / "Local" / "Programs" / "BML-0.36.0-dev.17-windows"
 KIT = BML / "modkit"

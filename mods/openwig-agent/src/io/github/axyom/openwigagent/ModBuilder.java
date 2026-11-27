@@ -215,7 +215,7 @@ final class ModBuilder {
                 + ". It loads the next time Bitwig starts through Patchbay (tick it in Patchbay's Mods list if it is not ticked).";
     }
 
-    // ---- the finished mod.json (building.md, "The finished mod.json"; same rules as patchbay-mod/build.py) ------
+    // ---- the finished mod.json (building.md, "The finished mod.json"; same rules as mods/openwig/build.py) ------
 
     static JSONObject finishedManifest(JSONObject source, JSONObject hooks) {
         Map<String, JSONObject> targets = new LinkedHashMap<>();

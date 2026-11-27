@@ -1,6 +1,6 @@
 """Build the OpenWig Agent Patchbay mod (Patchbay docs/sdk/building.md, steps 1-8).
 
-    python patchbay-agent-mod/build.py [--check]
+    python mods/openwig-agent/build.py [--check]
 
 Writes the installable folder to scratch/patchbay-agent-out/openwig-agent. --check
 then runs Patchbay's offline check on a folder holding this mod, the OpenWig
@@ -16,10 +16,10 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parent
+REPO = HERE.parents[1]
 import importlib.util  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location("bridge_build", REPO / "patchbay-mod" / "build.py")
+_spec = importlib.util.spec_from_file_location("bridge_build", REPO / "mods" / "openwig" / "build.py")
 bridge = importlib.util.module_from_spec(_spec)  # the bridge build: paths and the finished-manifest rules
 _spec.loader.exec_module(bridge)
 

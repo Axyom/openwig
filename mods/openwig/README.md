@@ -2,7 +2,8 @@
 
 Starts OpenWig's in-process JSON-RPC server on `127.0.0.1:7778` when Bitwig
 starts, so the `openwig` Python SDK (`JavaSong`) can read and edit the open
-project. Port of the ASM-patched jar in `../java_bridge` (Bitwig 6.1.5) to a
+project. Port of the ASM-patched jar in `java_bridge/` (Bitwig 6.1.5, at tag
+`python-sdk-final`) to a
 Patchbay (BML) mod for Bitwig **6.1.7 on Windows x64 only**: it is built
 against 6.1.7's names and no map pack translates from that build.
 
@@ -141,5 +142,5 @@ All runs used the unsaved startup project ("New 1") or a scratch copy of it
 
 See `docs/sdk/building.md` in the Patchbay install. JDK 25 (the kit is Java 25
 bytecode), `javac --release 21`, compile jar from the 6.1.7 `bitwig.jar`.
-`python build.py` runs steps 1 to 8 into `scratch/patchbay-out/openwig`;
+`python mods/openwig/build.py` runs steps 1 to 8 into `scratch/patchbay-out/openwig`;
 `python build.py --check` adds `loader\prepare-mod.cmd` on that folder.
