@@ -16,7 +16,9 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install build
-      - run: python -m build pypi-moved --outdir dist
+      # from pypi-moved/: at the root, python -m build would import the repo's build.py
+      - run: python -m build --outdir ../dist
+        working-directory: pypi-moved
       - uses: actions/upload-artifact@v7
         with:
           name: dist

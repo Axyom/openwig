@@ -19,7 +19,9 @@ jobs:
         run: git ls-files -z '*.py' | xargs -0 python -m py_compile
       - name: Validate mod.json and build.json
         run: python .github/check_manifests.py
+      # from pypi-moved/: at the root, python -m build would import the repo's build.py
       - name: Build the moved-package stub
+        working-directory: pypi-moved
         run: |
           pip install build
-          python -m build pypi-moved
+          python -m build
