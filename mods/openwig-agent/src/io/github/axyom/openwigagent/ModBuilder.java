@@ -33,20 +33,44 @@ final class ModBuilder {
     private static final Pattern ID = Pattern.compile("^[a-z][a-z0-9-]{1,40}$");
     private static final String MARKER = ".openwig-agent-generated"; // only folders with this marker may be replaced
     private static final Set<String> RESERVED = Set.of("openwig", "openwig-agent");
+    private static final Pattern CLASS_IN_DESCRIPTOR = Pattern.compile("L([^;]+);");
+    private static final Pattern SWIDTAG = Pattern.compile("^Bitwig Studio (\\d+\\.\\d+\\.\\d+)\\.swidtag$");
 
     private final Path data;      // the agent mod's data folder
     private final Path ecj;       // the bundled Eclipse compiler
     private final Path bml;       // the Patchbay install
+    private final Path installed; // Patchbay's mods folder
+    private final Path modkit;    // Patchbay's bml-modkit.jar
     private final Path bitwigBin; // Bitwig's bin folder
     private final Path java;      // Bitwig's own java.exe
+    private final String bitwigVersion;
 
     ModBuilder(Path data, Path ecj) {
         this.data = data;
         this.ecj = ecj;
-        this.java = Path.of(System.getProperty("java.home"), "bin", "java.exe");
-        this.bitwigBin = Path.of(System.getProperty("java.home")).getParent().resolve("bin");
+        Path javaHome = Path.of(System.getProperty("java.home"));
+        this.java = javaHome.resolve("bin").resolve("java.exe");
+        this.bitwigBin = javaHome.getParent().resolve("bin");
+        this.bitwigVersion = installedVersion(javaHome.getParent());
         this.bml = patchbayRoot();
+        this.installed = bml.resolve("mods");
+        this.modkit = bml.resolve("modkit").resolve("bml-modkit.jar");
     }
+
+    /** The running Bitwig's version, from the install's swidtag file name ("Bitwig Studio 6.1.7.swidtag"). */
+    private static String installedVersion(Path bitwigRoot) {
+        try (Stream<Path> s = Files.list(bitwigRoot.resolve("swidtag"))) {
+            for (Path p : s.toList()) {
+                Matcher m = SWIDTAG.matcher(p.getFileName().toString());
+                if (m.matches()) return m.group(1);
+            }
+        } catch (IOException ignored) {
+            // fall through
+        }
+        return "the running Bitwig version";
+    }
+
+    String bitwigVersion() { return bitwigVersion; }
 
     /** The Patchbay install: our helper jar is loaded from {@code <Patchbay>/loader/mod-runtime/}. */
     private static Path patchbayRoot() {
@@ -65,18 +89,20 @@ final class ModBuilder {
     // ---- workspace files ---------------------------------------------------------------------------------------
 
     String writeFile(String modId, String path, String content) throws IOException {
-        Path file = inWorkspace(modId, path);
+        Path root = workspace(modId);
+        Path file = inside(root, path);
         Files.createDirectories(file.getParent());
         Files.writeString(file, content, StandardCharsets.UTF_8);
-        return "wrote " + workspace(modId).relativize(file) + " (" + content.length() + " chars)";
+        return "wrote " + root.relativize(file) + " (" + content.length() + " chars)";
     }
 
     String readFile(String modId, String path) throws IOException {
-        Path file = inWorkspace(modId, path);
+        Path root = workspace(modId);
+        Path file = inside(root, path);
         if (Files.isDirectory(file)) {
             try (Stream<Path> s = Files.walk(file)) {
                 StringBuilder out = new StringBuilder();
-                s.filter(Files::isRegularFile).sorted().forEach(p -> out.append(workspace(modId).relativize(p)).append('\n'));
+                s.filter(Files::isRegularFile).sorted().forEach(p -> out.append(root.relativize(p)).append('\n'));
                 return out.length() == 0 ? "(empty)" : out.toString();
             }
         }
@@ -96,15 +122,17 @@ final class ModBuilder {
         return Files.readString(dir.resolve(name), StandardCharsets.UTF_8);
     }
 
+    /** The mod's workspace folder (absolute), once the id is valid and the agent's to use. */
     private Path workspace(String modId) {
         if (!ID.matcher(modId).matches()) throw new IllegalArgumentException("mod id: lowercase letters, digits and -, e.g. hello-mod");
-        if (RESERVED.contains(modId) || Files.exists(bml.resolve("mods").resolve(modId)) && !Files.exists(bml.resolve("mods").resolve(modId).resolve(MARKER)))
+        if (RESERVED.contains(modId) || Files.exists(installed.resolve(modId)) && !Files.exists(installed.resolve(modId).resolve(MARKER)))
             throw new IllegalArgumentException("mod id " + modId + " belongs to an installed mod the agent did not make");
-        return data.resolve("mods").resolve(modId);
+        return data.resolve("mods").resolve(modId).toAbsolutePath().normalize();
     }
 
-    private Path inWorkspace(String modId, String path) {
-        Path root = workspace(modId).toAbsolutePath().normalize();
+    private Path outDir(String modId) { return data.resolve("out").resolve(modId); }
+
+    private static Path inside(Path root, String path) {
         Path file = root.resolve(path == null ? "" : path).normalize();
         if (!file.startsWith(root)) throw new IllegalArgumentException("path must stay inside the mod's folder");
         return file;
@@ -119,7 +147,7 @@ final class ModBuilder {
         String id = source.getJSONObject("mod").getString("id");
         if (!id.equals(modId)) throw new IllegalArgumentException("mod.json id is " + id + ", expected " + modId);
         Path work = data.resolve("build").resolve(modId);
-        Path out = data.resolve("out").resolve(modId);
+        Path out = outDir(modId);
         delete(work);
         delete(out);
         Path classes = work.resolve("classes");
@@ -127,9 +155,8 @@ final class ModBuilder {
         Files.createDirectories(out);
 
         List<Path> deps = new ArrayList<>(); // helper jars of the mods it requires (frameworks)
-        JSONArray requires = source.optJSONArray("requires");
-        for (int i = 0; requires != null && i < requires.length(); i++) {
-            Path jar = bml.resolve("mods").resolve(requires.getJSONObject(i).getString("id")).resolve("helper.jar");
+        for (String req : requiredIds(source)) {
+            Path jar = installed.resolve(req).resolve("helper.jar");
             if (Files.exists(jar)) deps.add(jar);
         }
         Path compileJar = compileJar();
@@ -141,7 +168,7 @@ final class ModBuilder {
             // -21: Java 21 source and class files. ECJ's --release needs a zip filesystem module Bitwig's Java lacks.
             run("compile", List.of(java.toString(), "-jar", ecj.toString(), "-21", "-proc:none", "-encoding", "UTF-8",
                     "-nowarn", "-cp", classpath, "-d", classes.toString(), src.resolve("src").toString()));
-            List<String> finish = new ArrayList<>(List.of(java.toString(), "-jar", bml.resolve("modkit").resolve("bml-modkit.jar").toString(),
+            List<String> finish = new ArrayList<>(List.of(java.toString(), "-jar", modkit.toString(),
                     "finish", classes.toString(), work.resolve("hooks.json").toString(),
                     bitwigBin.resolve("bitwig.jar").toString(), bitwigBin.resolve("libs.jar").toString()));
             for (Path d : deps) finish.add(d.toString());
@@ -151,10 +178,23 @@ final class ModBuilder {
         }
         JSONObject hooks = Files.exists(work.resolve("hooks.json"))
                 ? new JSONObject(Files.readString(work.resolve("hooks.json"))) : new JSONObject();
-        Files.writeString(out.resolve("mod.json"), finishedManifest(source, hooks).toString(2) + "\n");
+        JSONObject finished = finishedManifest(source, hooks);
+        Files.writeString(out.resolve("mod.json"), finished.toString(2) + "\n");
         if (Files.exists(src.resolve("README.md"))) Files.copy(src.resolve("README.md"), out.resolve("README.md"));
         if (Files.isDirectory(src.resolve("package"))) copyTree(src.resolve("package"), out, p -> true);
-        return check(modId, out);
+        return check(modId, out, finished);
+    }
+
+    /** The ids in a manifest's requires list. */
+    private static List<String> requiredIds(JSONObject manifest) {
+        List<String> ids = new ArrayList<>();
+        for (Object r : array(manifest, "requires")) ids.add(((JSONObject) r).getString("id"));
+        return ids;
+    }
+
+    private static JSONArray array(JSONObject o, String key) {
+        JSONArray a = o.optJSONArray(key);
+        return a == null ? new JSONArray() : a;
     }
 
     /** The compile jar for this Bitwig build, made once from the user's own bitwig.jar (never shipped). */
@@ -164,13 +204,13 @@ final class ModBuilder {
         Path out = data.resolve("compile").resolve("bitwig-" + key + "-compile.jar");
         if (Files.exists(out)) return out;
         Files.createDirectories(out.getParent());
-        run("compile-jar", List.of(java.toString(), "-jar", bml.resolve("modkit").resolve("bml-modkit.jar").toString(),
+        run("compile-jar", List.of(java.toString(), "-jar", modkit.toString(),
                 "compile-jar", jar.toString(), out.toString()));
         return out;
     }
 
     /** Patchbay's preparer on this mod and the mods it requires, against a private loader copy. */
-    private String check(String modId, Path out) throws IOException, InterruptedException {
+    private String check(String modId, Path out, JSONObject manifest) throws IOException, InterruptedException {
         Path root = data.resolve("check");
         Path loader = root.resolve("loader");
         if (!Files.exists(loader.resolve("app").resolve("bml-control.jar"))) {
@@ -186,10 +226,8 @@ final class ModBuilder {
         delete(mods);
         Files.createDirectories(mods);
         copyTree(out, mods.resolve(modId), p -> true);
-        JSONArray requires = new JSONObject(Files.readString(out.resolve("mod.json"))).optJSONArray("requires");
-        for (int i = 0; requires != null && i < requires.length(); i++) {
-            String req = requires.getJSONObject(i).getString("id");
-            Path from = bml.resolve("mods").resolve(req);
+        for (String req : requiredIds(manifest)) {
+            Path from = installed.resolve(req);
             if (Files.isDirectory(from)) copyTree(from, mods.resolve(req), p -> true);
         }
         String log = run("offline check", List.of(java.toString(), "-cp", loader.resolve("app").resolve("bml-control.jar").toString(),
@@ -204,9 +242,9 @@ final class ModBuilder {
 
     String install(String modId) throws IOException {
         workspace(modId); // validates the id and that it is ours to replace
-        Path out = data.resolve("out").resolve(modId);
+        Path out = outDir(modId);
         if (!Files.exists(out.resolve("mod.json"))) throw new IllegalStateException("build " + modId + " first (mod_build)");
-        Path target = bml.resolve("mods").resolve(modId);
+        Path target = installed.resolve(modId);
         delete(target);
         copyTree(out, target, p -> true);
         Files.writeString(target.resolve(MARKER), "made by the OpenWig Agent\n");
@@ -220,7 +258,7 @@ final class ModBuilder {
     static JSONObject finishedManifest(JSONObject source, JSONObject hooks) {
         Map<String, JSONObject> targets = new LinkedHashMap<>();
         JSONArray outHooks = new JSONArray();
-        for (Object h : hooks.optJSONArray("hooks") == null ? new JSONArray() : hooks.getJSONArray("hooks")) {
+        for (Object h : array(hooks, "hooks")) {
             JSONObject hook = (JSONObject) h;
             JSONObject entry = new JSONObject().put("id", hook.get("id")).put("target", addTarget(targets, hook.getJSONObject("target")))
                     .put("transform", hook.get("transform"));
@@ -243,15 +281,15 @@ final class ModBuilder {
             outHooks.put(entry);
         }
         JSONArray fields = new JSONArray();
-        for (Object f : hooks.optJSONArray("fields") == null ? new JSONArray() : hooks.getJSONArray("fields")) {
+        for (Object f : array(hooks, "fields")) {
             JSONObject field = (JSONObject) f;
             String owner = addTarget(targets, new JSONObject().put("kind", "class").put("class", field.getString("owner")));
-            Matcher m = Pattern.compile("L([^;]+);").matcher(field.getString("descriptor"));
+            Matcher m = CLASS_IN_DESCRIPTOR.matcher(field.getString("descriptor"));
             while (m.find()) if (!m.group(1).startsWith("java/")) addTarget(targets, new JSONObject().put("kind", "class").put("class", m.group(1)));
             fields.put(new JSONObject().put("id", field.get("id")).put("owner", owner).put("name", field.get("name")).put("descriptor", field.get("descriptor")));
         }
         List<String> opens = new ArrayList<>();
-        for (Object a : hooks.optJSONArray("access") == null ? new JSONArray() : hooks.getJSONArray("access")) opens.add(addTarget(targets, (JSONObject) a));
+        for (Object a : array(hooks, "access")) opens.add(addTarget(targets, (JSONObject) a));
         opens.sort(Comparator.naturalOrder());
 
         JSONObject manifest = new JSONObject(source.toString());

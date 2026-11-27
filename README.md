@@ -11,8 +11,8 @@ openwig is two mods for the Patchbay mod loader:
   open project: tracks, devices, plugins, modulators, Grid, clips, notes, automation,
   routing, transport, export and render. Each edit is one undo step.
 - **openwig-agent** (`mods/openwig-agent`): an Agent panel inside Bitwig. You type a
-  request, your own Claude Code does it through openwig, and every edit waits for your
-  Allow. It can also write, build and install new mods.
+  request, your own Claude Code does it through openwig. It can also write, build and
+  install new mods.
 
 Early alpha. Free and open source (GPL-3.0).
 

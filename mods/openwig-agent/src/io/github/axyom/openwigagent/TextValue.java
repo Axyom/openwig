@@ -11,11 +11,10 @@ import java.util.function.Consumer;
 final class TextValue implements JW {
     private final CopyOnWriteArrayList<NVD> listeners = new CopyOnWriteArrayList<>();
     private final boolean settable;
-    private volatile String text;
+    private volatile String text = "";
     private volatile Consumer<String> onEdit = s -> { };
 
-    TextValue(String initial, boolean settable) {
-        this.text = initial == null ? "" : initial;
+    TextValue(boolean settable) {
         this.settable = settable;
     }
 
