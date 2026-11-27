@@ -1,83 +1,55 @@
 # AGENTS.md
 
-This file provides guidance to coding agents working in this repository.
-
-## Active goal: full project editing
-
-Before working on project-editing functionality, read
-[`PROJECT_EDITING_PLAN.md`](PROJECT_EDITING_PLAN.md). It is the authoritative
-progress and handoff document for the owner's active goal: complete programmatic
-Bitwig project editing. Start at **Current checkpoint: start here** for verified
-progress, known issues, live-test setup, and the next concrete actions.
-
-Update that document as each capability lands and before handing work to another
-agent: record evidence, commit/CI status, remaining gaps, uncommitted work, and
-the exact project currently open. Its owner-authorized editing scope supersedes
-older reader-only exclusions; all original-project and exact-build safeguards
-still apply. Do not mark the overall goal complete while documented gaps remain.
+Guidance for coding agents working in this repository.
 
 ## What this is
 
-openwig (PyPI `openwig`, GitHub `Axyom/openwig`, public): a Python SDK that builds Bitwig Studio songs (tracks, devices, MIDI clips, automation, master chain) and renders them to `.wav`. It goes beyond Bitwig's official Controller API by reaching into Bitwig's private, obfuscated internals. Targets Bitwig 6.0.6 on Windows (Linux experimental), Python 3.11+.
+openwig (GitHub `Axyom/openwig`, public): two mods for the Patchbay mod loader (BML)
+that let agents control Bitwig Studio from inside the running app.
 
-## Active full-project editing work
+- `mods/openwig/`: mod id `openwig`. In-process JSON-RPC bridge on `127.0.0.1:7778` plus
+  an MCP server on `http://127.0.0.1:7779/mcp` (`McpServer.java`, Streamable HTTP, JSON
+  responses, local only). Edits run on Bitwig's event queue, one undo step each.
+  `porting/` holds the tools that ported the old 6.1.5 bridge to 6.1.7 names (FabricMC
+  Matcher output, lookups, name tables); keep them for the next Bitwig version.
+- `mods/openwig-agent/`: mod id `openwig-agent`. Agent panel inside Bitwig (runs the
+  user's Claude Code through a gate on `127.0.0.1:7780/mcp` that asks Allow for edits),
+  and builds/installs mods with a bundled ECJ (`package/tools/ecj-3.44.0.jar`, EPL-2.0,
+  keep its NOTICE and about file). Requires `openwig` and `panel-management-framework`.
 
-Read [PROJECT_EDITING_PLAN.md](PROJECT_EDITING_PLAN.md) before resuming this work.
-It records the authorized scope, verified increments, open regressions, live
-fixtures and the next concrete steps; update it with each implementation commit.
+Targets Bitwig **6.1.7, Windows x64 only**, Patchbay 0.36.0-dev.17. The old Python SDK
+and Java bridge ended at tag `python-sdk-final` (PyPI 0.1.3). `PROJECT_EDITING_PLAN.md`
+is history of that design, not current work.
 
 ## Commands
 
-```bash
-pip install -e .[dev]                  # package + pytest + mkdocs-material
-pytest                                 # unit tests (only tests/ is collected; live tests auto-skip)
-pytest tests/test_api.py::test_name    # single test
-OPENWIG_LIVE=1 pytest -m live          # live tests: need running Bitwig with OpenwigBridge enabled
-node --check src/openwig/controller/openwig_bridge.control.js   # controller syntax (CI runs this)
-mkdocs serve                           # docs site (docs/, mkdocs.yml)
-
-python -m openwig install [--force]    # copy controller + symbols_default.json into Bitwig user dir
-```
-
-CI (`.github/workflows/ci.yml`): pytest on ubuntu + windows, py3.11/3.12, plus `node --check` on the controller. `tests/live_smoke*.py` are manual scripts, not collected tests.
-
-Java bridge (Windows, JDK 21 `javac`, exact Bitwig 6.1.5 build):
-
 ```powershell
-python java_bridge\smoke.py                                         # offline JAR diff + protocol check
-python java_bridge\build.py --output scratch\bitwig-6.1.5-openwig.jar
-python java_bridge\install.py install|status|restore [--bitwig-root <copy>]
+python build.py --release              # both mods + scratch/release/<mod-id>-<version>.zip
+python build.py --check                # both mods + Patchbay's offline check (prepare-mod.cmd)
+python mods/openwig/build.py [--check] [--release]
+python mods/openwig-agent/build.py [--check] [--release]   # needs the openwig mod built first
 ```
 
-Java reverse engineering uses CFR 0.152 (`scratch/tools/cfr.jar`). Always check `scratch/decomp/` first, and decompile classes from the backup JAR using `--extraclasspath` (because `.openwig-original-6.1.5` does not end in `.jar`):
+Builds need JDK 25 (`C:\Program Files\Eclipse Adoptium\jdk-25.0.5.8-hotspot`), the Patchbay
+install (`%LOCALAPPDATA%\Programs\BML-0.36.0-dev.17-windows`, its `modkit/`), and
+`scratch/bitwig617-compile.jar`, made by `bml-modkit compile-jar` from the local Bitwig
+install. Patchbay's modder guide is `docs/sdk/building.md` in its install.
 
-```powershell
-java -jar scratch\tools\cfr.jar --extraclasspath scratch\bitwig-6.1.5-live\bin\bitwig.jar.openwig-original-6.1.5 <fully.qualified.ClassName> --outputdir scratch\decomp
-```
-
-## Architecture
-
-Two independent transports into Bitwig, both speaking JSON-RPC 2.0 to `openwig.bridge.BridgeClient`:
-
-1. **Controller bridge (production, port 7777).** `src/openwig/controller/openwig_bridge.control.js` is a Bitwig controller script (GraalJS, `loadAPI(18)`) acting as the TCP server. Methods are entries in its `HANDLERS` table (`track.*`, `device.*`, `clip.*`, `automation.*`, `transport.*`, ...). Framing is asymmetric: Python to Bitwig is 4-byte big-endian length prefix + JSON (`bridge._frame`); Bitwig to Python is newline-delimited JSON. `BridgeClient` auto-reconnects in a background thread and handles pushed notifications (e.g. `connected`, op completion).
-
-2. **Java bridge (experimental, port 7778, `java_bridge/`).** Bytecode-patches `BitwigStudioMain.main` (ASM, `PatchMain.java`) in a copy of `bitwig.jar` locked to one SHA-256, to start `Bootstrap` (in-process JSON-RPC server). `OpenwigDocument.java` performs document edits on Bitwig's event queue; `stubs/` are compile-time signatures only, and `DirectAccess`/`OpenwigUndo` are replaced with generated exact-build bytecode at build time. Edits that need it are wrapped in a Bitwig undo transaction. Python surface is `openwig.java_song.JavaSong`, a deliberately small subset. Only add operations here after a live test passes; `java_bridge/README.md` records what has been verified and must be kept in sync.
-
-### Python layers
-
-- `song.py`: `Song` / `Track` / `Note`, the public composition API. Thin by design: no note/curve generators. Translates calls into controller requests; paces document-thread ops via the pushed `op_done` notification rather than polling (concurrent JS during an op crashes GraalJS).
-- `wire/`: low-level helpers. `automation.py` (value scaling), `render.py` (real-time loopback capture: WASAPI via PyAudioWPatch on Windows, `parecord` on Linux).
-- `read/` + `recreate.py`: read the open project live (structure, clips via descriptor-graph walk) and emit a Python script that recreates it.
-- `cli/`: install/uninstall/version.
-
-### Tests
-
-Unit tests use a `FakeBridge` that records `(method, params)` and returns scripted snapshots, so they check the SDK's half of the wire contract only. `conftest.py` puts `src/` on `sys.path` and provides a `live_bridge` fixture that skips if no Bitwig connects within ~6s.
+CI (`.github/workflows/ci.yml`) cannot build mods (no Bitwig jar on GitHub runners): it
+byte-compiles the repo's Python scripts and validates `mod.json` / `build.json`.
+`.github/workflows/release.yml` publishes the `pypi-moved/` stub on tags `pypi-v*` only
+(PyPI trusted publishing is bound to that filename and the `pypi` environment). Mod
+releases use tags `v*` and a GitHub release with one ZIP per mod.
 
 ## Constraints
 
-- **Always use CFR (`scratch/tools/cfr.jar --extraclasspath ...`) and existing decompiled sources in `scratch/decomp/`** when inspecting Bitwig classes; do not waste tokens dumping raw `javap -c` bytecode.
-- The controller's obfuscated names live only in `symbols_default.json` (data, no per-build resolver anymore): `paths.data_dir` is duplicated in the JS `_resolveLogPath`/`_defaultsPath` and must stay in lockstep.
-- Supported Bitwig versions are locked in `pyproject.toml` `[tool.openwig]` and `openwig.SUPPORTED_BITWIG_VERSIONS`; the handshake refuses mismatches. Bump deliberately, never automatically. Version also lives in both `pyproject.toml` and `openwig/__init__.py`.
-- `scratch/` is gitignored and excluded from test collection; use it for local probes and build outputs. Root-level `*.wav` files are render outputs, also ignored.
-- Live work should use a disposable project: several operations (`project.clear`, `JavaSong.clear()`) wipe all tracks.
+- **Version lock.** Each `mod.json` has `built_against.bitwig_version`; both mods share one
+  `mod.version`. Bump deliberately, never automatically.
+- **CFR, not javap.** Inspect Bitwig classes with CFR 0.152 and existing decompiled sources
+  under `scratch/decomp*/` first; do not dump raw `javap -c` bytecode (a short `javap -c`
+  check of one overload is fine).
+- **Never commit Bitwig code**: no Bitwig jars, no compile jar, no decompiled Bitwig sources,
+  no Patchbay install files. They live in `scratch/` (gitignored) only.
+- Never modify `C:\Program Files\Bitwig Studio` or the Patchbay install folder; build into
+  `scratch/`.
+- Live work uses a disposable project: several bridge methods wipe or close projects.

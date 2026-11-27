@@ -4,7 +4,7 @@ description: >-
   Decompile and inspect Bitwig Studio 6.1.5 Java classes using CFR 0.152
   (scratch/tools/cfr.jar) instead of raw javap bytecode. Activate this skill
   whenever reverse engineering Bitwig classes, inspecting Api* or obfuscated
-  model classes, or extending the Java bridge.
+  model classes, or extending the openwig mods.
 ---
 
 # Bitwig Java Decompilation (CFR 0.152)
@@ -53,4 +53,9 @@ python -c "import zipfile; zf = zipfile.ZipFile('scratch/bitwig-6.1.5-live/bin/b
 ## 4. Safety & Hygiene
 
 - Keep all decompiled `.java` files inside `scratch/decomp/` (gitignored); never commit decompiled Bitwig sources.
-- Record verified exact-build method signatures in `java_bridge/READER_SIGNATURES.md` and `java_bridge/README.md`.
+- Record verified exact-build names in the mod's README or `mods/openwig/porting/` tables.
+
+## 5. Bitwig 6.1.7 (current mods)
+
+The mods target 6.1.7. Its `bitwig.jar` ends in `.jar`, so extract the `.class` and pass the jar with
+`--extraclasspath` the same way, writing into `scratch/decomp617/`.

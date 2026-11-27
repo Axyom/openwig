@@ -1,7 +1,7 @@
 # Project: OpenWig Bridge (Patchbay mod)
 
 Starts OpenWig's in-process JSON-RPC server on `127.0.0.1:7778` when Bitwig
-starts, so the `openwig` Python SDK (`JavaSong`) can read and edit the open
+starts, so agents (through the MCP server below) can read and edit the open
 project. Port of the ASM-patched jar in `java_bridge/` (Bitwig 6.1.5, at tag
 `python-sdk-final`) to a
 Patchbay (BML) mod for Bitwig **6.1.7 on Windows x64 only**: it is built

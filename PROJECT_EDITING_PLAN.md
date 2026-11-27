@@ -1,3 +1,8 @@
+> **History of the old design.** This plan belongs to the Python SDK and Java bridge
+> (Bitwig 6.1.5), which ended at tag `python-sdk-final`. The files it names (`src/`,
+> `java_bridge/`, `tests/`) are no longer in this branch; openwig is now the Patchbay
+> mods in `mods/`. Kept for reference only.
+
 # Full project editing: active goal and agent handoff
 
 Last updated: 2026-10-26 (For You rebuild confirmed; Oneiros blocked in bindings).
