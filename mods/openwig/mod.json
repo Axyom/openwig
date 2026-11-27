@@ -3,7 +3,7 @@
   "mod": {
     "id": "openwig",
     "name": "Project: OpenWig Bridge",
-    "version": "0.1.0-dev.1",
+    "version": "0.2.0",
     "author": "Axyom",
     "description": "Starts OpenWig's local JSON-RPC bridge (127.0.0.1:7778) and MCP server (http://127.0.0.1:7779/mcp) so agents can read and edit the open project: tracks, devices, modulators, clips, automation and transport, each edit as one undo step."
   },

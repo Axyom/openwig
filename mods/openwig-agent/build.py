@@ -1,18 +1,17 @@
 """Build the OpenWig Agent Patchbay mod (Patchbay docs/sdk/building.md, steps 1-8).
 
-    python mods/openwig-agent/build.py [--check]
+    python mods/openwig-agent/build.py [--check] [--release]
 
 Writes the installable folder to scratch/patchbay-agent-out/openwig-agent. --check
 then runs Patchbay's offline check on a folder holding this mod, the OpenWig
-Bridge and the frameworks they need (the bridge must be built first).
+Bridge and the frameworks they need (the bridge must be built first). --release
+also writes scratch/release/openwig-agent-<version>.zip.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -63,21 +62,25 @@ def check() -> None:
         shutil.copytree(bridge.BML / "mods" / name, CHECK / name)
     shutil.rmtree(CHECK / "openwig", ignore_errors=True)
     shutil.copytree(bridge.OUT, CHECK / "openwig")
-    result = subprocess.run(["cmd", "/c", str(bridge.BML / "loader" / "prepare-mod.cmd"), str(bridge.BITWIG_BIN), str(CHECK)],
-                            capture_output=True, text=True)
-    lines = (result.stdout + result.stderr).strip().splitlines()
-    print("\n".join(lines[-25:]))
-    if result.returncode or not any(l.startswith("PREPARE_OK") for l in lines):
-        raise SystemExit("offline check failed")
+    bridge.offline_check(CHECK)
+
+
+def release() -> Path:
+    """The release ZIP, by the bridge build's rules: the installed folder plus src/ and build.json."""
+    return bridge.release(HERE, OUT)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="run Patchbay's offline check after building")
+    parser.add_argument("--release", action="store_true",
+                        help="also write scratch/release/openwig-agent-<version>.zip for GitHub Releases")
     args = parser.parse_args()
     build()
     if args.check:
         check()
+    if args.release:
+        release()
 
 
 if __name__ == "__main__":

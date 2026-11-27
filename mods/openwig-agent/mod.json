@@ -3,7 +3,7 @@
   "mod": {
     "id": "openwig-agent",
     "name": "Project: OpenWig Agent",
-    "version": "0.1.0-dev.1",
+    "version": "0.2.0",
     "author": "Axyom",
     "description": "An agent panel inside Bitwig: chat with Claude Code, which edits the open project through the OpenWig Bridge's MCP server."
   },

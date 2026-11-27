@@ -3,10 +3,11 @@
     python mods/openwig/build.py [--check] [--release]
 
 Writes the installable folder to scratch/patchbay-out/openwig. --check then runs
-Patchbay's offline check (loader/prepare-mod.cmd) on it, which reads Bitwig's
-install and modifies nothing there. --release also writes the ZIP to attach to a
-GitHub release (the installed folder plus src/ and build.json); users install it
-with Patchbay's Add Mod.
+Patchbay's offline check (prepare-mod.cmd, from a private loader copy in
+scratch/patchbay-check) on it; it reads Bitwig's and Patchbay's installs and
+modifies neither. --release also writes the ZIP to attach to a
+GitHub release, scratch/release/openwig-<version>.zip (the installed folder plus src/
+and build.json); users install it with Patchbay's Add Mod.
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ COMPILE_JAR = REPO / "scratch" / "bitwig617-compile.jar"   # made from your own 
 WORK = REPO / "scratch" / "patchbay-build"
 CHECK = REPO / "scratch" / "patchbay-out"
 OUT = CHECK / "openwig"
-RELEASE = REPO / "scratch" / "patchbay-release"
+RELEASE = REPO / "scratch" / "release"
 
 
 def run(*cmd: object) -> str:
@@ -127,24 +128,49 @@ def build() -> None:
     print(f"built {OUT}: {len(hooks.get('hooks', []))} hook(s), {len(hooks.get('access', []))} opened member(s)")
 
 
-def check() -> None:
-    result = subprocess.run(["cmd", "/c", str(BML / "loader" / "prepare-mod.cmd"), str(BITWIG_BIN), str(CHECK)],
-                            capture_output=True, text=True)
+LOADER_COPY = REPO / "scratch" / "patchbay-check"
+LOADER_PARTS = ["api", "app", "jvmti", "tools", "find-java.cmd", "prepare-mod.cmd", "mod.schema.json", "mod-v3.schema.json"]
+
+
+def offline_check(mods_root: Path) -> None:
+    """Patchbay's preparer on mods_root, run from a private loader copy: the preparer writes into its loader
+    folder, so running the installed one would change the Patchbay install (and fails while Bitwig runs)."""
+    loader = LOADER_COPY / "loader"
+    if not (loader / "app" / "bml-control.jar").exists():
+        for part in LOADER_PARTS:
+            src = BML / "loader" / part
+            if src.is_dir():
+                shutil.copytree(src, loader / part, dirs_exist_ok=True)
+            elif src.exists():
+                loader.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, loader / part)
+    maps = LOADER_COPY / "maps"
+    if not maps.exists():
+        run("cmd", "/c", "mklink", "/J", maps, BML / "maps")
+    # one string with outer quotes: cmd /c strips the first and last quote when the line has spaces in paths
+    command = f'cmd /c ""{loader / "prepare-mod.cmd"}" "{BITWIG_BIN}" "{mods_root}""'
+    result = subprocess.run(command, capture_output=True, text=True)
     lines = (result.stdout + result.stderr).strip().splitlines()
     print("\n".join(lines[-25:]))
     if result.returncode or not any(l.startswith("PREPARE_OK") for l in lines):
         raise SystemExit("offline check failed")
 
 
-def release() -> Path:
+def check() -> None:
+    offline_check(CHECK)
+
+
+def release(here: Path = HERE, out: Path = OUT) -> Path:
     """building.md step 8 for a release: the installed folder plus src/ and build.json, zipped with the folder on top."""
-    version = json.loads((HERE / "mod.json").read_text("utf-8"))["mod"]["version"]
+    mod = json.loads((here / "mod.json").read_text("utf-8"))["mod"]
+    mod_id, version = mod["id"], mod["version"]
     stage = RELEASE / "stage"
     shutil.rmtree(stage, ignore_errors=True)
-    shutil.copytree(OUT, stage / "openwig")
-    shutil.copytree(HERE / "src", stage / "openwig" / "src")
-    shutil.copy2(HERE / "build.json", stage / "openwig" / "build.json")
-    archive = Path(shutil.make_archive(str(RELEASE / f"openwig-{version}"), "zip", root_dir=stage, base_dir="openwig"))
+    shutil.copytree(out, stage / mod_id)
+    shutil.copytree(here / "src", stage / mod_id / "src")
+    shutil.copy2(here / "build.json", stage / mod_id / "build.json")
+    RELEASE.mkdir(parents=True, exist_ok=True)
+    archive = Path(shutil.make_archive(str(RELEASE / f"{mod_id}-{version}"), "zip", root_dir=stage, base_dir=mod_id))
     shutil.rmtree(stage)
     print(f"release {archive} ({archive.stat().st_size} bytes)")
     return archive
@@ -154,7 +180,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="run Patchbay's offline check after building")
     parser.add_argument("--release", action="store_true",
-                        help="also write scratch/patchbay-release/openwig-<version>.zip for GitHub Releases")
+                        help="also write scratch/release/openwig-<version>.zip for GitHub Releases")
     args = parser.parse_args()
     build()
     if args.check:
