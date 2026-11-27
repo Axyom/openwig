@@ -72,7 +72,7 @@ final class TranscriptView extends PaintedWidget {
         int accent = colour("Accent (default)", 0xFFFF8713); // Bitwig's orange
         userFill = withAlpha(accent, 0.34);
         userStroke = withAlpha(accent, 0.55);
-        agentFill = colour("Grey 5", 0xFF494949);
+        agentFill = withAlpha(textColour, 0.10); // a light veil: lighter than whatever the panel's background is
         toolColour = subtleColour;
         errorColour = colour("Error Text", 0xC8FF3232);
         barColour = colour("Modern Scrollbar Handle (inactive)", 0xFF5F5F5F);

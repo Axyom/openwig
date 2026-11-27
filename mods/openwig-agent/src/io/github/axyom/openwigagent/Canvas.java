@@ -41,7 +41,11 @@ final class Canvas {
     /** The UI scale (1 at 100 %): pixels per layout unit. */
     double uiScale() { return g.sCA(); }
 
-    void color(int argb) { g.sCA(new SZB(argb)); }            // the source colour, 0xAARRGGBB (straight alpha)
+    /**
+     * The source colour, 0xAARRGGBB (straight alpha). Bitwig passes every colour drawn here through the user's
+     * display contrast curve, as for its own widgets (a theme grey comes out darker than its value); images are not.
+     */
+    void color(int argb) { g.sCA(new SZB(argb)); }
     void lineWidth(double w) { g.BBg(w); }
     void dash(double[] lengths, double offset) { g.beI(lengths, offset); }
     void evenOdd(boolean evenOdd) { g.beI(evenOdd ? mLC.Gef : mLC.beI); } // fill rule: even-odd or winding
