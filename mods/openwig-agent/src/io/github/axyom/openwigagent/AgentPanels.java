@@ -113,6 +113,26 @@ public final class AgentPanels implements PanelProvider {
         TRANSCRIPT.append(text);
     }
 
+    /** Dev ("/demo" in the box): sample messages of every kind, enough to scroll, without asking the agent. */
+    private static void demo() {
+        TRANSCRIPT.add(Kind.USER, "Make the kick punchier and put a short reverb on the snare.");
+        TRANSCRIPT.add(Kind.TOOL, "bitwig_call device.insert {\"track\": \"Kick\", \"device\": \"Transient Control\"}");
+        TRANSCRIPT.add(Kind.TOOL, "bitwig_call device.insert {\"track\": \"Snare\", \"device\": \"Reverb\"}");
+        TRANSCRIPT.add(Kind.AGENT, "Done: Transient Control on the kick with Attack up 4 dB, and a Reverb on the snare "
+                + "with a 0.6 s decay at 18 % mix. Both are single undo steps.");
+        TRANSCRIPT.add(Kind.USER, "ok");
+        TRANSCRIPT.add(Kind.AGENT, "A long reply wraps inside its bubble at word boundaries, using the theme font's own "
+                + "advances, so the lines break exactly where Bitwig would draw them. A word longer than the bubble, "
+                + "like supercalifragilisticexpialidocious_and_then_some_more_characters, is split across lines.\n\n"
+                + "Paragraphs keep their blank line.");
+        for (int i = 1; i <= 8; i++) {
+            TRANSCRIPT.add(Kind.USER, "Message " + i + " to make the transcript scroll.");
+            TRANSCRIPT.add(Kind.AGENT, "Reply " + i + ". Scroll with the mouse wheel or drag, drag the bar on the right, "
+                    + "click a bubble to copy it.");
+        }
+        TRANSCRIPT.add(Kind.NOTE, "[demo: sample messages, nothing was sent]");
+    }
+
     /** The length of each message, for the Java2D demo strip. */
     private static int[] lengths() {
         return TRANSCRIPT.entries().stream()
@@ -128,6 +148,7 @@ public final class AgentPanels implements PanelProvider {
             String message = input.text().strip();
             ui(() -> input.set(""));
             if (message.isEmpty()) return;
+            if (message.equals("/demo")) { ui(AgentPanels::demo); return; } // dev: sample messages, not sent
             ui(() -> add("you: " + message));
             Agent.daemon("openwig-agent-send", () -> agent.send(message));
         };
@@ -138,8 +159,11 @@ public final class AgentPanels implements PanelProvider {
         buttons.IvP(button("Stop", () -> { Agent.daemon("openwig-agent-stop", agent::stop); add("[stopped]"); }));
         buttons.IvP(button("New", () -> { Agent.daemon("openwig-agent-new", agent::reset); TRANSCRIPT.clear(); add("New discussion."); }));
 
+        eeu box = eeu.beI(input);   // the message box: a multi-line editor
+        box.Gef(FreeSize.exactly(52)); // its height: a few lines (it would otherwise share the spare height)
+
         dXL column = dXL.unz(4); // a vertical group with room for four widgets
-        column.IvP(eeu.beI(input));      // the message box: a multi-line editor
+        column.IvP(box);
         column.IvP(buttons);
         column.IvP(Java2DDemo.create(TRANSCRIPT, AgentPanels::lengths)); // a Java2D scene, drawn both ways
         column.beI(TranscriptView.create(TRANSCRIPT), 1f); // the transcript takes the rest of the height

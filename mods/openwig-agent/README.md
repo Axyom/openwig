@@ -7,7 +7,8 @@ Needs: the OpenWig Bridge mod, Framework: Panels, and Claude Code installed and 
 ## Use
 
 - Open it with the **Agent** button (chat icon) in the bottom bar, next to the browser panels. It is a column beside the browser.
-- Type in the top box, then Enter or **Send**. Replies appear below, newest first.
+- Type in the top box, then Enter or **Send**. Replies appear below in bubbles, newest at the bottom; the view follows new text while it is scrolled to the bottom. Scroll with the mouse wheel, by dragging the messages, or with the bar on the right. Click a message to copy it.
+- `/demo` in the box fills the transcript with sample messages (nothing is sent), to try the view.
 - Tool calls run without asking: the agent can only use OpenWig's tools, each edit is one undo step.
 - **Stop** ends the current turn. **New** starts a fresh discussion. The discussion otherwise resumes, even after a restart.
 
@@ -19,8 +20,23 @@ Needs: the OpenWig Bridge mod, Framework: Panels, and Claude Code installed and 
 
 ## Known gaps
 
-- The transcript is newest-first because Bitwig's text widget doesn't scroll itself to new text.
+- The strip between the buttons and the transcript is a spike demo: one Java2D scene drawn as vector on Bitwig's surface (left) and as an uploaded bitmap (right), with their costs.
+- Text in the transcript can't be selected; a click copies a whole message.
 - No memory between discussions yet.
+
+## Painting (spike)
+
+The transcript is a widget the mod paints itself (`PaintedWidget`, a subclass of Bitwig's widget base), not one of
+Bitwig's text widgets:
+
+- `PaintedWidget`: Bitwig asks it for its minimum, preferred and maximum size, calls its paint method with Bitwig's
+  drawing surface, and asks it for a handler when the wheel turns or a button is pressed over it (the press handler
+  also gets the drag and the release). `repaint()` and `relayout()` ask Bitwig to paint or lay it out again.
+- `Canvas`: the drawing surface's calls under readable names. It is Cairo's model (paths, fill, stroke, clip,
+  save/restore, transforms, gradients, text with the theme's fonts, images from ARGB pixels), recorded as render
+  commands that Bitwig's GPU renderer runs.
+- `CanvasGraphics2D`: a `java.awt.Graphics2D` on that surface, so Java2D drawing code renders as vector and crisp at
+  any UI scale. `Java2DBitmap`: Java2D into a `BufferedImage`, uploaded as an image, for code that needs pixels.
 
 ## Build
 

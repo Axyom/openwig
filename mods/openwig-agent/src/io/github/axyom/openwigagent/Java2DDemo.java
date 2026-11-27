@@ -137,7 +137,7 @@ final class Java2DDemo extends PaintedWidget {
         g.drawString("Java2D " + label, 8f, 13f);
         g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 9));
         g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));
-        String count = values.length + " messages";
+        String count = values.length + (values.length == 1 ? " message" : " messages");
         g.drawString(count, (float) (w - 8 - g.getFontMetrics().stringWidth(count)), 13f);
         g.setComposite(AlphaComposite.SrcOver);
         AffineTransform saved = g.getTransform();

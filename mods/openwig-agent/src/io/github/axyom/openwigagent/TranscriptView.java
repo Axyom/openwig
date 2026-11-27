@@ -34,7 +34,6 @@ final class TranscriptView extends PaintedWidget {
     private double moved;
     private Entry flashed;
     private long flashUntil;
-    private boolean themeLogged;
 
     /** One entry laid out at one width: wrapped lines and the bubble's box (content coordinates, pixels). */
     private static final class Layout {
@@ -62,27 +61,23 @@ final class TranscriptView extends PaintedWidget {
     // ---- painting -----------------------------------------------------------------------------------------------
 
     private iiG body, small;
-    private int textColour, subtleColour, userFill, agentFill, toolColour, errorColour, barColour, barActive, flashColour;
+    private int textColour, subtleColour, userFill, userStroke, agentFill, toolColour, errorColour, barColour, barActive, flashColour;
 
     private void theme() {
         body = font(named("Default"));
         small = font(named("Small"));
         if (small == null) small = body;
         textColour = colour("Light Text", textColour());
-        subtleColour = colour("Subtle Light Text", 0xFF8A8A8A);
-        int selection = colour("Selection", 0xFF4C7DAF);
-        userFill = withAlpha(selection, 0.55);
-        agentFill = colour("Field background", 0xFF3A3A3A);
+        subtleColour = colour("Subtle Light Text", 0x78FFFFFF);
+        int accent = colour("Accent (default)", 0xFFFF8713); // Bitwig's orange
+        userFill = withAlpha(accent, 0.34);
+        userStroke = withAlpha(accent, 0.55);
+        agentFill = colour("Grey 5", 0xFF494949);
         toolColour = subtleColour;
-        errorColour = colour("Error Text", 0xFFE06060);
-        barColour = colour("Modern Scrollbar Handle (inactive)", 0x50FFFFFF);
-        barActive = colour("Modern Scrollbar Handle (active)", 0x90FFFFFF);
-        flashColour = withAlpha(selection, 0.9);
-        if (!themeLogged) {
-            themeLogged = true;
-            AgentPanels.LOG.log(String.format("transcript theme: body %s, small %s, selection %08x, field %08x, text %08x",
-                    Canvas.lineHeight(body), Canvas.lineHeight(small), selection, agentFill, textColour));
-        }
+        errorColour = colour("Error Text", 0xC8FF3232);
+        barColour = colour("Modern Scrollbar Handle (inactive)", 0xFF5F5F5F);
+        barActive = colour("Modern Scrollbar Handle (active)", 0xFF787878);
+        flashColour = withAlpha(accent, 0.7);
     }
 
     private ehb named(String name) {
@@ -143,7 +138,11 @@ final class TranscriptView extends PaintedWidget {
         double lineHeight = Canvas.lineHeight(font), ascent = Canvas.ascent(font);
         int ink;
         switch (e.kind) {
-            case USER -> { c.fillRoundRect(l.x, l.y, l.w, l.h, RADIUS * u, flash ? flashColour : userFill); ink = textColour; }
+            case USER -> {
+                c.fillRoundRect(l.x, l.y, l.w, l.h, RADIUS * u, flash ? flashColour : userFill);
+                c.strokeRoundRect(l.x, l.y, l.w, l.h, RADIUS * u, Math.max(1, u), userStroke);
+                ink = textColour;
+            }
             case AGENT -> { c.fillRoundRect(l.x, l.y, l.w, l.h, RADIUS * u, flash ? flashColour : agentFill); ink = textColour; }
             case TOOL -> ink = toolColour;
             default -> ink = e.text.indexOf("[could not") >= 0 || e.text.indexOf("error") >= 0 ? errorColour : subtleColour;
@@ -259,7 +258,7 @@ final class TranscriptView extends PaintedWidget {
     protected void wheel(double x, double y, int steps, int pixels, boolean horizontal, int modifiers) {
         if (horizontal) return;
         double u = unit();
-        scrollBy(steps != 0 ? steps * 3 * 16 * u : pixels); // Bitwig's own lists: positive is towards the end
+        scrollBy(steps != 0 ? steps * 3 * 16 * u : pixels); // a wheel turned up gives negative steps: towards the start
     }
 
     @Override
