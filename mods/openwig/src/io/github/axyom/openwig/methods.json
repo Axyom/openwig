@@ -1,0 +1,754 @@
+{
+ "areas": {
+  "host": "Bridge identity and version handshake.",
+  "bridge": "",
+  "document": "Open, select and close project tabs; audio engine state.",
+  "project": "Whole-project reads and edits: dump, time ranges, metadata, files, rendering.",
+  "transport": "Tempo, position, loop, playback, groove and time signature.",
+  "track": "Main and group tracks: create, delete, read, mixer and routing.",
+  "fxtrack": "Effect (return) tracks.",
+  "master": "The master track's device chain.",
+  "device": "Devices on any chain: insert, parameters, plugins, nested chains, Grid, layers, samplers, modulators.",
+  "modulator": "Factory modulator catalog.",
+  "automation": "Arranger automation lanes and automation clips.",
+  "clip": "Arranger clips: create, read, copy, split, edit, notes, audio import.",
+  "note": "Single MIDI notes inside a clip or launcher slot.",
+  "audio_event": "Single audio events inside an audio clip.",
+  "launcher": "Clip launcher slots: author, launch, stop, settings.",
+  "scene": "Launcher scenes (rows).",
+  "cue_marker": "Arrangement cue markers.",
+  "debug": "Diagnostics for reverse engineering; not for normal use."
+ },
+ "methods": [
+  {
+   "method": "host.version",
+   "kind": "read",
+   "description": "Bitwig version the bridge was built for (\"6.1.7\")."
+  },
+  {
+   "method": "bridge.capabilities",
+   "kind": "read",
+   "description": "Which backend answers (java) and its feature flags."
+  },
+  {
+   "method": "document.status",
+   "kind": "read",
+   "description": "Whether a project is open and selected."
+  },
+  {
+   "method": "document.info",
+   "kind": "read",
+   "description": "Selected project's file path, folder and name."
+  },
+  {
+   "method": "document.list",
+   "kind": "read",
+   "description": "Open project tabs with paths and root track counts."
+  },
+  {
+   "method": "document.select",
+   "kind": "edit",
+   "description": "Select an open project tab by file path."
+  },
+  {
+   "method": "document.open",
+   "kind": "edit",
+   "description": "Open a .bwproject in a new tab (job; poll document.job_status)."
+  },
+  {
+   "method": "document.close",
+   "kind": "edit",
+   "description": "Close a tab without saving; needs discard_changes=true."
+  },
+  {
+   "method": "document.job_status",
+   "kind": "read",
+   "description": "State of an open/close job."
+  },
+  {
+   "method": "document.audio_status",
+   "kind": "read",
+   "description": "Engine connected, ready, active, realtime, plus master track."
+  },
+  {
+   "method": "document.activate_audio",
+   "kind": "edit",
+   "description": "Activate the project's audio engine."
+  },
+  {
+   "method": "project.dump",
+   "kind": "read",
+   "description": "Whole project: metadata, tracks, devices, modulators, clips, notes, automation, scenes."
+  },
+  {
+   "method": "project.clear",
+   "kind": "edit",
+   "description": "Remove main and effect tracks and master devices."
+  },
+  {
+   "method": "project.clear_main_tracks",
+   "kind": "edit",
+   "description": "Remove every main track."
+  },
+  {
+   "method": "project.clear_effect_tracks",
+   "kind": "edit",
+   "description": "Remove every effect track."
+  },
+  {
+   "method": "project.set_metadata",
+   "kind": "edit",
+   "description": "Title, artist, album, writer, producer, year, genre, copyright, comment."
+  },
+  {
+   "method": "project.insert_time",
+   "kind": "edit",
+   "description": "Insert empty beats in the arrangement (clips, automation, cues shift)."
+  },
+  {
+   "method": "project.delete_range",
+   "kind": "edit",
+   "description": "Delete a beat range from the arrangement and close the gap."
+  },
+  {
+   "method": "project.duplicate_range",
+   "kind": "edit",
+   "description": "Duplicate a beat range right after itself."
+  },
+  {
+   "method": "project.export_dawproject",
+   "kind": "read",
+   "description": "Export to a .dawproject archive, optionally embedding media."
+  },
+  {
+   "method": "project.import_dawproject",
+   "kind": "edit",
+   "description": "Append a .dawproject archive into the open project."
+  },
+  {
+   "method": "project.save_copy",
+   "kind": "read",
+   "description": "Write a .bwproject copy with collected media and plugin states; the open project stays as is."
+  },
+  {
+   "method": "project.render",
+   "kind": "read",
+   "description": "Offline export of a beat range to WAV (job)."
+  },
+  {
+   "method": "project.render_status",
+   "kind": "read",
+   "description": "State of a render job."
+  },
+  {
+   "method": "transport.get_tempo",
+   "kind": "read",
+   "description": "Current tempo in BPM."
+  },
+  {
+   "method": "transport.set_tempo",
+   "kind": "edit",
+   "description": "Set the tempo (20 to 999 BPM)."
+  },
+  {
+   "method": "transport.snapshot",
+   "kind": "read",
+   "description": "Playing, position, loop on/off and loop region."
+  },
+  {
+   "method": "transport.play",
+   "kind": "edit",
+   "description": "Start playback."
+  },
+  {
+   "method": "transport.stop",
+   "kind": "edit",
+   "description": "Stop playback."
+  },
+  {
+   "method": "transport.set_position",
+   "kind": "edit",
+   "description": "Move the play position (beats)."
+  },
+  {
+   "method": "transport.set_loop",
+   "kind": "edit",
+   "description": "Turn the arranger loop on or off."
+  },
+  {
+   "method": "transport.set_loop_region",
+   "kind": "edit",
+   "description": "Set loop start and length (beats)."
+  },
+  {
+   "method": "transport.beats_to_seconds",
+   "kind": "read",
+   "description": "Convert beats to seconds through the tempo map."
+  },
+  {
+   "method": "transport.set_groove",
+   "kind": "edit",
+   "description": "Groove on/off, shuffle, accent amount and phase."
+  },
+  {
+   "method": "transport.set_time_signature",
+   "kind": "edit",
+   "description": "Numerator, denominator, ticks."
+  },
+  {
+   "method": "track.count",
+   "kind": "read",
+   "description": "Number of main tracks."
+  },
+  {
+   "method": "track.create",
+   "kind": "edit",
+   "description": "Instrument, audio or hybrid track, at root or inside a group."
+  },
+  {
+   "method": "track.create_group",
+   "kind": "edit",
+   "description": "Group track at root or inside a group."
+  },
+  {
+   "method": "track.delete",
+   "kind": "edit",
+   "description": "Delete a track by index or path."
+  },
+  {
+   "method": "track.read",
+   "kind": "read",
+   "description": "One track subtree, same shape as project.dump."
+  },
+  {
+   "method": "track.snapshot",
+   "kind": "read",
+   "description": "Name, volume, pan, mute, solo, sends, color, comment."
+  },
+  {
+   "method": "track.rename",
+   "kind": "edit",
+   "description": "Rename a track."
+  },
+  {
+   "method": "track.set_volume",
+   "kind": "edit",
+   "description": "Volume 0..1."
+  },
+  {
+   "method": "track.set_pan",
+   "kind": "edit",
+   "description": "Pan -1..1."
+  },
+  {
+   "method": "track.set_mute",
+   "kind": "edit",
+   "description": "Mute on/off."
+  },
+  {
+   "method": "track.set_solo",
+   "kind": "edit",
+   "description": "Solo on/off."
+  },
+  {
+   "method": "track.set_send",
+   "kind": "edit",
+   "description": "Send amount 0..1 to an effect track."
+  },
+  {
+   "method": "track.set_color",
+   "kind": "edit",
+   "description": "Track color (hex or RGB)."
+  },
+  {
+   "method": "track.set_comment",
+   "kind": "edit",
+   "description": "Track comment."
+  },
+  {
+   "method": "track.set_active",
+   "kind": "edit",
+   "description": "Activate or deactivate the track."
+  },
+  {
+   "method": "track.set_monitor",
+   "kind": "edit",
+   "description": "Monitor mode OFF, ON or AUTO."
+  },
+  {
+   "method": "track.set_destination",
+   "kind": "edit",
+   "description": "Route the track's output to another track or the master."
+  },
+  {
+   "method": "track.set_source",
+   "kind": "edit",
+   "description": "Input source: another track's tap, or none."
+  },
+  {
+   "method": "fxtrack.count",
+   "kind": "read",
+   "description": "Number of effect tracks."
+  },
+  {
+   "method": "fxtrack.create",
+   "kind": "edit",
+   "description": "Append an effect track."
+  },
+  {
+   "method": "fxtrack.delete",
+   "kind": "edit",
+   "description": "Delete an effect track."
+  },
+  {
+   "method": "master.device_count",
+   "kind": "read",
+   "description": "Devices on the master chain."
+  },
+  {
+   "method": "master.insert_factory",
+   "kind": "edit",
+   "description": "Append a factory device to the master chain."
+  },
+  {
+   "method": "master.clear",
+   "kind": "edit",
+   "description": "Remove every master device."
+  },
+  {
+   "method": "device.count",
+   "kind": "read",
+   "description": "Devices on a track (or nested chain)."
+  },
+  {
+   "method": "device.snapshot",
+   "kind": "read",
+   "description": "Device indexes, names and enabled states."
+  },
+  {
+   "method": "device.read",
+   "kind": "read",
+   "description": "Identity, role, parameters, nested chains, sidechains, modulators, Grid, samples."
+  },
+  {
+   "method": "device.structure",
+   "kind": "read",
+   "description": "Modulator identities and chain components (cheap)."
+  },
+  {
+   "method": "device.components",
+   "kind": "read",
+   "description": "Raw component tree of a device (paths and classes)."
+  },
+  {
+   "method": "device.insert_factory",
+   "kind": "edit",
+   "description": "Append a Bitwig factory device by catalog name."
+  },
+  {
+   "method": "device.insert_plugin",
+   "kind": "edit",
+   "description": "Append a VST3, VST2 or CLAP plugin, optionally with its saved state."
+  },
+  {
+   "method": "device.delete",
+   "kind": "edit",
+   "description": "Delete a device."
+  },
+  {
+   "method": "device.rename",
+   "kind": "edit",
+   "description": "Rename a device."
+  },
+  {
+   "method": "device.set_enabled",
+   "kind": "edit",
+   "description": "Device on/off."
+  },
+  {
+   "method": "device.set_active",
+   "kind": "edit",
+   "description": "Device active/inactive."
+  },
+  {
+   "method": "device.set_expanded",
+   "kind": "edit",
+   "description": "Expand or collapse the device panel."
+  },
+  {
+   "method": "device.list_parameters",
+   "kind": "read",
+   "description": "Parameter paths and kinds of a native device."
+  },
+  {
+   "method": "device.get_parameters",
+   "kind": "read",
+   "description": "Read named parameters (normalized, booleans, enum indexes)."
+  },
+  {
+   "method": "device.set_parameters",
+   "kind": "edit",
+   "description": "Set named parameters."
+  },
+  {
+   "method": "device.model_fields",
+   "kind": "read",
+   "description": "Stored settings that are not parameters (a Sampler's playback mode)."
+  },
+  {
+   "method": "device.set_model_fields",
+   "kind": "edit",
+   "description": "Write those stored settings."
+  },
+  {
+   "method": "device.plugin_parameters",
+   "kind": "edit",
+   "description": "Read or set a plugin's resident parameters."
+  },
+  {
+   "method": "device.capture_plugin_state",
+   "kind": "edit",
+   "description": "Save the plugin's engine state into the document (job)."
+  },
+  {
+   "method": "device.export_plugin_state",
+   "kind": "read",
+   "description": "Export a VST3's state to a .vstpreset (job)."
+  },
+  {
+   "method": "device.plugin_state_status",
+   "kind": "read",
+   "description": "State of a plugin-state job."
+  },
+  {
+   "method": "device.operation_status",
+   "kind": "read",
+   "description": "State of a device job (layer move, delete)."
+  },
+  {
+   "method": "device.set_sidechain",
+   "kind": "edit",
+   "description": "Sidechain source of a device or plugin."
+  },
+  {
+   "method": "device.chain_banks",
+   "kind": "read",
+   "description": "Parallel chain containers in a device and whether layers can be added."
+  },
+  {
+   "method": "device.create_layer",
+   "kind": "edit",
+   "description": "Add a layer to a parallel container."
+  },
+  {
+   "method": "device.create_band",
+   "kind": "edit",
+   "description": "Add a chain to any multi-chain container (bands, outputs)."
+  },
+  {
+   "method": "device.layer_read",
+   "kind": "read",
+   "description": "A layer's name and mixer."
+  },
+  {
+   "method": "device.layer_update",
+   "kind": "edit",
+   "description": "Layer name, volume, pan, mute."
+  },
+  {
+   "method": "device.layer_move",
+   "kind": "edit",
+   "description": "Reorder a layer (job)."
+  },
+  {
+   "method": "device.layer_delete",
+   "kind": "edit",
+   "description": "Delete a layer (job)."
+  },
+  {
+   "method": "device.drum_pad",
+   "kind": "edit",
+   "description": "Create or name a Drum Machine pad's chain."
+  },
+  {
+   "method": "device.grid_read",
+   "kind": "read",
+   "description": "Grid modules, positions, ports and cables."
+  },
+  {
+   "method": "device.grid_add",
+   "kind": "edit",
+   "description": "Add a Grid module by UUID at a cell."
+  },
+  {
+   "method": "device.grid_move",
+   "kind": "edit",
+   "description": "Move a Grid module."
+  },
+  {
+   "method": "device.grid_connect",
+   "kind": "edit",
+   "description": "Connect or disconnect Grid ports."
+  },
+  {
+   "method": "device.grid_delete",
+   "kind": "edit",
+   "description": "Delete a Grid module and its cables."
+  },
+  {
+   "method": "device.component_rename",
+   "kind": "edit",
+   "description": "Rename a named component (a Grid module)."
+  },
+  {
+   "method": "device.load_sample",
+   "kind": "edit",
+   "description": "Load a single sample or a multisample into a Sampler."
+  },
+  {
+   "method": "device.load_impulse",
+   "kind": "edit",
+   "description": "Load a packaged impulse into Convolution."
+  },
+  {
+   "method": "device.modulator_add",
+   "kind": "edit",
+   "description": "Add a factory modulator, optionally with initial values."
+  },
+  {
+   "method": "device.modulator_delete",
+   "kind": "edit",
+   "description": "Delete a modulator and its mappings."
+  },
+  {
+   "method": "device.modulator_move",
+   "kind": "edit",
+   "description": "Move a modulator to a free cell."
+  },
+  {
+   "method": "device.modulator_parameters",
+   "kind": "edit",
+   "description": "Read or set modulator parameters and Macro polarity."
+  },
+  {
+   "method": "device.modulator_rename",
+   "kind": "edit",
+   "description": "Rename a modulator or a Macro knob label."
+  },
+  {
+   "method": "device.modulator_bind",
+   "kind": "edit",
+   "description": "Map a modulator to a parameter with an amount."
+  },
+  {
+   "method": "device.modulator_unbind",
+   "kind": "edit",
+   "description": "Remove a modulation mapping."
+  },
+  {
+   "method": "modulator.catalog",
+   "kind": "read",
+   "description": "Bitwig's factory modulators (name and UUID)."
+  },
+  {
+   "method": "automation.read",
+   "kind": "read",
+   "description": "Points of one arranger lane (beats, normalized values, curves)."
+  },
+  {
+   "method": "automation.write",
+   "kind": "edit",
+   "description": "Replace one lane's points (volume, pan, tempo or a device parameter)."
+  },
+  {
+   "method": "automation.clear",
+   "kind": "edit",
+   "description": "Clear one lane."
+  },
+  {
+   "method": "automation.enumerate",
+   "kind": "read",
+   "description": "Every automated lane of a track with units and point counts."
+  },
+  {
+   "method": "automation.write_target",
+   "kind": "edit",
+   "description": "Write points to any reader target (real, boolean, enum)."
+  },
+  {
+   "method": "automation.write_clips",
+   "kind": "edit",
+   "description": "Write automation clips on a lane."
+  },
+  {
+   "method": "clip.count",
+   "kind": "read",
+   "description": "Arranger clips on a track."
+  },
+  {
+   "method": "clip.note_count",
+   "kind": "read",
+   "description": "Notes in one clip."
+  },
+  {
+   "method": "clip.read",
+   "kind": "read",
+   "description": "One clip with its notes or audio events."
+  },
+  {
+   "method": "clip.create_arranger_with_notes",
+   "kind": "edit",
+   "description": "Add a note clip with notes."
+  },
+  {
+   "method": "clip.import_audio",
+   "kind": "edit",
+   "description": "Add an audio clip from a local file."
+  },
+  {
+   "method": "clip.replace_notes",
+   "kind": "edit",
+   "description": "Replace a note clip's content."
+  },
+  {
+   "method": "clip.update",
+   "kind": "edit",
+   "description": "Times, name, color, mute, loop, fades, launch settings."
+  },
+  {
+   "method": "clip.copy",
+   "kind": "edit",
+   "description": "Copy a clip to a beat, unlinked."
+  },
+  {
+   "method": "clip.split",
+   "kind": "edit",
+   "description": "Split a clip at a beat."
+  },
+  {
+   "method": "clip.delete",
+   "kind": "edit",
+   "description": "Delete a clip."
+  },
+  {
+   "method": "note.import",
+   "kind": "edit",
+   "description": "Add one note (with conditions and expressions)."
+  },
+  {
+   "method": "note.update",
+   "kind": "edit",
+   "description": "Edit one note."
+  },
+  {
+   "method": "note.delete",
+   "kind": "edit",
+   "description": "Delete one note."
+  },
+  {
+   "method": "audio_event.import",
+   "kind": "edit",
+   "description": "Add a RAW audio event to an audio clip."
+  },
+  {
+   "method": "audio_event.update",
+   "kind": "edit",
+   "description": "Edit an audio event: times, warp, gain, pitch, fades, reverse, expressions."
+  },
+  {
+   "method": "audio_event.delete",
+   "kind": "edit",
+   "description": "Delete one audio event."
+  },
+  {
+   "method": "launcher.read",
+   "kind": "read",
+   "description": "A slot: stop button, clip, playing, queued."
+  },
+  {
+   "method": "launcher.put_notes",
+   "kind": "edit",
+   "description": "Write a note clip into a slot."
+  },
+  {
+   "method": "launcher.import_audio",
+   "kind": "edit",
+   "description": "Write an audio clip into a slot."
+  },
+  {
+   "method": "launcher.copy_arranger",
+   "kind": "edit",
+   "description": "Copy an arranger clip into a slot."
+  },
+  {
+   "method": "launcher.settings",
+   "kind": "edit",
+   "description": "Launch quantization, mode, next action, stop button."
+  },
+  {
+   "method": "launcher.clear",
+   "kind": "edit",
+   "description": "Empty a slot."
+  },
+  {
+   "method": "launcher.launch",
+   "kind": "edit",
+   "description": "Launch a slot."
+  },
+  {
+   "method": "launcher.stop",
+   "kind": "edit",
+   "description": "Stop the track's launcher clips."
+  },
+  {
+   "method": "launcher.return_to_arranger",
+   "kind": "edit",
+   "description": "Hand the track back to the arrangement."
+  },
+  {
+   "method": "scene.snapshot",
+   "kind": "read",
+   "description": "Scene names, comments, colors."
+  },
+  {
+   "method": "scene.insert",
+   "kind": "edit",
+   "description": "Insert an empty scene."
+  },
+  {
+   "method": "scene.delete",
+   "kind": "edit",
+   "description": "Delete a scene and its clips."
+  },
+  {
+   "method": "scene.move",
+   "kind": "edit",
+   "description": "Move a scene."
+  },
+  {
+   "method": "scene.update",
+   "kind": "edit",
+   "description": "Scene name, comment, color."
+  },
+  {
+   "method": "cue_marker.create",
+   "kind": "edit",
+   "description": "Add a cue marker."
+  },
+  {
+   "method": "debug.atom_methods",
+   "kind": "read",
+   "description": "List a modulator parameter's methods."
+  },
+  {
+   "method": "debug.atom_invoke",
+   "kind": "edit",
+   "description": "Call a named boolean setter on a modulator parameter."
+  },
+  {
+   "method": "debug.describe_modulator",
+   "kind": "read",
+   "description": "Dump a modulator's getters and parameter ranges."
+  }
+ ]
+}

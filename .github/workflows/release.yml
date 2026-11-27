@@ -1,19 +1,24 @@
 name: release
 
+# Publishes the "moved" placeholder in pypi-moved/ to PyPI. Mod releases use tags v*
+# and a GitHub release with one ZIP per mod; they never publish to PyPI.
+# Keep this filename and the pypi environment: PyPI trusted publishing is bound to them.
 on:
   push:
-    tags: ["v*"]
+    tags: ["pypi-v*"]
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: pip install build
-      - run: python -m build
+      # from pypi-moved/: at the root, python -m build would import the repo's build.py
+      - run: python -m build --outdir ../dist
+        working-directory: pypi-moved
       - uses: actions/upload-artifact@v7
         with:
           name: dist

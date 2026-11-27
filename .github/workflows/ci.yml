@@ -1,39 +1,27 @@
 name: CI
 
+# The mods themselves can't be built here: building needs Bitwig's own jar, which is
+# never committed. These checks catch broken scripts and manifests.
 on:
   push:
     branches: [master]
   pull_request:
 
 jobs:
-  tests:
-    name: tests (${{ matrix.os }}, py${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.11", "3.12"]
+  checks:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      # PyAudioWPatch is win32-only (the pip marker skips it on linux) and render.py
-      # imports it lazily, so the package installs + imports on both OSes. Live tests
-      # auto-skip because OPENWIG_LIVE is unset.
-      - name: Install package + dev deps
-        run: pip install -e .[dev]
-      - name: Run tests
-        run: pytest
-
-  controller-syntax:
-    name: controller syntax (node --check)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Check controller JavaScript
-        run: node --check src/openwig/controller/openwig_bridge.control.js
+          python-version: "3.12"
+      - name: Byte-compile the repo's Python scripts
+        run: git ls-files -z '*.py' | xargs -0 python -m py_compile
+      - name: Validate mod.json and build.json
+        run: python .github/check_manifests.py
+      # from pypi-moved/: at the root, python -m build would import the repo's build.py
+      - name: Build the moved-package stub
+        working-directory: pypi-moved
+        run: |
+          pip install build
+          python -m build

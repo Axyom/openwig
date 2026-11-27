@@ -1,0 +1,4 @@
+ecj-3.44.0.jar: the Eclipse Compiler for Java (org.eclipse.jdt:ecj 3.44.0 from Maven Central,
+SHA-1 a4e1c9f58954801783e1b49d2f281000f814a779), under the Eclipse Public License 2.0
+(https://www.eclipse.org/legal/epl-2.0/). It is shipped unmodified; see ecj-about.html.
+The agent uses it to compile mods, because Bitwig's Java has no compiler.

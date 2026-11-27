@@ -1,68 +1,53 @@
 # openwig
 
-**Algorithmic composition for Bitwig Studio. Write Python, get songs.**
+**Control Bitwig Studio from an AI agent, through MCP, or from a panel inside Bitwig.**
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Bitwig 6.0.6](https://img.shields.io/badge/Bitwig-6.0.6-orange.svg)](#compatibility)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg)](#install)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/Axyom/openwig/blob/master/LICENSE)
 
-Goes where Bitwig's official Controller API can't: build arrangements, devices,
-automation, and full multi-track songs from a Python program, then
-render to `.wav`.
+openwig is two mods for the Patchbay mod loader:
 
-Free and open source (GPL-3.0). Windows only. Early alpha.
+- **openwig** (`mods/openwig`): starts a local JSON-RPC bridge (`127.0.0.1:7778`) and an
+  MCP server (`http://127.0.0.1:7779/mcp`) inside Bitwig. An agent can read and edit the
+  open project: tracks, devices, plugins, modulators, Grid, clips, notes, automation,
+  routing, transport, export and render. Each edit is one undo step.
+- **openwig-agent** (`mods/openwig-agent`): an Agent panel inside Bitwig. You type a
+  request, your own Claude Code does it through openwig, and every edit waits for your
+  Allow. It can also write, build and install new mods.
 
-**[Documentation →](https://axyom.github.io/openwig/)**
+Early alpha. Free and open source (GPL-3.0).
 
-![openwig demo](docs/assets/video_demo.gif)
+## Requirements
 
-```python
-from openwig import Song, Note
-
-s = Song(tempo=128, bars=4, clean=True)
-
-kick = s.track("KICK", device="v9 Kick")
-kick.clip([Note(36, beat, dur=0.25) for beat in range(16)])
-
-bass = s.track("BASS", device="FM-4")
-bass.fx("Filter")
-bass.clip([Note(33, beat+0.5, dur=0.4, vel=0.85) for beat in range(16)])
-
-duck = []
-for beat in range(16):
-    duck += [(beat, 0), (beat + 0.99, 1)]
-bass.automate("volume", duck)
-
-hats = s.track("HATS", device="v9 Hat Closed")
-hats.clip([Note(42, beat + 0.5, dur=0.2, vel=0.6) for beat in range(16)])
-
-s.master(["EQ+", "Compressor+", "Peak Limiter"])
-print(s.render("first.wav"))
-```
-
-## Compatibility
-
-| openwig | Bitwig Studio | Python | OS |
-|------------|---------------|--------|----|
-| 0.1.x      | **6.0.6**     | 3.11+  | Windows |
+- Bitwig Studio **6.1.7**, Windows x64 (the mods are built against that exact version).
+- Patchbay Mod Loader **0.36.0-dev.17** (BML). It ships the Panels framework the agent needs.
+- For the agent panel: Claude Code installed and logged in (`claude` on PATH).
 
 ## Install
 
-```bash
-pip install openwig
-python -m openwig install   # copies the controller into Bitwig's user dir
+1. Download `openwig-<version>.zip` and `openwig-agent-<version>.zip` from the
+   [releases page](https://github.com/Axyom/openwig/releases). Don't unpack them.
+2. In Patchbay, go to **Mods**, click **Add Mod...** and pick both ZIPs.
+3. Start Bitwig through Patchbay.
+
+## Use with Claude Code (or any MCP client)
+
+With Bitwig running:
+
+```
+claude mcp add -s user --transport http openwig http://127.0.0.1:7779/mcp
 ```
 
-Then in Bitwig: **Settings → Controllers → openwig → Add → OpenwigBridge** (one time), and run `python -m openwig doctor` (**required**: validates + caches the obfuscated symbols for your exact build; openwig refuses to run until it has, and you re-run it after a Bitwig update).
+Claude Desktop: Settings, Connectors, add a custom connector with that URL.
 
-Full guide (requirements, troubleshooting, uninstall): **[Install docs →](https://axyom.github.io/openwig/install/)**
+## Build from source
 
-## Contributing
+Needs JDK 25, Patchbay's mod kit, and a compile jar made from your own Bitwig 6.1.7 install
+(never committed or shared). `python build.py --release` writes
+`scratch/release/openwig-<version>.zip` and `scratch/release/openwig-agent-<version>.zip`.
+Each mod's README has the details.
 
-Issues and PRs welcome. Currently Windows + Bitwig 6, tested on Bitwig 6.0.6 only.
+## The old Python SDK
 
-Found a bug or have a question? Open an [issue](https://github.com/Axyom/openwig/issues) for bugs, or start a thread in [Discussions](https://github.com/Axyom/openwig/discussions) for questions, ideas, and feedback.
-
-## License
-
-GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+openwig used to be a Python library for composing Bitwig songs. It ended at PyPI
+`openwig==0.1.3`; its last source state is the git tag
+[`python-sdk-final`](https://github.com/Axyom/openwig/tree/python-sdk-final).
